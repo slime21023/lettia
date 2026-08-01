@@ -138,9 +138,12 @@ class Router:
         # 3. Try wildcard match (*path)
         if node.wildcard_child is not None:
             new_params = params.copy()
-            wildcard_name = node.wildcard_child.wildcard_names.get(
-                method, node.wildcard_child.param_name
-            ) or "wildcard"
+            wildcard_name = (
+                node.wildcard_child.wildcard_names.get(
+                    method, node.wildcard_child.param_name
+                )
+                or "wildcard"
+            )
             new_params[wildcard_name] = "/".join(segments[index:])
             if method in node.wildcard_child.routes:
                 return node.wildcard_child.routes[method], new_params
