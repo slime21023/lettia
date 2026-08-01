@@ -1,0 +1,81 @@
+site_name = "Lettia Documentation"
+site_description = "Lightweight, high-performance Python ASGI core library"
+site_url = "http://127.0.0.1:8000"
+# Emit explicit .html links for static hosts without directory-index rewrites.
+use_directory_urls = false
+
+nav = [
+    { "Overview" = "index.md" },
+    { "Getting Started" = [
+        { "Build Your First App" = "getting_started.md" }
+    ] },
+    { "Core Architecture" = [
+        { "System Specs" = "architecture.md" },
+        { "Request Pipeline" = [
+            { "Routing Engine" = "routing.md" },
+            { "Context & Binding" = "context_and_binding.md" }
+        ] }
+    ] },
+    { "Application Features" = [
+        { "Middleware Chain" = "middleware.md" },
+        { "WebSocket Protocol" = "websocket.md" },
+        { "Static Files" = "static_files.md" }
+    ] },
+    { "Reference & Testing" = [
+        { "Testing Guide" = "testing.md" },
+        { "API Reference" = [
+            { "Overview" = "api_reference.md" },
+            { "App" = "api/app.md" },
+            { "Routing" = "api/routing.md" },
+            { "Context" = "api/context.md" },
+            { "Responses" = "api/response.md" },
+            { "Middleware" = "api/middleware.md" },
+            { "WebSocket" = "api/websocket.md" },
+            { "Protocols & Extensions" = "api/extensions.md" },
+            { "Testing" = "api/testing.md" }
+        ] }
+    ] }
+]
+
+[site]
+name = "Lettia Documentation"
+title = "Lettia Documentation"
+version = "1.0.0"
+
+[theme]
+name = "zensical"
+features = [
+    "navigation.sections",
+    "navigation.expand",
+    "navigation.top",
+    "search.suggest",
+    "search.highlight",
+    "content.code.copy"
+]
+
+markdown_extensions = [
+    "admonition",
+    "tables",
+    "attr_list",
+    "pymdownx.details",
+    "pymdownx.superfences",
+    "pymdownx.highlight",
+    "pymdownx.inlinehilite",
+    "pymdownx.arithmatex",
+    "toc"
+]
+
+[markdown_extensions_config.pymdownx_superfences]
+custom_fences = [
+    { name = "mermaid", class = "mermaid", format = "pymdownx.superfences.fence_code_format" }
+]
+
+[markdown_extensions_config.pymdownx_highlight]
+anchor_linenums = true
+
+[markdown_extensions_config.pymdownx_arithmatex]
+generic = true
+
+[markdown_extensions_config.toc]
+toc_depth = 2
+permalink = true

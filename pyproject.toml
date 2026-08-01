@@ -1,0 +1,84 @@
+[project]
+name = "lettia"
+version = "1.0.0"
+description = "Lettia — Lightweight High-Performance Python ASGI Core Library"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [
+    { name = "KevinChueh", email = "slime21023@gmail.com" }
+]
+keywords = ["asgi", "web", "web-framework", "asyncio", "routing"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+]
+requires-python = ">=3.12"
+dependencies = [
+    "attrs>=26.1.0",
+]
+
+[project.optional-dependencies]
+pydantic = ["pydantic>=2.0.0"]
+msgspec = ["msgspec>=0.18.0"]
+testing = ["httpx>=0.28.1"]
+all = ["pydantic>=2.0.0", "msgspec>=0.18.0", "httpx>=0.28.1"]
+
+[build-system]
+requires = ["uv_build>=0.9.13,<0.10.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pyright>=1.1.411",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.0",
+    "uvicorn>=0.52.0",
+    "zensical>=0.0.43",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # Pyflakes
+    "I",     # isort
+    "B",     # flake8-bugbear
+    "C4",    # flake8-comprehensions
+    "UP",    # pyupgrade
+    "ASYNC", # flake8-async
+]
+ignore = [
+    "ASYNC230", # Allow blocking open in static file streams
+    "ASYNC240", # Allow os.path in static file handlers
+]
+
+[tool.pyright]
+include = ["src", "tests"]
+pythonVersion = "3.12"
+typeCheckingMode = "standard"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = [
+    "--cov=lettia",
+    "--cov-report=term-missing",
+    "--cov-fail-under=80",
+]

@@ -1,0 +1,72 @@
+---
+title: Lettia Documentation
+---
+
+# Lettia documentation
+
+Lettia is an explicit ASGI core for Python 3.12+. This documentation is
+organized around the way an application is built: start with a working app,
+learn the request model, then add routing, middleware, integrations, and
+tests.
+
+## Start with the system model
+
+Before reading individual APIs, understand the four layers that make up an
+application:
+
+| Layer | Components | Question it answers |
+|---|---|---|
+| ASGI runtime | `App`, `Context`, `Router`, `ResponseWriter` | How does a scope become a response? |
+| Composition | `Route`, `Group`, middleware | How are application behaviors assembled? |
+| Extensions | binders, validators, renderers, `StaticFiles` | How are integrations added without changing the core? |
+| Verification | `TestClient`, pytest, benchmarks | How are contracts and performance checked? |
+
+The [Architecture](architecture.md) page explains the boundaries and request
+lifecycle. The [API reference overview](api_reference.md) then routes advanced
+readers to a component-specific reference page.
+
+## Choose your path
+
+| If you are… | Start with |
+|---|---|
+| New to Lettia | [Getting started](getting_started.md) |
+| Familiar with ASGI | [Architecture](architecture.md) |
+| Building an HTTP API | [Routing](routing.md), then [Context and binding](context_and_binding.md) |
+| Adding authentication, CORS, or limits | [Middleware](middleware.md) |
+| Building a real-time endpoint | [WebSockets](websocket.md) |
+| Serving local assets | [Static files](static_files.md) |
+| Maintaining a test suite | [Testing](testing.md) |
+| Looking for a signature | [API reference](api_reference.md) |
+
+## The core mental model
+
+An incoming ASGI request moves through five stages:
+
+1. `App` receives an ASGI scope, `receive`, and `send` callable.
+
+2. Pre-routing middleware can inspect or normalize the `Context` before the
+   router runs.
+
+3. The router selects a handler and populates `ctx.path_params`.
+
+4. Global and route middleware wrap the handler; the handler returns a value
+   that is normalized into a `Response`.
+
+5. `ResponseWriter` emits ASGI response messages, then queued post-response
+   tasks are executed.
+
+See [Architecture](architecture.md) for the complete HTTP, WebSocket, and
+lifespan flow.
+
+## What belongs in the core
+
+- `App`: ASGI entrypoint, routes, middleware, lifespan hooks, and errors.
+- `Router`: static, parameterized, wildcard, named, and method-aware routes.
+- `Context`: lazy request data, state, binding, aborts, and post-response tasks.
+- `Response`: text, JSON, bytes, streams, headers, and cookies.
+- `WebSocketContext`: explicit accept, receive, send, and close transitions.
+
+Extensions such as binders, validators, renderers, static files, and
+`TestClient` remain small and composable. Start with
+[Getting started](getting_started.md), then use the topic guides as your
+application grows.
