@@ -1,12 +1,9 @@
-from collections.abc import Callable
-from typing import Any
-
 from attrs import define
 
 
 @define(slots=True, frozen=True)
-class Route:
+class Route[HandlerT]:
     method: str
     path: str
-    handler: Callable[..., Any]
+    handler: HandlerT
     name: str | None = None

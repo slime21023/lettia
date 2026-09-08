@@ -1,8 +1,8 @@
-from typing import Any
-
 import pytest
+from asgi_helpers import websocket_receive, websocket_scope, websocket_sender
 
 from lettia import App, WebSocketContext
+from lettia.asgi import WebSocketAcceptEvent, WebSocketCloseEvent, WebSocketSendEvent
 
 
 @pytest.mark.asyncio
@@ -10,61 +10,46 @@ async def test_websocket_lifecycle() -> None:
     app = App()
     received_messages: list[str] = []
 
-    @app.websocket("/ws")
     async def chat(ws: WebSocketContext) -> None:
         await ws.accept()
-        msg = await ws.receive_text()
-        received_messages.append(msg)
-        await ws.send_text(f"Echo: {msg}")
+        message = await ws.receive_text()
+        received_messages.append(message)
+        await ws.send_text(f"Echo: {message}")
         await ws.close(1000)
 
-    # Simulate ASGI websocket scope communication
-    client_sent: list[dict[str, Any]] = []
-
-    async def send(message: dict[str, Any]) -> None:
-        client_sent.append(message)
-
-    server_messages: list[dict[str, Any]] = [
-        {"type": "websocket.receive", "text": "Hello WebSocket"}
-    ]
-
-    async def receive() -> dict[str, Any]:
-        if server_messages:
-            return server_messages.pop(0)
-        return {"type": "websocket.disconnect"}
-
-    scope = {
-        "type": "websocket",
-        "path": "/ws",
-        "headers": [(b"host", b"localhost")],
-    }
-
-    await app(scope, receive, send)
+    app.websocket("/ws")(chat)
+    client_sent: list[
+        WebSocketAcceptEvent | WebSocketSendEvent | WebSocketCloseEvent
+    ] = []
+    await app(
+        websocket_scope(path="/ws", headers=[(b"host", b"localhost")]),
+        websocket_receive(
+            [
+                {"type": "websocket.receive", "text": "Hello WebSocket"},
+            ]
+        ),
+        websocket_sender(client_sent),
+    )
 
     assert received_messages == ["Hello WebSocket"]
     assert client_sent[0]["type"] == "websocket.accept"
+    assert client_sent[1]["type"] == "websocket.send"
     assert client_sent[1]["text"] == "Echo: Hello WebSocket"
     assert client_sent[2]["type"] == "websocket.close"
 
 
 @pytest.mark.asyncio
 async def test_websocket_binary_json_and_headers() -> None:
-    sent: list[dict[str, Any]] = []
-    received = [
-        {"type": "websocket.receive", "bytes": b"binary"},
-        {"type": "websocket.receive", "text": '{"ok": true}'},
-    ]
-
-    async def send(message: dict[str, Any]) -> None:
-        sent.append(message)
-
-    async def receive() -> dict[str, Any]:
-        return received.pop(0)
-
+    sent: list[WebSocketAcceptEvent | WebSocketSendEvent | WebSocketCloseEvent] = []
     ws = WebSocketContext(
-        scope={"type": "websocket", "path": "/ws", "headers": [(b"x-test", b"ok")]},
-        receive=receive,
-        send=send,
+        scope=websocket_scope(path="/ws", headers=[(b"x-test", b"ok")]),
+        receive=websocket_receive(
+            [
+                {"type": "websocket.receive", "bytes": b"binary"},
+                {"type": "websocket.receive", "text": '{"ok": true}'},
+            ]
+        ),
+        send=websocket_sender(sent),
     )
 
     await ws.accept(subprotocol="json")
@@ -85,16 +70,11 @@ async def test_websocket_binary_json_and_headers() -> None:
 
 @pytest.mark.asyncio
 async def test_websocket_rejects_invalid_state_transitions() -> None:
-    async def send(message: dict[str, Any]) -> None:
-        return None
-
-    async def receive() -> dict[str, Any]:
-        return {"type": "websocket.receive", "text": "ok"}
-
+    sent: list[WebSocketAcceptEvent | WebSocketSendEvent | WebSocketCloseEvent] = []
     ws = WebSocketContext(
-        scope={"type": "websocket", "path": "/ws"},
-        receive=receive,
-        send=send,
+        scope=websocket_scope(path="/ws"),
+        receive=websocket_receive([{"type": "websocket.receive", "text": "ok"}]),
+        send=websocket_sender(sent),
     )
 
     with pytest.raises(RuntimeError, match="not connected"):
@@ -105,3 +85,54 @@ async def test_websocket_rejects_invalid_state_transitions() -> None:
 
     with pytest.raises(RuntimeError, match="not connected"):
         await ws.send_text("after close")
+
+
+@pytest.mark.asyncio
+async def test_websocket_handles_missing_and_failing_handlers() -> None:
+    missing_app = App()
+    missing_messages: list[
+        WebSocketAcceptEvent | WebSocketSendEvent | WebSocketCloseEvent
+    ] = []
+    await missing_app(
+        websocket_scope(path="/missing"),
+        websocket_receive([]),
+        websocket_sender(missing_messages),
+    )
+    assert missing_messages == [{"type": "websocket.close", "code": 404}]
+
+    failing_app = App()
+
+    async def failing_handler(ws: WebSocketContext) -> None:
+        await ws.accept()
+        raise RuntimeError("boom")
+
+    failing_app.websocket("/failing")(failing_handler)
+    failed_messages: list[
+        WebSocketAcceptEvent | WebSocketSendEvent | WebSocketCloseEvent
+    ] = []
+    await failing_app(
+        websocket_scope(path="/failing"),
+        websocket_receive([]),
+        websocket_sender(failed_messages),
+    )
+    assert failed_messages[-1] == {
+        "type": "websocket.close",
+        "code": 1011,
+        "reason": "Internal Error",
+    }
+
+
+@pytest.mark.asyncio
+async def test_websocket_converts_text_and_rejects_duplicate_accept() -> None:
+    sent: list[WebSocketAcceptEvent | WebSocketSendEvent | WebSocketCloseEvent] = []
+    ws = WebSocketContext(
+        scope=websocket_scope(),
+        receive=websocket_receive([{"type": "websocket.receive", "text": "hello"}]),
+        send=websocket_sender(sent),
+    )
+    await ws.accept()
+    assert await ws.receive_bytes() == b"hello"
+    with pytest.raises(RuntimeError, match="already connected"):
+        await ws.accept()
+    await ws.close(reason="done")
+    await ws.close()

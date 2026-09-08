@@ -1,14 +1,24 @@
+import asyncio
 import json
-from collections.abc import AsyncIterable
-from typing import Any
+import logging
+from collections.abc import AsyncIterable, Mapping
 
 from attrs import define, field
+
+from lettia.asgi import HTTPSend, JSONDocument, JSONValue
+from lettia.context import validate_json_value
+
+logger: logging.Logger = logging.getLogger("lettia.response")
+
+
+class ResponseTimeout(Exception):
+    """Raised when a response deadline expires before its headers are sent."""
 
 
 @define(slots=True)
 class Response:
     status_code: int = 200
-    headers: dict[str, str] = field(factory=dict)
+    headers: dict[str, str] = field(factory=dict[str, str])
     body: bytes = b""
     media_type: str = "text/plain; charset=utf-8"
     async_body: AsyncIterable[bytes] | None = None
@@ -89,7 +99,7 @@ class TextResponse(Response):
 class JsonResponse(Response):
     def __init__(
         self,
-        data: Any,
+        data: JSONValue,
         status_code: int = 200,
         headers: dict[str, str] | None = None,
         media_type: str = "application/json",
@@ -125,35 +135,27 @@ class StreamResponse(Response):
 
 @define(slots=True)
 class ResponseWriter:
-    send: Any
+    send: HTTPSend
     head_only: bool = False
     committed: bool = field(default=False, init=False)
 
-    async def write(self, response: Response) -> None:
+    async def write(self, response: Response, deadline: float | None = None) -> None:
         if self.committed:
             return
 
-        raw_headers: list[tuple[bytes, bytes]] = []
-        has_content_type = False
-
-        for k, v in response.headers.items():
-            k_bytes = k.lower().encode("latin-1")
-            if k_bytes == b"content-type":
-                has_content_type = True
-            # Handle multiple set-cookie lines separated by \n
-            if k_bytes == b"set-cookie":
-                for cookie_line in v.split("\n"):
-                    raw_headers.append((b"set-cookie", cookie_line.encode("latin-1")))
+        try:
+            if deadline is None:
+                await self._write(response)
             else:
-                raw_headers.append((k_bytes, v.encode("latin-1")))
+                async with asyncio.timeout_at(deadline):
+                    await self._write(response)
+        except TimeoutError as exc:
+            if not self.committed:
+                raise ResponseTimeout from exc
+            await self._finish_timed_out_stream(response)
 
-        if not has_content_type and response.media_type:
-            raw_headers.append((b"content-type", response.media_type.encode("latin-1")))
-
-        if response.async_body is None:
-            raw_headers.append(
-                (b"content-length", str(len(response.body)).encode("latin-1"))
-            )
+    async def _write(self, response: Response) -> None:
+        raw_headers = self._build_headers(response)
 
         await self.send(
             {
@@ -173,21 +175,7 @@ class ResponseWriter:
                 }
             )
         elif response.async_body is not None:
-            async for chunk in response.async_body:
-                await self.send(
-                    {
-                        "type": "http.response.body",
-                        "body": chunk,
-                        "more_body": True,
-                    }
-                )
-            await self.send(
-                {
-                    "type": "http.response.body",
-                    "body": b"",
-                    "more_body": False,
-                }
-            )
+            await self._write_stream(response.async_body)
         else:
             await self.send(
                 {
@@ -197,25 +185,121 @@ class ResponseWriter:
                 }
             )
 
+    def _build_headers(self, response: Response) -> list[tuple[bytes, bytes]]:
+        raw_headers: list[tuple[bytes, bytes]] = []
+        has_content_type = False
+        content_length: str | None = None
 
-def normalize_response(result: Any) -> Response:
+        for k, v in response.headers.items():
+            self._validate_header_component(k, "name")
+            k_bytes = k.lower().encode("latin-1")
+            if k_bytes == b"content-type":
+                has_content_type = True
+            if k_bytes == b"content-length":
+                if content_length is not None:
+                    raise ValueError(
+                        "Response cannot contain multiple Content-Length headers"
+                    )
+                content_length = v
+
+            if k_bytes == b"set-cookie":
+                for cookie_line in v.split("\n"):
+                    self._validate_header_component(cookie_line, "value")
+                    raw_headers.append((b"set-cookie", cookie_line.encode("latin-1")))
+            else:
+                self._validate_header_component(v, "value")
+                raw_headers.append((k_bytes, v.encode("latin-1")))
+
+        if not has_content_type and response.media_type:
+            self._validate_header_component(response.media_type, "value")
+            raw_headers.append((b"content-type", response.media_type.encode("latin-1")))
+
+        if response.async_body is None:
+            expected_length = str(len(response.body))
+            if content_length is not None and content_length != expected_length:
+                raise ValueError("Content-Length does not match the response body")
+            if content_length is None:
+                raw_headers.append(
+                    (b"content-length", expected_length.encode("latin-1"))
+                )
+
+        return raw_headers
+
+    @staticmethod
+    def _validate_header_component(value: str, component: str) -> None:
+        if "\r" in value or "\n" in value:
+            raise ValueError(f"HTTP header {component}s cannot contain newlines")
+        try:
+            value.encode("latin-1")
+        except UnicodeEncodeError as exc:
+            raise ValueError(
+                f"HTTP header {component}s must be Latin-1 encodable"
+            ) from exc
+
+    async def _finish_timed_out_stream(self, response: Response) -> None:
+        if response.async_body is not None:
+            await _close_async_iterable(response.async_body)
+        logger.warning("Response deadline expired after headers were sent")
+        await self._send_stream_end()
+
+    async def _write_stream(self, stream: AsyncIterable[bytes]) -> None:
+        try:
+            async for chunk in stream:
+                await self.send(
+                    {
+                        "type": "http.response.body",
+                        "body": chunk,
+                        "more_body": True,
+                    }
+                )
+        except Exception:
+            await _close_async_iterable(stream)
+            await self._send_stream_end()
+            raise
+        await self._send_stream_end()
+
+    async def _send_stream_end(self) -> None:
+        await self.send(
+            {
+                "type": "http.response.body",
+                "body": b"",
+                "more_body": False,
+            }
+        )
+
+
+async def _close_async_iterable(stream: AsyncIterable[bytes]) -> None:
+    aclose = getattr(stream, "aclose", None)
+    if aclose is not None:
+        await aclose()
+
+
+type ResponseBody = Response | str | bytes | JSONDocument
+type ResponseValue = (
+    ResponseBody
+    | tuple[ResponseBody, int]
+    | tuple[ResponseBody, int, Mapping[str, str]]
+)
+
+
+def normalize_response(result: ResponseValue) -> Response:
     if isinstance(result, Response):
         return result
     if isinstance(result, str):
         return TextResponse(result)
     if isinstance(result, bytes):
         return Response(body=result, media_type="application/octet-stream")
-    if isinstance(result, (dict, list)):
-        return JsonResponse(result)
-    if isinstance(result, tuple) and len(result) >= 2:
+    if isinstance(result, Mapping):
+        return JsonResponse(validate_json_value(dict(result)))
+    if isinstance(result, list):
+        return JsonResponse(validate_json_value(result))
+    if len(result) in (2, 3):
         body_part, status_part = result[0], result[1]
-        headers_part = (
-            result[2] if len(result) >= 3 and isinstance(result[2], dict) else {}
-        )
+        headers_part: Mapping[str, str] = result[2] if len(result) == 3 else {}
         resp = normalize_response(body_part)
-        resp.status_code = int(status_part)
+        resp.status_code = status_part
         for k, v in headers_part.items():
             resp.set_header(k, v)
         return resp
 
-    return TextResponse(str(result))
+    raise TypeError(f"Unsupported response value: {type(result).__name__}")

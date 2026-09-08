@@ -16,7 +16,7 @@ implementing an adapter, or reasoning about protocol behavior.
 
 | Component | API reference | What it owns |
 |---|---|---|
-| Application | [App](api/app.md) | ASGI entrypoint, registration, lifecycle, errors, state |
+| Application | [App](api/app.md) | ASGI entrypoint, registration, lifecycle, and errors |
 | Routing | [Routing](api/routing.md) | `Route`, `Router`, `Group`, matching, reverse URLs |
 | Request context | [Context](api/context.md) | Request data, body, binding, state, aborts |
 | Responses | [Responses](api/response.md) | Response types, cookies, streams, ASGI writing |
@@ -57,8 +57,8 @@ The following conventions apply across the public API:
 - Expected HTTP failures use `HTTPException` / `abort()` and preserve status,
   detail, and headers through the application error handler.
 
-- Request and connection state are mutable dictionaries scoped to one context;
-  application-wide resources belong in `app.state`.
+- Request and connection state are typed-key stores scoped to one context;
+  application-wide resources are explicitly composed outside `App`.
 
 - The framework keeps WebSocket dispatch separate from HTTP middleware and
   response normalization.

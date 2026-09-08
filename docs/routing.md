@@ -56,7 +56,7 @@ Use decorators for the common case:
 
 ```python
 @app.post("/users")
-async def create_user(ctx: Context) -> dict[str, object]:
+async def create_user(ctx: Context):
     return {"created": await ctx.json()}
 ```
 

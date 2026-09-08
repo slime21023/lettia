@@ -1,19 +1,22 @@
 from collections.abc import Callable
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, TypeVar, override, runtime_checkable
 
 from lettia.errors import HTTPException, abort
 
+T = TypeVar("T", contravariant=True)
+
 
 @runtime_checkable
-class Validator(Protocol):
-    def validate(self, obj: Any) -> None: ...
+class Validator(Protocol[T]):
+    def validate(self, obj: T) -> None: ...
 
 
-class CallableValidator:
-    def __init__(self, func: Callable[[Any], bool | None]) -> None:
-        self.func = func
+class CallableValidator(Validator[T]):
+    def __init__(self, func: Callable[[T], bool | None]) -> None:
+        self.func: Callable[[T], bool | None] = func
 
-    def validate(self, obj: Any) -> None:
+    @override
+    def validate(self, obj: T) -> None:
         try:
             result = self.func(obj)
             if result is False:

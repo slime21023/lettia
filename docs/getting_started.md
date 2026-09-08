@@ -58,7 +58,7 @@ reported as HTTP 400 by the framework.
 
 ```python
 @app.post("/echo")
-async def echo(ctx: Context) -> dict[str, object]:
+async def echo(ctx: Context):
     return {"received": await ctx.json()}
 ```
 
@@ -104,7 +104,7 @@ class CreateUser:
 
 
 @app.post("/users")
-async def create_user(ctx: Context) -> dict[str, object]:
+async def create_user(ctx: Context):
     user = await ctx.bind(CreateUser)
     return {"name": user.name, "age": user.age}
 ```
@@ -143,5 +143,6 @@ coverage.
 - Learn the route syntax and precedence in [Routing](routing.md).
 - Understand the request lifecycle in [Architecture](architecture.md).
 - Add production middleware with [Middleware](middleware.md).
+- Configure the ASGI server and operational boundaries with [Deployment](deployment.md).
 - Add a WebSocket endpoint with [WebSockets](websocket.md).
 - Look up exact signatures in the [API reference](api_reference.md).

@@ -4,8 +4,8 @@
 
 - Confirm the version in `pyproject.toml` and `CHANGELOG.md` match.
 - Confirm the MIT `LICENSE` file and corresponding `license` metadata are present.
-- Add verified repository, documentation, and issue URLs to `pyproject.toml`.
-- Review the public API and migration notes for the release.
+- Verify configured project URLs, if any, point to the intended public release.
+- Review the public API, examples, and documentation for the release.
 - Run `uv lock --check` and `uv sync --locked --all-extras`.
 
 ## Validation
@@ -14,6 +14,7 @@
 uv run pytest
 uv run ruff check .
 uv run pyright
+uv run pyrefly check
 uv run zensical build --strict
 uv build
 uvx --from twine twine check dist/*
@@ -30,4 +31,4 @@ environment before publishing.
 3. Publish to PyPI only after the TestPyPI smoke test passes.
 4. Create release notes from `CHANGELOG.md` and verify documentation links.
 
-Never publish with placeholder license or project URLs.
+Never publish with placeholder license metadata or project URLs.

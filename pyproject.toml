@@ -1,6 +1,6 @@
 [project]
 name = "lettia"
-version = "1.0.0"
+version = "1.0.1"
 description = "Lettia — Lightweight High-Performance Python ASGI Core Library"
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -36,6 +36,9 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
+    "hypothesis>=6.0.0",
+    "pydantic>=2.0.0",
+    "pyrefly>=1.0.0",
     "pyright>=1.1.411",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
@@ -59,26 +62,38 @@ select = [
     "C4",    # flake8-comprehensions
     "UP",    # pyupgrade
     "ASYNC", # flake8-async
-]
-ignore = [
-    "ASYNC230", # Allow blocking open in static file streams
-    "ASYNC240", # Allow os.path in static file handlers
+    "S",     # flake8-bandit
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S106"]
+"benchmarks/**/*.py" = ["S105"]
+
 [tool.pyright]
-include = ["src", "tests"]
+include = ["src"]
 pythonVersion = "3.12"
-typeCheckingMode = "standard"
+typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
+
+[tool.pyrefly]
+project-includes = ["src", "tests", "examples"]
+project-excludes = [".venv", "build", "dist"]
+search-path = ["src", "tests"]
+python-version = "3.12"
+preset = "strict"
+
+[tool.pyrefly.coverage]
+includes = ["src"]
 
 [tool.pytest.ini_options]
 minversion = "8.0"
 asyncio_mode = "auto"
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "tests"]
 addopts = [
     "--cov=lettia",
+    "--cov-branch",
     "--cov-report=term-missing",
-    "--cov-fail-under=80",
+    "--cov-fail-under=90",
 ]

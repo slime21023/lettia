@@ -1,23 +1,21 @@
-from typing import Any
-
-from lettia.app import App
-from lettia.context import Context
+from lettia import App, Context
 from lettia.middleware import Handler
+from lettia.response import Response, TextResponse, normalize_response
+from lettia.testing import TestClient
 
 
 def test_group_nesting_and_prefix() -> None:
     app = App()
-    api = app.group("/api/v1")
-    users = api.group("/users")
+    users = app.group("/api/v1").group("/users")
 
-    @users.get("/:id", name="user_detail")
     def get_user(ctx: Context) -> str:
         return "user_42"
 
+    users.get("/:id", name="user_detail")(get_user)
     assert users.prefix == "/api/v1/users"
-    match_res = app.router.match("GET", "/api/v1/users/42")
-    assert match_res is not None
-    route, params = match_res
+    match_result = app.router.match("GET", "/api/v1/users/42")
+    assert match_result is not None
+    route, params = match_result
     assert route.name == "user_detail"
     assert params == {"id": "42"}
 
@@ -26,33 +24,48 @@ def test_group_middleware_inheritance() -> None:
     events: list[str] = []
 
     def mw_api(next_handler: Handler) -> Handler:
-        async def handler(ctx: Context) -> Any:
+        async def handler(ctx: Context) -> Response:
             events.append("api_mw")
-            return await next_handler(ctx)
+            return TextResponse(
+                normalize_response(await next_handler(ctx)).body.decode()
+            )
 
         return handler
 
     def mw_users(next_handler: Handler) -> Handler:
-        async def handler(ctx: Context) -> Any:
+        async def handler(ctx: Context) -> Response:
             events.append("users_mw")
-            return await next_handler(ctx)
+            return TextResponse(
+                normalize_response(await next_handler(ctx)).body.decode()
+            )
 
         return handler
 
     app = App()
-    api = app.group("/api", mw_api)
-    users = api.group("/users", mw_users)
+    users = app.group("/api", mw_api).group("/users", mw_users)
 
-    @users.get("/profile")
     def profile(ctx: Context) -> str:
         events.append("handler")
         return "profile"
 
-    # Pre-compile chains
-    app._compile_chains()
+    users.get("/profile")(profile)
+    response = TestClient(app).get("/api/users/profile")
+    assert response.text == "profile"
+    assert events == ["api_mw", "users_mw", "handler"]
 
-    # Route middleware list check
-    mw_list = app._route_middlewares[("GET", "/api/users/profile")]
-    assert len(mw_list) == 2
-    assert mw_list[0] == mw_api
-    assert mw_list[1] == mw_users
+
+def test_group_normalizes_paths_and_registers_all_methods() -> None:
+    app = App()
+    group = app.group("api/")
+
+    def handler(ctx: Context) -> str:
+        return ctx.path
+
+    group.get("items", name="get_items")(handler)
+    group.post("items")(handler)
+    group.put("items")(handler)
+    group.delete("items")(handler)
+    group.patch("items")(handler)
+    assert group.prefix == "/api"
+    for method in ("GET", "POST", "PUT", "DELETE", "PATCH"):
+        assert app.router.match(method, "/api/items") is not None

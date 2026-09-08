@@ -7,6 +7,27 @@ All notable changes to Lettia are documented here.
 - Continue improving the ASGI core, component-oriented documentation, and
   release automation.
 
+## [1.0.1] - 2026-09-08
+
+### Changed
+
+- Made `Router` and `Route` generic so higher-level frameworks retain their
+  handler type through route matching.
+- Made `App` slots-based; application objects no longer accept dynamic
+  attributes.
+- Removed `Any` from framework source and consolidated dynamic binding and
+  HTTPX adaptation at documented typed boundaries.
+- Published handler contracts and migrated tests, examples, and API reference
+  signatures to the same typed ASGI boundary.
+- Added typed ASGI HTTP, WebSocket, lifespan, and JSON contracts under
+  `lettia.asgi`.
+- Added strict Pyrefly project configuration and public API coverage policy.
+
+### Fixed
+
+- Terminate streamed HTTP responses when an iterator fails after headers have
+  been sent.
+
 ## [1.0.0] - 2026-08-01
 
 ### Added
@@ -23,6 +44,6 @@ All notable changes to Lettia are documented here.
 
 ### Quality
 
-- 54 tests passing with an 80% coverage gate.
+- 54 tests passing with an 80% coverage gate at the time of the 1.0.0 release.
 - Ruff, Pyright, compileall, package builds, Twine checks, and strict docs
   builds are part of the release validation workflow.

@@ -29,4 +29,4 @@ def test_smart_bind_and_background_task() -> None:
 
     assert response.status_code == 201
     assert response.json() == {"name": "Charlie", "age": 20}
-    assert background_ran is True
+    assert background_ran

@@ -10,9 +10,7 @@ handler with the same shape:
 ```python
 import logging
 from time import perf_counter
-from typing import Any
-
-from lettia import Context
+from lettia import Context, Response
 from lettia.middleware import Handler, Middleware
 
 logger = logging.getLogger(__name__)
@@ -20,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 def timing() -> Middleware:
     def middleware(next_handler: Handler) -> Handler:
-        async def handler(ctx: Context) -> Any:
+        async def handler(ctx: Context) -> Response:
             started = perf_counter()
             result = await next_handler(ctx)
             duration = perf_counter() - started
@@ -56,7 +54,7 @@ Use pre-routing middleware for path normalization or early rejection:
 
 ```python
 def normalize_slash(next_handler: Handler) -> Handler:
-    async def handler(ctx: Context) -> Any:
+    async def handler(ctx: Context) -> Response:
         if ctx.path != "/" and ctx.path.endswith("/"):
             ctx.path = ctx.path.rstrip("/")
         return await next_handler(ctx)
@@ -75,7 +73,7 @@ app.use_pre(normalize_slash)
 | `request_logger()` | Log method, path, status, and duration | `log_func` |
 | `cors()` | CORS headers and OPTIONS preflight | origins, methods, headers, credentials |
 | `request_id()` | Propagate or generate `X-Request-ID` | header name, generator |
-| `timeout()` | Return HTTP 504 after a deadline | seconds |
+| `timeout()` | Enforce a handler and response-stream deadline | seconds |
 | `body_limit()` | Enforce request body size | max bytes |
 | `rate_limit()` | In-memory sliding-window limit | requests/minute, key function |
 | `session()` | Signed JSON cookie session | secret, cookie name, max age |
@@ -87,9 +85,9 @@ from lettia.middleware import body_limit, cors, recover, request_id, request_log
 
 app.use(
     recover(),
+    request_id(),
     request_logger(),
     cors(allow_origins=["https://frontend.example"]),
-    request_id(),
     body_limit(max_bytes=1024 * 1024),
 )
 ```
@@ -114,15 +112,26 @@ app.use(
 ```
 
 Only enable credentials with explicit origins; do not combine credentials with
-a wildcard origin.
+a wildcard origin. The default origin policy is `"*"` for local or explicitly
+public APIs; production browser APIs should always supply their allowed origins.
 
 ### Rate limiting and proxy headers
 
 The default key is the client address. `X-Forwarded-For` is only trustworthy
 when requests come through a configured, trusted proxy. Otherwise clients can
-spoof the value and bypass limits.
+spoof the value and bypass limits. The limiter is process-local, so use a
+gateway, a shared limiter, or a custom `key_func` and external middleware when
+the application runs in more than one process.
 
 ### Sessions
 
 Session cookies are signed for integrity but not encrypted. Store identifiers
-or non-sensitive preferences, never passwords or secrets.
+or non-sensitive preferences, never passwords or secrets. In HTTPS deployments
+pass `https_only=True`; use an explicit CORS policy and separate CSRF/session
+policy appropriate to the application.
+
+## WebSocket boundary
+
+HTTP middleware is not applied to WebSocket scopes. Authenticate and authorize
+the handshake, enforce origin policy, and set connection or message limits in
+the WebSocket handler or in server-level middleware.

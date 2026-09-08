@@ -4,7 +4,7 @@ title: Lettia Documentation
 
 # Lettia documentation
 
-Lettia is an explicit ASGI core for Python 3.12+. This documentation is
+Lettia is an explicit, type-first ASGI core for Python 3.12+. This documentation is
 organized around the way an application is built: start with a working app,
 learn the request model, then add routing, middleware, integrations, and
 tests.
@@ -33,6 +33,7 @@ readers to a component-specific reference page.
 | Familiar with ASGI | [Architecture](architecture.md) |
 | Building an HTTP API | [Routing](routing.md), then [Context and binding](context_and_binding.md) |
 | Adding authentication, CORS, or limits | [Middleware](middleware.md) |
+| Deploying an application | [Deployment](deployment.md) |
 | Building a real-time endpoint | [WebSockets](websocket.md) |
 | Serving local assets | [Static files](static_files.md) |
 | Maintaining a test suite | [Testing](testing.md) |
@@ -70,3 +71,12 @@ Extensions such as binders, validators, renderers, static files, and
 `TestClient` remain small and composable. Start with
 [Getting started](getting_started.md), then use the topic guides as your
 application grows.
+
+## Operating model
+
+Lettia owns typed ASGI dispatch, HTTP request state, response emission, and
+WebSocket state transitions. Your composition root owns application services;
+your ASGI server and platform own TLS, proxy trust, worker lifecycle, and
+distributed infrastructure. This separation is intentional: `App` has no
+global mutable state container, and `Context.state` / `WebSocketContext.state`
+are scoped to one request or one connection respectively.

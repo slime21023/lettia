@@ -10,6 +10,7 @@ uv sync --all-extras
 uv run pytest
 uv run ruff check .
 uv run pyright
+uv run pyrefly check
 uv run zensical build --strict
 ```
 
@@ -22,7 +23,7 @@ in `docs/`.
 Add regression coverage for bug fixes and test observable behavior, especially
 routing, middleware order, request boundaries, response headers, static-file
 security, sessions, and WebSocket state. Keep source coverage at or above the
-80% gate. When adding a documentation page, update `zensical.toml` navigation
+90% gate. When adding a documentation page, update `zensical.toml` navigation
 and run the strict build.
 
 ## Pull requests

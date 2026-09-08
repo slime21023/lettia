@@ -1,20 +1,19 @@
 import logging
 import time
 from collections.abc import Callable
-from typing import Any
 
 from lettia.context import Context
 from lettia.middleware.base import Handler, Middleware
 from lettia.response import Response, normalize_response
 
-logger = logging.getLogger("lettia.access")
+logger: logging.Logger = logging.getLogger("lettia.access")
 
 
 def request_logger(log_func: Callable[[str], None] | None = None) -> Middleware:
     log_action = log_func if log_func is not None else logger.info
 
     def middleware(next_handler: Handler) -> Handler:
-        async def handler(ctx: Context) -> Any:
+        async def handler(ctx: Context) -> Response:
             start_time = time.perf_counter()
             response_obj: Response | None = None
 

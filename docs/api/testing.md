@@ -23,8 +23,8 @@ client.request(
     headers: dict[str, str] | None = None,
     cookies: dict[str, str] | None = None,
     content: str | bytes | None = None,
-    json: Any = None,
-    params: dict[str, Any] | None = None,
+    json: JSONValue | None = None,
+    params: Mapping[str, QueryValue] | None = None,
 ) -> httpx.Response
 
 client.get(url, *, headers=None, params=None)
@@ -57,8 +57,10 @@ async with httpx.AsyncClient(
     response = await client.post("/echo", json={"message": "hello"})
 ```
 
-This style is preferred for lifespan messages, streaming, custom `receive` /
-`send` callables, and WebSocket protocol tests.
+This style is preferred for streaming and async HTTP tests. For lifespan,
+custom `receive` / `send`, and WebSocket protocol tests, call the ASGI
+application directly with controlled ASGI callables; HTTPX's ASGI transport
+does not provide a WebSocket client.
 
 ## Testing contracts
 
@@ -79,7 +81,8 @@ The repository quality commands are:
 uv run pytest
 uv run ruff check .
 uv run pyright
+uv run pyrefly check
 ```
 
-Pytest is configured with an 80% source-coverage gate. Coverage should support
+Pytest is configured with a 90% source-coverage gate. Coverage should support
 behavioral confidence rather than become a line-count target.

@@ -4,9 +4,8 @@ title: App API
 
 # `App`
 
-`App` is Lettia's ASGI entrypoint and application composition root. It owns the
-router, middleware registrations, application state, error handler, and
-lifespan hooks.
+`App` is Lettia's ASGI entrypoint. It owns routing, middleware registrations,
+error handling, and lifespan hooks; application dependencies remain outside it.
 
 ## Construction
 
@@ -16,9 +15,9 @@ from lettia import App
 app = App()
 ```
 
-An application starts with an empty `Router` and an application-wide mutable
-`state` dictionary. Request-local values belong in `Context.state`, not in
-`App.state`.
+An application starts with an empty `Router`. Create it in an app factory and
+pass dependencies explicitly to route registration. Request-local values belong
+in `Context.state` through `StateKey[T]` values.
 
 ## Registration API
 
@@ -28,7 +27,7 @@ An application starts with an empty `Router` and an application-wide mutable
 app.add_route(
     method: str,
     path: str,
-    handler: Callable[..., Any],
+    handler: HTTPHandler,
     name: str | None = None,
     middlewares: list[Middleware] | None = None,
 ) -> None
@@ -75,7 +74,7 @@ Nested groups concatenate both prefixes and middleware lists.
 ### Reverse URL lookup
 
 ```python
-app.url_for(name: str, **kwargs: Any) -> str
+app.url_for(name: str, **kwargs: str | int | float | bool) -> str
 ```
 
 The named route must exist. Missing parameters raise `KeyError`, unexpected
@@ -86,11 +85,11 @@ to the route type.
 
 ```python
 app.set_error_handler(
-    handler: Callable[[Context, Exception], Awaitable[Any]]
-) -> Callable[[Context, Exception], Awaitable[Any]]
+    handler: ErrorHandler
+) -> ErrorHandler
 
 @app.error_handler
-async def handle_error(ctx: Context, exc: Exception) -> Any:
+async def handle_error(ctx: Context, exc: Exception) -> ResponseValue:
     ...
 ```
 
@@ -104,7 +103,7 @@ by the default handler.
 ```python
 app.on_event(
     event_type: str,
-) -> Callable[[Callable[[], Any]], Callable[[], Any]]
+) -> Callable[[LifecycleHandler], LifecycleHandler]
 ```
 
 Supported event types are `startup` and `shutdown`. Handlers may be sync or
@@ -112,14 +111,19 @@ async. Startup compiles route and middleware chains before reporting
 `lifespan.startup.complete`.
 
 ```python
-@app.on_event("startup")
-async def startup() -> None:
-    app.state["pool"] = await create_pool()
+def create_app(services: Services) -> App:
+    app = App()
 
+    @app.on_event("startup")
+    async def startup() -> None:
+        await services.start()
 
-@app.on_event("shutdown")
-async def shutdown() -> None:
-    await app.state["pool"].close()
+    @app.on_event("shutdown")
+    async def shutdown() -> None:
+        await services.close()
+
+    register_routes(app, services)
+    return app
 ```
 
 ## ASGI dispatch

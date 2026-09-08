@@ -8,8 +8,10 @@ Lettia supports two useful testing styles:
 
 - `TestClient` for concise synchronous tests.
 
-- `httpx.AsyncClient` with `ASGITransport` for async tests and direct ASGI
-  control.
+- `httpx.AsyncClient` with `ASGITransport` for async HTTP tests.
+
+- Direct `app(scope, receive, send)` calls for lifespan and WebSocket protocol
+  tests.
 
 Install the development tools:
 
@@ -64,8 +66,10 @@ async def test_echo() -> None:
     assert response.status_code == 200
 ```
 
-Use this style for lifespan messages, WebSocket protocol messages, streaming,
-or tests that need to control `receive` and `send` directly.
+Use this style for streaming and async HTTP behavior. Test lifespan and
+WebSocket protocol messages by calling the ASGI application with controlled
+`scope`, `receive`, and `send` callables; HTTPX's ASGI transport is an HTTP
+transport, not a WebSocket client.
 
 ## What to test
 
@@ -82,6 +86,9 @@ Organize tests around public behavior rather than private implementation:
 - Static file traversal, range requests, cookies, and WebSocket disconnects
   are covered as boundary cases.
 
+- The suite enforces combined statement and branch coverage, so conditional
+  error paths remain part of the quality gate.
+
 Name tests as `test_<unit>_<scenario>_<expected_result>()` so failures explain
 the contract they protect.
 
@@ -93,9 +100,10 @@ Run the complete development loop:
 uv run pytest
 uv run ruff check .
 uv run pyright
+uv run pyrefly check
 ```
 
-Pytest is configured to print missing lines and fail below 80% source coverage.
+Pytest is configured to print missing lines and fail below 90% source coverage.
 For a focused report:
 
 ```bash

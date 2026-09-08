@@ -25,7 +25,8 @@ separate.
 | `WebSocketContext` | WebSocket state transitions and frame helpers |
 
 The package deliberately does not impose a database, dependency injection
-container, template engine, or application configuration system.
+container, template engine, application configuration system, or distributed
+job/limit service.
 
 ## HTTP request lifecycle
 
@@ -92,36 +93,49 @@ Method-aware routing returns 404 when a path is unknown and 405 with an
 `Allow` header when the path exists for another method. `HEAD` falls back to a
 matching `GET` route and suppresses the response body.
 
-## Lifespan and application state
+## Lifespan and explicit dependencies
 
-Startup and shutdown hooks are registered with `on_event()`. `app.state` is a
-dictionary owned by the application and is a convenient place for shared
-resources:
+Startup and shutdown hooks are registered with `on_event()`. Lettia does not
+hold application dependencies. Build an application with a services object and
+pass it explicitly to route registration:
 
 ```python
-from lettia import App
+def create_app(services: Services) -> App:
+    app = App()
 
-app = App()
+    @app.on_event("startup")
+    async def startup() -> None:
+        await services.start()
 
+    @app.on_event("shutdown")
+    async def shutdown() -> None:
+        await services.close()
 
-@app.on_event("startup")
-async def startup() -> None:
-    app.state["pool"] = await create_pool()
-
-
-@app.on_event("shutdown")
-async def shutdown() -> None:
-    await app.state["pool"].close()
+    register_routes(app, services)
+    return app
 ```
 
-Keep request-specific values in `ctx.state`; do not store them in
-`app.state`.
+This keeps the dependency direction from the composition root to routes and
+services. `App` has no mutable application-state bag, so imports do not need to
+reach back into a global application object. Keep request-specific values in
+typed `ctx.state` keys; keep connection-specific values in `ws.state`.
 
 ## WebSocket and HTTP boundaries
 
 WebSocket scopes use `WebSocketContext` and do not pass through the HTTP
 middleware chain. Register them with `@app.websocket()` and follow the
 WebSocket lifecycle in the [WebSocket guide](websocket.md).
+
+## Deployment boundary
+
+Deploy `App` through an ASGI server such as Uvicorn. The server and surrounding
+platform should terminate TLS, define which reverse proxies are trusted, manage
+workers and graceful shutdown, and export logs and telemetry. Lettia's memory
+rate limiter is suitable for a single process only; use a gateway or shared
+service when limits must hold across workers. Post-response tasks are
+best-effort and are not a durable queue.
+
+See [Deployment](deployment.md) for the concrete deployment checklist.
 
 ## Performance guidance
 

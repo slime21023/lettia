@@ -40,6 +40,12 @@ jobs:
       - name: Type check
         run: uv run pyright
 
+      - name: Pyrefly type check
+        run: uv run pyrefly check
+
+      - name: Pyrefly public API coverage
+        run: uv run pyrefly coverage check src/lettia --strict --public-only --fail-under 100
+
       - name: Build documentation
         run: uv run zensical build --strict
 

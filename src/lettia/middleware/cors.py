@@ -1,5 +1,4 @@
 from collections.abc import Sequence
-from typing import Any
 
 from lettia.context import Context
 from lettia.middleware.base import Handler, Middleware
@@ -18,7 +17,7 @@ def cors(
     headers_str = ", ".join(allow_headers)
 
     def middleware(next_handler: Handler) -> Handler:
-        async def handler(ctx: Context) -> Any:
+        async def handler(ctx: Context) -> Response:
             origin = ctx.header("origin")
 
             # Helper to apply CORS headers

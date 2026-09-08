@@ -1,14 +1,25 @@
-from collections.abc import Callable
-from typing import Any
+from typing import Protocol
 
+from lettia.handlers import HTTPDecorator, HTTPHandler
 from lettia.middleware import Middleware
+
+
+class RouteRegistrar(Protocol):
+    def add_route(
+        self,
+        method: str,
+        path: str,
+        handler: HTTPHandler,
+        name: str | None = None,
+        middlewares: list[Middleware] | None = None,
+    ) -> None: ...
 
 
 class Group:
     def __init__(
         self,
         prefix: str,
-        app: Any,
+        app: RouteRegistrar,
         middlewares: list[Middleware] | None = None,
     ) -> None:
         # Normalize prefix
@@ -17,8 +28,8 @@ class Group:
         if prefix.endswith("/") and len(prefix) > 1:
             prefix = prefix.rstrip("/")
 
-        self.prefix = prefix
-        self.app = app
+        self.prefix: str = prefix
+        self.app: RouteRegistrar = app
         self.middlewares: list[Middleware] = list(middlewares) if middlewares else []
 
     def use(self, *middlewares: Middleware) -> "Group":
@@ -38,7 +49,7 @@ class Group:
         self,
         method: str,
         path: str,
-        handler: Callable[..., Any],
+        handler: HTTPHandler,
         name: str | None = None,
         middlewares: list[Middleware] | None = None,
     ) -> None:
@@ -55,36 +66,36 @@ class Group:
             method, full_path, handler, name=name, middlewares=route_middlewares
         )
 
-    def get(self, path: str, name: str | None = None) -> Callable[..., Any]:
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def get(self, path: str, name: str | None = None) -> HTTPDecorator:
+        def decorator(func: HTTPHandler) -> HTTPHandler:
             self.add_route("GET", path, func, name=name)
             return func
 
         return decorator
 
-    def post(self, path: str, name: str | None = None) -> Callable[..., Any]:
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def post(self, path: str, name: str | None = None) -> HTTPDecorator:
+        def decorator(func: HTTPHandler) -> HTTPHandler:
             self.add_route("POST", path, func, name=name)
             return func
 
         return decorator
 
-    def put(self, path: str, name: str | None = None) -> Callable[..., Any]:
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def put(self, path: str, name: str | None = None) -> HTTPDecorator:
+        def decorator(func: HTTPHandler) -> HTTPHandler:
             self.add_route("PUT", path, func, name=name)
             return func
 
         return decorator
 
-    def delete(self, path: str, name: str | None = None) -> Callable[..., Any]:
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def delete(self, path: str, name: str | None = None) -> HTTPDecorator:
+        def decorator(func: HTTPHandler) -> HTTPHandler:
             self.add_route("DELETE", path, func, name=name)
             return func
 
         return decorator
 
-    def patch(self, path: str, name: str | None = None) -> Callable[..., Any]:
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+    def patch(self, path: str, name: str | None = None) -> HTTPDecorator:
+        def decorator(func: HTTPHandler) -> HTTPHandler:
             self.add_route("PATCH", path, func, name=name)
             return func
 

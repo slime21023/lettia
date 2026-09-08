@@ -18,11 +18,11 @@ helpers without hiding the underlying ASGI request.
 | `ctx.query_params` | ASGI `query_string` | Lazy `dict[str, list[str]]` |
 | `ctx.headers` | ASGI `headers` | Lazy, lower-case keys |
 | `ctx.cookies` | `Cookie` header | Lazy cookie mapping |
-| `ctx.state` | Application | Per-request mutable state |
+| `ctx.state` | Context | Per-request typed state |
 
 ```python
 @app.get("/search")
-async def search(ctx: Context) -> dict[str, object]:
+async def search(ctx: Context):
     return {
         "query": ctx.query_param("q", default=""),
         "agent": ctx.header("user-agent"),
@@ -70,7 +70,7 @@ class CreateUser:
 
 
 @app.post("/users")
-async def create_user(ctx: Context) -> dict[str, object]:
+async def create_user(ctx: Context):
     user = await ctx.bind(CreateUser)
     return {"name": user.name, "age": user.age}
 ```
@@ -110,17 +110,24 @@ class CreateUserSchema(BaseModel):
 
 
 @app.post("/validated-users")
-async def create_validated_user(ctx: Context) -> dict[str, object]:
+async def create_validated_user(ctx: Context):
     user = await ctx.bind(CreateUserSchema)
     return {"data": user.model_dump()}
 ```
 
 ## State and aborts
 
-Use `ctx.state` to pass request-local values between middleware and handlers:
+Use `ctx.state` to pass request-local values between middleware and handlers.
+Keys carry the value type and are identity-based, so packages cannot collide by
+accidentally reusing the same string:
 
 ```python
-ctx.state["request_id"] = "request-123"
+from lettia import StateKey
+
+CURRENT_USER = StateKey[str]("myapp.current_user")
+
+ctx.state.set(CURRENT_USER, "user-123")
+user_id = ctx.state.require(CURRENT_USER)
 ```
 
 Use `ctx.abort()` for expected HTTP failures:
@@ -130,8 +137,13 @@ if ctx.header("authorization") is None:
     ctx.abort(401, "Authentication required")
 ```
 
-Use `app.state` for application-wide resources; it is a dictionary and is not
-shared with `ctx.state`.
+`ctx.state.get(CURRENT_USER)` returns `str | None`; `require()` raises
+`KeyError` when the key was not set, and `discard()` removes a value. Use
+`REQUEST_ID` and `SESSION` for values published by Lettia's built-in
+middleware. Application-wide resources must be passed explicitly through an
+app factory, not stored on `App`. A `StateKey` is identity-based: two keys with
+the same display name remain distinct, which prevents accidental collisions
+between integrations.
 
 ## Post-response tasks
 

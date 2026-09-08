@@ -1,9 +1,9 @@
 from collections.abc import Awaitable, Callable
-from typing import Any
 
 from lettia.context import Context
+from lettia.response import Response
 
-Handler = Callable[[Context], Awaitable[Any]]
+Handler = Callable[[Context], Awaitable[Response]]
 Middleware = Callable[[Handler], Handler]
 
 

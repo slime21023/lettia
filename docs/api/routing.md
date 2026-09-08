@@ -16,10 +16,10 @@ For usage patterns and precedence examples, see the [Routing guide](../routing.m
 
 ```python
 @define(slots=True, frozen=True)
-class Route:
+class Route[HandlerT]:
     method: str
     path: str
-    handler: Callable[..., Any]
+    handler: HandlerT
     name: str | None = None
 ```
 
@@ -30,7 +30,7 @@ are also stored internally for dispatch.
 ## `Router`
 
 ```python
-router = Router()
+router: Router[str] = Router()
 ```
 
 ### `add_route()`
@@ -39,9 +39,9 @@ router = Router()
 router.add_route(
     method: str,
     path: str,
-    handler: Any,
+    handler: HandlerT,
     name: str | None = None,
-) -> Route
+) -> Route[HandlerT]
 ```
 
 Static paths are stored in a direct lookup table. Paths containing `:` or `*`
@@ -61,7 +61,7 @@ Supported path forms are:
 router.match(
     method: str,
     path: str,
-) -> tuple[Route, dict[str, str]] | None
+) -> tuple[Route[HandlerT], dict[str, str]] | None
 ```
 
 The matcher checks static routes first, then parameter branches, then wildcard
@@ -81,7 +81,7 @@ when the path exists but the requested method does not.
 ### `url_for()`
 
 ```python
-router.url_for(name: str, **kwargs: Any) -> str
+router.url_for(name: str, **kwargs: str | int | float | bool) -> str
 ```
 
 Named parameters are replaced and URL-encoded. Wildcard values preserve `/` so

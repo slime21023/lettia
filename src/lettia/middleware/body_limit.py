@@ -1,13 +1,12 @@
-from typing import Any
-
 from lettia.context import Context
 from lettia.errors import abort
 from lettia.middleware.base import Handler, Middleware
+from lettia.response import Response
 
 
 def body_limit(max_bytes: int) -> Middleware:
     def middleware(next_handler: Handler) -> Handler:
-        async def handler(ctx: Context) -> Any:
+        async def handler(ctx: Context) -> Response:
             content_length_hdr = ctx.header("content-length")
             if content_length_hdr is not None:
                 try:

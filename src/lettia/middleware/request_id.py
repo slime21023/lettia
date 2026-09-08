@@ -1,10 +1,10 @@
 import uuid
 from collections.abc import Callable
-from typing import Any
 
 from lettia.context import Context
 from lettia.middleware.base import Handler, Middleware
-from lettia.response import normalize_response
+from lettia.response import Response
+from lettia.state import REQUEST_ID
 
 
 def request_id(
@@ -14,16 +14,15 @@ def request_id(
     id_generator = generator if generator is not None else lambda: str(uuid.uuid4())
 
     def middleware(next_handler: Handler) -> Handler:
-        async def handler(ctx: Context) -> Any:
+        async def handler(ctx: Context) -> Response:
             req_id = ctx.header(header_name)
             if not req_id:
                 req_id = id_generator()
 
-            ctx.state["request_id"] = req_id
+            ctx.state.set(REQUEST_ID, req_id)
             res = await next_handler(ctx)
-            resp = normalize_response(res)
-            resp.set_header(header_name, req_id)
-            return resp
+            res.set_header(header_name, req_id)
+            return res
 
         return handler
 

@@ -74,7 +74,7 @@ TextResponse(
 
 ```python
 JsonResponse(
-    data: Any,
+    data: JSONValue,
     status_code: int = 200,
     headers: dict[str, str] | None = None,
     media_type: str = "application/json",
@@ -100,7 +100,7 @@ The generator is consumed only when the response is written. Set
 ## Return-value normalization
 
 ```python
-normalize_response(result: Any) -> Response
+normalize_response(result: ResponseValue) -> Response
 ```
 
 The conversion rules are:
@@ -118,7 +118,7 @@ The conversion rules are:
 ## `ResponseWriter`
 
 ```python
-ResponseWriter(send: Any, head_only: bool = False)
+ResponseWriter(send: HTTPSend, head_only: bool = False)
 await writer.write(response: Response) -> None
 ```
 

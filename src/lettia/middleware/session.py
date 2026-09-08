@@ -3,11 +3,12 @@ import binascii
 import hashlib
 import hmac
 import json
-from typing import Any
+from typing import cast
 
-from lettia.context import Context
+from lettia.context import Context, validate_json_value
 from lettia.middleware.base import Handler, Middleware
-from lettia.response import normalize_response
+from lettia.response import Response
+from lettia.state import SESSION, SessionData
 
 
 def _sign(data: bytes, secret: bytes) -> str:
@@ -39,9 +40,9 @@ def session(
     secret_bytes = secret_key.encode("utf-8")
 
     def middleware(next_handler: Handler) -> Handler:
-        async def handler(ctx: Context) -> Any:
+        async def handler(ctx: Context) -> Response:
             cookie_val = ctx.cookie(cookie_name)
-            session_data: dict[str, Any] = {}
+            session_data: SessionData = {}
 
             if cookie_val:
                 raw_json = _unsign(cookie_val, secret_bytes)
@@ -51,16 +52,20 @@ def session(
                     except (UnicodeDecodeError, json.JSONDecodeError):
                         session_data = {}
                     else:
-                        if isinstance(decoded_session, dict):
-                            session_data = decoded_session
+                        decoded_value: object = decoded_session
+                        if isinstance(decoded_value, dict):
+                            raw_mapping = cast(dict[object, object], decoded_value)
+                            validated = validate_json_value(raw_mapping)
+                            if isinstance(validated, dict):
+                                session_data = validated
 
-            ctx.state["session"] = session_data
+            ctx.state.set(SESSION, session_data)
             initial_session_str = json.dumps(session_data, sort_keys=True)
 
             res = await next_handler(ctx)
-            resp = normalize_response(res)
+            resp = res
 
-            current_session = ctx.state.get("session", {})
+            current_session = ctx.state.require(SESSION)
             current_session_str = json.dumps(current_session, sort_keys=True)
 
             # If session was modified, set updated signed cookie

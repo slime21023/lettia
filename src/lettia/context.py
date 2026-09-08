@@ -1,34 +1,43 @@
 import dataclasses
 import json
 from collections.abc import Callable
-from typing import Any, NoReturn, TypeVar
+from typing import NoReturn, TypeVar, cast
 from urllib.parse import parse_qs
 
 from attrs import define, field, has
 
+from lettia.asgi import HTTPReceive, HTTPRequestEvent, HTTPScope, HTTPSend, JSONValue
 from lettia.errors import abort
+from lettia.state import StateStore
 
 T = TypeVar("T")
+DefaultT = TypeVar("DefaultT")
 
 
 @define(slots=True)
 class Context:
-    scope: dict[str, Any]
-    receive: Any
-    send: Any
-    path_params: dict[str, str] = field(factory=dict)
-    state: dict[str, Any] = field(factory=dict)
+    scope: HTTPScope
+    receive: HTTPReceive
+    send: HTTPSend
+    path_params: dict[str, str] = field(factory=dict[str, str])
+    state: StateStore = field(factory=StateStore)
 
     # Lazy-parsing caches
     _query_params: dict[str, list[str]] | None = field(default=None, init=False)
     _headers: dict[str, str] | None = field(default=None, init=False)
     _cookies: dict[str, str] | None = field(default=None, init=False)
     _body: bytes | None = field(default=None, init=False)
+    _response_deadline: float | None = field(default=None, init=False)
 
     # Background task list
     _background_tasks: list[
-        tuple[Callable[..., Any], tuple[Any, ...], dict[str, Any]]
-    ] = field(factory=list, init=False)
+        tuple[Callable[..., object], tuple[object, ...], dict[str, object]]
+    ] = field(
+        factory=list[
+            tuple[Callable[..., object], tuple[object, ...], dict[str, object]]
+        ],
+        init=False,
+    )
 
     @property
     def path(self) -> str:
@@ -45,13 +54,16 @@ class Context:
     @property
     def query_params(self) -> dict[str, list[str]]:
         if self._query_params is None:
-            raw_qs = self.scope.get("query_string", b"")
-            if isinstance(raw_qs, bytes):
-                raw_qs = raw_qs.decode("latin-1")
+            raw_query_string: object = dict(self.scope).get("query_string", b"")
+            if type(raw_query_string) is not bytes:
+                abort(400, "Invalid query string")
+            raw_qs = raw_query_string.decode("latin-1")
             self._query_params = parse_qs(raw_qs, keep_blank_values=True)
         return self._query_params
 
-    def query_param(self, key: str, default: Any = None) -> str | Any:
+    def query_param(
+        self, key: str, default: DefaultT | None = None
+    ) -> str | DefaultT | None:
         values = self.query_params.get(key)
         if values and len(values) > 0:
             return values[0]
@@ -72,7 +84,9 @@ class Context:
             self._headers = hdr_dict
         return self._headers
 
-    def header(self, key: str, default: Any = None) -> str | Any:
+    def header(
+        self, key: str, default: DefaultT | None = None
+    ) -> str | DefaultT | None:
         return self.headers.get(key.lower(), default)
 
     @property
@@ -88,7 +102,9 @@ class Context:
             self._cookies = cookie_dict
         return self._cookies
 
-    def cookie(self, key: str, default: Any = None) -> str | Any:
+    def cookie(
+        self, key: str, default: DefaultT | None = None
+    ) -> str | DefaultT | None:
         return self.cookies.get(key, default)
 
     async def body(self, max_bytes: int | None = None) -> bytes:
@@ -101,13 +117,12 @@ class Context:
 
         while more_body:
             message = await self.receive()
-            message_type = message.get("type")
-            if message_type == "http.disconnect":
+            if message["type"] == "http.disconnect":
                 abort(400, "Client disconnected while reading request body")
-            if message_type != "http.request":
-                abort(400, f"Unexpected ASGI message: {message_type!r}")
+            if message["type"] != "http.request":
+                abort(400, f"Unexpected ASGI message: {message['type']!r}")
 
-            chunk = message.get("body", b"")
+            chunk = _body_chunk(message)
             bytes_received += len(chunk)
             if max_bytes is not None and bytes_received > max_bytes:
                 abort(
@@ -120,12 +135,13 @@ class Context:
         self._body = b"".join(chunks)
         return self._body
 
-    async def json(self) -> Any:
+    async def json(self) -> JSONValue:
         body_data = await self.body()
         if not body_data:
             return None
         try:
-            return json.loads(body_data.decode("utf-8"))
+            decoded: object = json.loads(body_data.decode("utf-8"))
+            return validate_json_value(decoded)
         except (UnicodeDecodeError, json.JSONDecodeError) as exc:
             abort(400, f"Invalid JSON request body: {exc}")
 
@@ -137,9 +153,23 @@ class Context:
             abort(400, f"Request body is not valid UTF-8: {exc}")
 
     def add_background_task(
-        self, func: Callable[..., Any], *args: Any, **kwargs: Any
+        self, func: Callable[..., object], *args: object, **kwargs: object
     ) -> None:
         self._background_tasks.append((func, args, kwargs))
+
+    @property
+    def response_deadline(self) -> float | None:
+        return self._response_deadline
+
+    @response_deadline.setter
+    def response_deadline(self, value: float | None) -> None:
+        self._response_deadline = value
+
+    @property
+    def background_tasks(
+        self,
+    ) -> list[tuple[Callable[..., object], tuple[object, ...], dict[str, object]]]:
+        return self._background_tasks
 
     async def bind(self, target_type: type[T]) -> T:
         from lettia.protocols.binder import (
@@ -149,9 +179,9 @@ class Context:
         )
 
         if has(target_type):
-            return await AttrsBinder().bind(self, target_type)
+            return cast(T, await AttrsBinder().bind(self, target_type))
         if dataclasses.is_dataclass(target_type):
-            return await DataclassBinder().bind(self, target_type)
+            return cast(T, await DataclassBinder().bind(self, target_type))
 
         # Check for Pydantic BaseModel or fallback
         try:
@@ -168,7 +198,31 @@ class Context:
     def abort(
         self,
         status_code: int,
-        detail: Any = None,
+        detail: object = None,
         headers: dict[str, str] | None = None,
     ) -> NoReturn:
         abort(status_code, detail, headers)
+
+
+def validate_json_value(value: object) -> JSONValue:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, list):
+        items = cast(list[object], value)
+        return [validate_json_value(item) for item in items]
+    if isinstance(value, dict):
+        converted: dict[str, JSONValue] = {}
+        items = cast(dict[object, object], value)
+        for key, item in items.items():
+            if not isinstance(key, str):
+                raise TypeError("JSON object keys must be strings")
+            converted[key] = validate_json_value(item)
+        return converted
+    raise TypeError(f"Decoded JSON has unsupported type: {type(value).__name__}")
+
+
+def _body_chunk(message: HTTPRequestEvent) -> bytes:
+    value: object = message["body"] if "body" in message else b""
+    if type(value) is not bytes:
+        abort(400, "ASGI request body must be bytes")
+    return value

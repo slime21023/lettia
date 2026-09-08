@@ -8,6 +8,9 @@ title: Static Files
 byte ranges, `GET`, and `HEAD`, and rejects paths that resolve outside the
 configured directory.
 
+File metadata and content reads are offloaded from the event loop, so serving a
+local file does not block unrelated async requests.
+
 ## Mount a directory
 
 ```python

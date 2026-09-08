@@ -30,16 +30,16 @@ be caught by an echo or subscription loop.
 
 ```python
 WebSocketContext(
-    scope: MutableMapping[str, Any],
-    receive: Any,
-    send: Any,
+    scope: WebSocketScope,
+    receive: WebSocketReceive,
+    send: WebSocketSend,
     path_params: dict[str, str] = {},
-    state: dict[str, Any] = {},
+    state: StateStore = StateStore(),
 )
 ```
 
-The mutable defaults above are conceptual; the implementation creates fresh
-dictionaries for each context.
+The defaults above are conceptual; the implementation creates a fresh
+`StateStore` for each context.
 
 ### Connection and metadata
 
@@ -48,7 +48,7 @@ dictionaries for each context.
 | `ws.path` | Path from the WebSocket scope |
 | `ws.headers` | Lower-case handshake headers |
 | `ws.path_params` | Router-provided string parameters |
-| `ws.state` | Connection-local mutable state |
+| `ws.state` | Connection-local typed-key state |
 | `ws.client_state` | Current `WebSocketState` |
 
 ### Handshake and close
@@ -64,10 +64,10 @@ already disconnected context is idempotent.
 ### Receive methods
 
 ```python
-await ws.receive_message() -> dict[str, Any]
+await ws.receive_message() -> WebSocketReceiveMessage
 await ws.receive_text() -> str
 await ws.receive_bytes() -> bytes
-await ws.receive_json() -> Any
+await ws.receive_json() -> JSONValue
 ```
 
 `receive_text()` decodes binary frames as UTF-8; `receive_bytes()` encodes text
@@ -79,7 +79,7 @@ frames as UTF-8. A peer disconnect changes the state and raises
 ```python
 await ws.send_text(data: str) -> None
 await ws.send_bytes(data: bytes) -> None
-await ws.send_json(data: Any) -> None
+await ws.send_json(data: JSONValue) -> None
 ```
 
 Send methods require the context to be connected. JSON is serialized as a text
@@ -100,4 +100,7 @@ async def echo(ws: WebSocketContext) -> None:
 ```
 
 Authentication or protocol negotiation can inspect `ws.headers` before
-accepting the connection.
+accepting the connection. Use `StateKey[T]` values with `ws.state` for
+connection-local metadata. HTTP middleware does not wrap this branch, so origin
+checks, authentication, authorization, and connection/message limits must be
+implemented by the handler or the hosting ASGI stack.

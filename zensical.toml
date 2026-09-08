@@ -18,6 +18,7 @@ nav = [
     ] },
     { "Application Features" = [
         { "Middleware Chain" = "middleware.md" },
+        { "Deployment" = "deployment.md" },
         { "WebSocket Protocol" = "websocket.md" },
         { "Static Files" = "static_files.md" }
     ] },
@@ -40,7 +41,7 @@ nav = [
 [site]
 name = "Lettia Documentation"
 title = "Lettia Documentation"
-version = "1.0.0"
+version = "1.0.1"
 
 [theme]
 name = "zensical"

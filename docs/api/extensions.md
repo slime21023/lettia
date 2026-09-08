@@ -36,14 +36,14 @@ payload = await AttrsBinder().bind(ctx, CreateUser)
 ## Validator protocol
 
 ```python
-class Validator(Protocol):
-    def validate(self, obj: Any) -> None: ...
+class Validator[T](Protocol):
+    def validate(self, obj: T) -> None: ...
 ```
 
 `CallableValidator` adapts a function returning `True`, `False`, or `None`:
 
 ```python
-CallableValidator(func: Callable[[Any], bool | None])
+CallableValidator[T](func: Callable[[T], bool | None])
 ```
 
 `False` becomes HTTP 400 with `Validation failed`. Exceptions from the user
@@ -57,7 +57,7 @@ class Renderer(Protocol):
     def render(
         self,
         template_name: str,
-        context: dict[str, Any] | None = None,
+        context: Mapping[str, object] | None = None,
         status_code: int = 200,
     ) -> Response: ...
 ```

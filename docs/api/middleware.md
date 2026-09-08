@@ -10,7 +10,7 @@ hierarchy. This keeps middleware small and makes its nesting behavior explicit.
 ## Core types
 
 ```python
-Handler = Callable[[Context], Awaitable[Any]]
+Handler = Callable[[Context], Awaitable[Response]]
 Middleware = Callable[[Handler], Handler]
 ```
 
@@ -20,7 +20,7 @@ shape:
 ```python
 def timing() -> Middleware:
     def middleware(next_handler: Handler) -> Handler:
-        async def handler(ctx: Context) -> Any:
+        async def handler(ctx: Context) -> Response:
             started = perf_counter()
             result = await next_handler(ctx)
             logger.info("%s", perf_counter() - started)
@@ -67,7 +67,7 @@ and limits.
 
 ```python
 recover(
-    on_recover: Callable[[Context, Exception], Any] | None = None,
+    on_recover: Callable[[Context, Exception], ResponseValue | Awaitable[ResponseValue]] | None = None,
 ) -> Middleware
 ```
 
@@ -99,7 +99,8 @@ cors(
 
 Answers origin-bearing OPTIONS preflight requests before route dispatch and
 adds CORS headers to normal responses. Credentials should use explicit origins,
-not `*`.
+not `*`. The default origin value is `"*"`; set explicit origins for production
+browser applications.
 
 ### `request_id()`
 
@@ -120,9 +121,11 @@ timeout(seconds: float) -> Middleware
 body_limit(max_bytes: int) -> Middleware
 ```
 
-`timeout()` converts deadline expiry to HTTP 504. `body_limit()` validates
-Content-Length and forces body reading with the configured limit, returning
-HTTP 400 or 413 for invalid or oversized requests.
+`timeout()` converts expiry before response headers are committed to HTTP 504.
+The same deadline also limits response streaming; after headers have been sent,
+Lettia closes the stream normally because HTTP status can no longer change.
+`body_limit()` validates Content-Length and forces body reading with the
+configured limit, returning HTTP 400 or 413 for invalid or oversized requests.
 
 ### `rate_limit()`
 
@@ -145,7 +148,8 @@ limiter.is_allowed(key: str) -> tuple[bool, int]
 ```
 
 This limiter is process-local and should not be treated as a distributed rate
-limit.
+limit. Its fallback `X-Forwarded-For` key is safe only when a trusted proxy
+controls that header.
 
 ### `session()`
 
@@ -159,6 +163,7 @@ session(
 ) -> Middleware
 ```
 
-Loads a signed JSON object into `ctx.state["session"]` and writes a new cookie
-when the mapping changes. The signature protects integrity; the payload is not
-encrypted.
+Loads a signed JSON object into `ctx.state` under the typed `SESSION` key and
+writes a new cookie when that mapping changes. The signature protects
+integrity; the payload is not encrypted. Set `https_only=True` when the cookie
+is served over HTTPS.

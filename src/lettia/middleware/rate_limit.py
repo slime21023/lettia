@@ -1,24 +1,30 @@
 import time
 from collections import deque
 from collections.abc import Callable
-from typing import Any
 
 from lettia.context import Context
 from lettia.errors import abort
 from lettia.middleware.base import Handler, Middleware
+from lettia.response import Response
 
 
 class MemoryRateLimiter:
     def __init__(self, requests_per_minute: int = 60) -> None:
         if requests_per_minute <= 0:
             raise ValueError("requests_per_minute must be greater than zero")
-        self.requests_per_minute = requests_per_minute
-        self.window_seconds = 60.0
+        self.requests_per_minute: int = requests_per_minute
+        self.window_seconds: float = 60.0
         self._history: dict[str, deque[float]] = {}
+        self._checks_since_cleanup = 0
 
     def is_allowed(self, key: str) -> tuple[bool, int]:
         now = time.monotonic()
         cutoff = now - self.window_seconds
+
+        self._checks_since_cleanup += 1
+        if self._checks_since_cleanup >= 256:
+            self._purge_expired(cutoff)
+            self._checks_since_cleanup = 0
 
         if key not in self._history:
             self._history[key] = deque()
@@ -36,6 +42,15 @@ class MemoryRateLimiter:
         timestamps.append(now)
         return True, 0
 
+    def _purge_expired(self, cutoff: float) -> None:
+        expired_keys = [
+            key
+            for key, timestamps in self._history.items()
+            if not timestamps or timestamps[-1] <= cutoff
+        ]
+        for key in expired_keys:
+            del self._history[key]
+
 
 def rate_limit(
     requests_per_minute: int = 60,
@@ -47,12 +62,13 @@ def rate_limit(
         client = ctx.scope.get("client")
         if client:
             return str(client[0])
-        return ctx.header("x-forwarded-for", "127.0.0.1").split(",")[0].strip()
+        forwarded_for = ctx.header("x-forwarded-for") or "127.0.0.1"
+        return forwarded_for.split(",")[0].strip()
 
     get_key = key_func if key_func is not None else default_key_func
 
     def middleware(next_handler: Handler) -> Handler:
-        async def handler(ctx: Context) -> Any:
+        async def handler(ctx: Context) -> Response:
             key = get_key(ctx)
             allowed, retry_after = limiter.is_allowed(key)
 

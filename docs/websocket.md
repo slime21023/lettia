@@ -75,4 +75,7 @@ async def private(ws: WebSocketContext) -> None:
 
 Use `ws.state` for connection-local values. WebSocket handlers do not use the
 HTTP response or HTTP middleware chain; keep protocol-specific setup inside the
-WebSocket handler.
+WebSocket handler. In particular, enforce origin policy, authentication,
+authorization, connection lifetime, and message-size policy at the handler or
+ASGI-server boundary. `ws.state` is isolated from every HTTP request and from
+other WebSocket connections.

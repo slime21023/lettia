@@ -1,10 +1,10 @@
 import dataclasses
-from typing import Any
 
 import pytest
+from asgi_helpers import http_context
 from attrs import define
+from pydantic import BaseModel
 
-from lettia.context import Context
 from lettia.errors import HTTPException
 from lettia.protocols import (
     AttrsBinder,
@@ -27,102 +27,131 @@ class UserDC:
     role: str = "guest"
 
 
+class UserModel(BaseModel):
+    name: str
+    age: int = 18
+
+
+@dataclasses.dataclass
+class CoercedPayload:
+    enabled: bool
+    ratio: float
+    optional_count: int | None = None
+
+
 @pytest.mark.asyncio
 async def test_attrs_binder() -> None:
-    scope = {"type": "http", "method": "POST", "query_string": b"age=25"}
-
-    async def receive() -> dict[str, Any]:
-        return {
-            "type": "http.request",
-            "body": b'{"name": "Alice"}',
-            "more_body": False,
-        }
-
-    ctx = Context(scope=scope, receive=receive, send=None)
-    binder = AttrsBinder()
-    user = await binder.bind(ctx, UserAttrs)
-
-    assert isinstance(user, UserAttrs)
+    user = await AttrsBinder().bind(
+        http_context(method="POST", query_string=b"age=25", body=b'{"name": "Alice"}'),
+        UserAttrs,
+    )
     assert user.name == "Alice"
     assert user.age == 25
 
 
 @pytest.mark.asyncio
 async def test_attrs_binder_rejects_invalid_integer() -> None:
-    scope = {"type": "http", "method": "POST"}
-
-    async def receive() -> dict[str, Any]:
-        return {
-            "type": "http.request",
-            "body": b'{"name": "Alice", "age": "not-a-number"}',
-            "more_body": False,
-        }
-
-    ctx = Context(scope=scope, receive=receive, send=None)
-
     with pytest.raises(HTTPException, match="Expected an integer") as exc_info:
-        await AttrsBinder().bind(ctx, UserAttrs)
-
+        await AttrsBinder().bind(
+            http_context(
+                method="POST", body=b'{"name": "Alice", "age": "not-a-number"}'
+            ),
+            UserAttrs,
+        )
     assert exc_info.value.status_code == 400
 
 
 @pytest.mark.asyncio
 async def test_dataclass_binder() -> None:
-    scope = {"type": "http", "method": "POST", "query_string": b"role=admin"}
-
-    async def receive() -> dict[str, Any]:
-        return {"type": "http.request", "body": b'{"name": "Bob"}', "more_body": False}
-
-    ctx = Context(scope=scope, receive=receive, send=None)
-    binder = DataclassBinder()
-    user = await binder.bind(ctx, UserDC)
-
-    assert isinstance(user, UserDC)
+    user = await DataclassBinder().bind(
+        http_context(
+            method="POST", query_string=b"role=admin", body=b'{"name": "Bob"}'
+        ),
+        UserDC,
+    )
     assert user.name == "Bob"
     assert user.role == "admin"
 
 
 @pytest.mark.asyncio
 async def test_pydantic_binder() -> None:
-    pydantic = pytest.importorskip("pydantic")
-
-    class UserModel(pydantic.BaseModel):
-        name: str
-        age: int = 18
-
-    scope = {"type": "http", "method": "POST", "query_string": b"age=25"}
-
-    async def receive() -> dict[str, Any]:
-        return {
-            "type": "http.request",
-            "body": b'{"name": "Carol"}',
-            "more_body": False,
-        }
-
-    ctx = Context(scope=scope, receive=receive, send=None)
-    user = await PydanticBinder().bind(ctx, UserModel)
-
-    assert isinstance(user, UserModel)
+    user = await PydanticBinder().bind(
+        http_context(method="POST", query_string=b"age=25", body=b'{"name": "Carol"}'),
+        UserModel,
+    )
     assert user.name == "Carol"
     assert user.age == 25
 
 
+@pytest.mark.asyncio
+async def test_binders_coerce_boolean_float_and_optional_values() -> None:
+    payload = await DataclassBinder().bind(
+        http_context(
+            method="POST",
+            query_string=b"enabled=yes&ratio=1.5&optional_count=7",
+        ),
+        CoercedPayload,
+    )
+    assert payload.enabled is True
+    assert payload.ratio == 1.5
+    assert payload.optional_count == 7
+
+
+@pytest.mark.asyncio
+async def test_binders_reject_wrong_target_and_invalid_boolean() -> None:
+    with pytest.raises(TypeError, match="attrs class"):
+        await AttrsBinder().bind(http_context(), UserDC)
+    with pytest.raises(TypeError, match="dataclass"):
+        await DataclassBinder().bind(http_context(), UserAttrs)
+    with pytest.raises(HTTPException, match="Expected a boolean") as exc_info:
+        await DataclassBinder().bind(
+            http_context(method="POST", query_string=b"enabled=perhaps&ratio=1.0"),
+            CoercedPayload,
+        )
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_pydantic_binder_reports_validation_errors() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        await PydanticBinder().bind(
+            http_context(method="POST", body=b'{"name": 1}'), UserModel
+        )
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_context_bind_selects_supported_binders() -> None:
+    attrs_user = await http_context(method="POST", body=b'{"name": "Attrs"}').bind(
+        UserAttrs
+    )
+    dataclass_user = await http_context(
+        method="POST", body=b'{"name": "Dataclass"}'
+    ).bind(UserDC)
+    pydantic_user = await http_context(
+        method="POST", body=b'{"name": "Pydantic"}'
+    ).bind(UserModel)
+
+    assert attrs_user.name == "Attrs"
+    assert dataclass_user.name == "Dataclass"
+    assert pydantic_user.name == "Pydantic"
+
+
 def test_validator() -> None:
-    validator = CallableValidator(lambda obj: obj.get("age", 0) >= 18)
+    def valid_adult(payload: dict[str, int]) -> bool:
+        return payload.get("age", 0) >= 18
 
-    # Valid
+    validator = CallableValidator[dict[str, int]](valid_adult)
     validator.validate({"age": 20})
-
-    # Invalid
     with pytest.raises(HTTPException) as exc_info:
         validator.validate({"age": 16})
     assert exc_info.value.status_code == 400
 
 
 def test_renderer() -> None:
-    renderer = SimpleHTMLRenderer(templates={"index": "<h1>Hello {{name}}!</h1>"})
-    resp = renderer.render("index", context={"name": "Lettia"})
-
-    assert resp.status_code == 200
-    assert resp.media_type == "text/html; charset=utf-8"
-    assert resp.body == b"<h1>Hello Lettia!</h1>"
+    response = SimpleHTMLRenderer({"index": "<h1>Hello {{name}}!</h1>"}).render(
+        "index", context={"name": "Lettia"}
+    )
+    assert response.status_code == 200
+    assert response.media_type == "text/html; charset=utf-8"
+    assert response.body == b"<h1>Hello Lettia!</h1>"

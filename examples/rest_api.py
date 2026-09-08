@@ -1,8 +1,6 @@
-from typing import Any
-
 from attrs import define
 
-from lettia import App, Context, JsonResponse
+from lettia import REQUEST_ID, App, Context, HTTPHandler, JsonResponse, JSONValue
 from lettia.middleware import body_limit, cors, recover, request_id, request_logger
 from lettia.protocols import AttrsBinder, CallableValidator
 
@@ -15,10 +13,11 @@ class CreateUserPayload:
     age: int = 18
 
 
-# Validator
-user_validator = CallableValidator(
-    lambda u: len(u.name) >= 2 and "@" in u.email and u.age >= 18
-)
+def validate_user(payload: CreateUserPayload) -> bool:
+    return len(payload.name) >= 2 and "@" in payload.email and payload.age >= 18
+
+
+user_validator = CallableValidator[CreateUserPayload](validate_user)
 
 # App instance
 app = App()
@@ -33,7 +32,7 @@ app.use(
 )
 
 # In-memory database
-db: dict[str, dict[str, Any]] = {
+db: dict[str, dict[str, JSONValue]] = {
     "1": {"id": "1", "name": "Alice", "email": "alice@example.com", "age": 25},
     "2": {"id": "2", "name": "Bob", "email": "bob@example.com", "age": 30},
 }
@@ -43,23 +42,21 @@ v1 = app.group("/api/v1")
 users = v1.group("/users")
 
 
-@users.get("/", name="list_users")
-def list_users(ctx: Context) -> dict[str, Any]:
+def list_users(ctx: Context) -> dict[str, JSONValue]:
+    users = list[JSONValue](db.values())
     return {
-        "data": list(db.values()),
-        "request_id": ctx.state.get("request_id"),
+        "data": users,
+        "request_id": ctx.state.get(REQUEST_ID),
     }
 
 
-@users.get("/:id", name="get_user")
-def get_user(ctx: Context) -> dict[str, Any]:
+def get_user(ctx: Context) -> dict[str, JSONValue]:
     user_id = ctx.path_params.get("id", "")
     if user_id not in db:
         ctx.abort(404, f"User {user_id} not found")
     return {"data": db[user_id]}
 
 
-@users.post("/", name="create_user")
 async def create_user(ctx: Context) -> JsonResponse:
     binder = AttrsBinder()
     payload = await binder.bind(ctx, CreateUserPayload)
@@ -68,7 +65,7 @@ async def create_user(ctx: Context) -> JsonResponse:
     user_validator.validate(payload)
 
     new_id = str(len(db) + 1)
-    new_user = {
+    new_user: dict[str, JSONValue] = {
         "id": new_id,
         "name": payload.name,
         "email": payload.email,
@@ -76,10 +73,19 @@ async def create_user(ctx: Context) -> JsonResponse:
     }
     db[new_id] = new_user
 
-    return JsonResponse(
-        {"data": new_user, "message": "User created successfully"},
-        status_code=201,
-    )
+    payload_document: dict[str, JSONValue] = {
+        "data": new_user,
+        "message": "User created successfully",
+    }
+    return JsonResponse(payload_document, status_code=201)
+
+
+list_users_handler: HTTPHandler = list_users
+get_user_handler: HTTPHandler = get_user
+create_user_handler: HTTPHandler = create_user
+users.add_route("GET", "/", list_users_handler, name="list_users")
+users.add_route("GET", "/:id", get_user_handler, name="get_user")
+users.add_route("POST", "/", create_user_handler, name="create_user")
 
 
 if __name__ == "__main__":

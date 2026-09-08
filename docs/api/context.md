@@ -13,15 +13,17 @@ dependency-injection abstraction.
 ```python
 @define(slots=True)
 class Context:
-    scope: dict[str, Any]
-    receive: Any
-    send: Any
+    scope: HTTPScope
+    receive: HTTPReceive
+    send: HTTPSend
     path_params: dict[str, str] = field(factory=dict)
-    state: dict[str, Any] = field(factory=dict)
+    state: StateStore = field(factory=StateStore)
 ```
 
-`path_params` is populated by the router after a match. `state` is a mutable
-request-local dictionary shared by middleware and the handler.
+`path_params` is populated by the router after a match. `state` is a mutable,
+request-local `StateStore` shared by middleware and the handler. It accepts
+only typed `StateKey[T]` keys; it is not a string dictionary or application
+service registry.
 
 ## Request properties
 
@@ -33,7 +35,7 @@ request-local dictionary shared by middleware and the handler.
 | `ctx.query_params` | Lazy `dict[str, list[str]]` from `query_string` |
 | `ctx.headers` | Lazy lower-case header mapping |
 | `ctx.cookies` | Lazy mapping parsed from the Cookie header |
-| `ctx.state` | Request-local mutable state |
+| `ctx.state` | Request-local typed-key state |
 
 Convenience accessors return the first value or a default:
 
@@ -50,7 +52,7 @@ for the lifetime of the context.
 
 ```python
 await ctx.body(max_bytes: int | None = None) -> bytes
-await ctx.json() -> Any
+await ctx.json() -> JSONValue
 await ctx.text() -> str
 ```
 
@@ -95,7 +97,7 @@ class Search:
 
 
 @app.get("/search")
-async def search(ctx: Context) -> dict[str, Any]:
+async def search(ctx: Context) -> dict[str, JSONValue]:
     params = await ctx.bind(Search)
     return {"q": params.q, "page": params.page}
 ```
@@ -104,9 +106,9 @@ async def search(ctx: Context) -> dict[str, Any]:
 
 ```python
 ctx.add_background_task(
-    func: Callable[..., Any],
-    *args: Any,
-    **kwargs: Any,
+    func: Callable[..., object],
+    *args: object,
+    **kwargs: object,
 ) -> None
 ```
 
@@ -119,7 +121,7 @@ best-effort work; durable or long-running work belongs in an external queue.
 ```python
 ctx.abort(
     status_code: int,
-    detail: Any = None,
+    detail: object = None,
     headers: dict[str, str] | None = None,
 ) -> NoReturn
 ```
@@ -129,11 +131,17 @@ response while preserving its status code, detail, and headers.
 
 ## State boundaries
 
-Use `ctx.state` for request-scoped values:
+Use `ctx.state` for request-scoped values. State uses typed key instances, not
+string dictionary keys:
 
 ```python
-ctx.state["request_id"] = "request-123"
+from lettia import REQUEST_ID
+
+request_id = ctx.state.get(REQUEST_ID)
 ```
 
-Use `app.state` for application-wide resources. A WebSocket connection has a
-separate `WebSocketContext.state` dictionary.
+`get()` returns `T | None`, `require()` returns `T` or raises `KeyError`, and
+`discard()` removes one key. `require(REQUEST_ID)` therefore returns `str` and
+raises `KeyError` when request-ID middleware did not run. A WebSocket
+connection has a separate `WebSocketContext.state` `StateStore`; neither store
+is shared with `App` or another request.

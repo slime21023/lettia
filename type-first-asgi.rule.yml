@@ -1,0 +1,13 @@
+goal: "Ship Lettia 1.0.1 with a readable, zero-Any typed ASGI codebase."
+keyresults:
+  - kr-1: "App and Router expose explicit, generic typed contracts."
+  - kr-2: "Source, tests, examples, and docs contain no Any."
+  - kr-3: "Streaming failures terminate ASGI responses and all quality gates pass."
+rules:
+  - id: generic-router
+    name: typed-routing-boundary
+    apply: "src/lettia"
+    level: error
+    desc:
+      - "Router and Route preserve their caller-provided handler type."
+      - "App is slots-based and has no dynamic state API."

@@ -1,6 +1,6 @@
 # Lettia
 
-Lettia is a small, explicit ASGI framework for Python 3.12+. It provides the
+Lettia is a small, type-first ASGI toolkit for Python 3.12+. It provides the
 core building blocks for HTTP APIs and real-time endpoints while keeping the
 application model close to native ASGI:
 
@@ -27,7 +27,7 @@ uv add lettia uvicorn
 For development:
 
 ```bash
-uv add --dev pytest pytest-asyncio pytest-cov ruff pyright
+uv add --dev pytest pytest-asyncio pytest-cov hypothesis ruff pyright pyrefly
 ```
 
 The runtime dependency is `attrs`. Optional extras are available for Pydantic,
@@ -180,7 +180,7 @@ parameters, headers, cookies, and the body are parsed lazily and cached:
 
 ```python
 @app.post("/echo")
-async def echo(ctx: Context) -> dict[str, object]:
+async def echo(ctx: Context):
     return {"received": await ctx.json()}
 ```
 
@@ -201,13 +201,21 @@ class CreateUser:
 
 
 @app.post("/users")
-async def create_user(ctx: Context) -> dict[str, object]:
+async def create_user(ctx: Context):
     user = await ctx.bind(CreateUser)
     return {"name": user.name, "age": user.age}
 ```
 
-Use `app.state` for application-wide resources such as a connection pool, and
-`ctx.state` for values belonging to one request.
+Use typed keys for request-local values shared by middleware and handlers:
+
+```python
+from lettia import StateKey
+
+CURRENT_USER = StateKey[str]("myapp.current_user")
+```
+
+Application-wide resources belong in an explicit services object passed to an
+app factory; `App` deliberately has no mutable application-state bag.
 
 ## Responses and errors
 
@@ -259,7 +267,7 @@ Built-in middleware includes:
 | `request_logger()` | Log method, path, status, and duration |
 | `cors()` | Add CORS headers and answer preflight requests |
 | `request_id()` | Propagate or generate `X-Request-ID` |
-| `timeout()` | Enforce a request deadline |
+| `timeout()` | Enforce a handler and response-stream deadline |
 | `body_limit()` | Enforce a request body limit |
 | `rate_limit()` | In-memory sliding-window rate limiting |
 | `session()` | Signed JSON cookie sessions |
@@ -288,21 +296,42 @@ async def echo_socket(ws: WebSocketContext) -> None:
         return
 ```
 
-Application startup and shutdown are handled through lifespan hooks:
+Application startup and shutdown are handled through lifespan hooks. Compose
+shared resources outside `App` and capture them in the lifecycle handlers:
 
 ```python
-@app.on_event("startup")
-async def startup() -> None:
-    app.state["pool"] = await create_pool()
+def create_app(services: Services) -> App:
+    app = App()
 
+    @app.on_event("startup")
+    async def startup() -> None:
+        await services.start()
 
-@app.on_event("shutdown")
-async def shutdown() -> None:
-    await app.state["pool"].close()
+    @app.on_event("shutdown")
+    async def shutdown() -> None:
+        await services.close()
+
+    register_routes(app, services)
+    return app
 ```
 
 See [WebSockets](docs/websocket.md) and [Architecture](docs/architecture.md)
-for the full protocol boundaries.
+for the full protocol boundaries. See the
+[context and binding guide](docs/context_and_binding.md) for typed state usage.
+
+## Production boundary
+
+Lettia is a framework core, not a deployment platform. Run it behind a mature
+ASGI server and let the deployment own TLS, trusted-proxy configuration,
+process management, and centralized observability. Configure CORS explicitly,
+set `https_only=True` for session cookies served over HTTPS, and install a
+body-size limit for public endpoints.
+
+The built-in rate limiter is intentionally process-local; use a gateway or a
+shared external limiter for multi-worker or multi-instance deployments.
+Post-response tasks are best-effort and must not be used for durable work.
+WebSocket handlers bypass HTTP middleware, so authenticate, authorize, and
+apply origin and connection policies in the WebSocket handler or ASGI server.
 
 ## Extensions and static files
 
@@ -338,13 +367,14 @@ def test_health() -> None:
 ```
 
 For async tests, use HTTPX directly with `ASGITransport`. The repository uses
-pytest with an 80% source-coverage gate, Ruff for linting, and Pyright for
+pytest with a 90% source-coverage gate, Ruff for linting, and Pyright for
 static type checking:
 
 ```bash
 uv run pytest
 uv run ruff check .
 uv run pyright
+uv run pyrefly check
 ```
 
 The benchmark suite measures routing, context allocation, middleware chains,
@@ -365,6 +395,7 @@ performance guarantee across machines or deployment environments.
 - [Routing](docs/routing.md) — routes, groups, precedence, and reverse URLs.
 - [Context and binding](docs/context_and_binding.md) — input, state, models, and responses.
 - [Middleware](docs/middleware.md) — ordering and built-in middleware.
+- [Deployment](docs/deployment.md) — ASGI server, proxy, and operational boundaries.
 - [WebSockets](docs/websocket.md) — connection lifecycle and frame helpers.
 - [Static files](docs/static_files.md) — safe file serving and range requests.
 - [Testing](docs/testing.md) — synchronous/async tests and quality gates.

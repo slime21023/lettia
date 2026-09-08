@@ -1,3 +1,4 @@
+import asyncio
 import hashlib
 import mimetypes
 from collections.abc import AsyncGenerator
@@ -8,10 +9,32 @@ from lettia.errors import abort
 from lettia.response import Response, StreamResponse
 
 
+async def _file_stream(
+    path: Path, start: int = 0, length: int | None = None
+) -> AsyncGenerator[bytes, None]:
+    file = await asyncio.to_thread(path.open, "rb")
+    try:
+        if start:
+            await asyncio.to_thread(file.seek, start)
+
+        remaining = length
+        chunk_size = 64 * 1024
+        while remaining is None or remaining > 0:
+            read_bytes = chunk_size if remaining is None else min(chunk_size, remaining)
+            chunk = await asyncio.to_thread(file.read, read_bytes)
+            if not chunk:
+                break
+            if remaining is not None:
+                remaining -= len(chunk)
+            yield chunk
+    finally:
+        await asyncio.to_thread(file.close)
+
+
 class StaticFiles:
     def __init__(self, directory: str, html: bool = False) -> None:
-        self.directory = Path(directory).expanduser().resolve()
-        self.html = html
+        self.directory: Path = Path(directory).expanduser().resolve()
+        self.html: bool = html
 
         if not self.directory.is_dir():
             raise RuntimeError(f"Directory '{directory}' does not exist")
@@ -24,27 +47,29 @@ class StaticFiles:
         if not filepath:
             filepath = ctx.path.lstrip("/")
 
-        safe_path = (self.directory / filepath).resolve()
+        safe_path = await asyncio.to_thread(
+            lambda: (self.directory / filepath).resolve()
+        )
         try:
             safe_path.relative_to(self.directory)
         except ValueError:
             abort(403, "Forbidden")
 
-        if safe_path.is_dir():
+        if await asyncio.to_thread(safe_path.is_dir):
             if not self.html:
                 abort(404, "Not Found")
             index_path = safe_path / "index.html"
-            if not index_path.is_file():
+            if not await asyncio.to_thread(index_path.is_file):
                 abort(404, "Not Found")
             safe_path = index_path
 
-        if not safe_path.is_file():
+        if not await asyncio.to_thread(safe_path.is_file):
             abort(404, "Not Found")
 
-        stat_result = safe_path.stat()
+        stat_result = await asyncio.to_thread(safe_path.stat)
         file_size = stat_result.st_size
         mtime = int(stat_result.st_mtime)
-        etag = f'"{hashlib.md5(f"{mtime}-{file_size}".encode()).hexdigest()}"'
+        etag = f'"{hashlib.sha256(f"{mtime}-{file_size}".encode()).hexdigest()}"'
 
         if_none_match = ctx.header("if-none-match")
         if if_none_match and if_none_match == etag:
@@ -89,21 +114,8 @@ class StaticFiles:
                 headers["content-range"] = f"bytes {start}-{end}/{file_size}"
                 headers["content-length"] = str(length)
 
-                async def file_range_stream() -> AsyncGenerator[bytes, None]:
-                    with safe_path.open("rb") as file:
-                        file.seek(start)
-                        remaining = length
-                        chunk_size = 64 * 1024
-                        while remaining > 0:
-                            read_bytes = min(chunk_size, remaining)
-                            chunk = file.read(read_bytes)
-                            if not chunk:
-                                break
-                            remaining -= len(chunk)
-                            yield chunk
-
                 return StreamResponse(
-                    generator=file_range_stream(),
+                    generator=_file_stream(safe_path, start=start, length=length),
                     status_code=206,
                     headers=headers,
                     media_type=media_type,
@@ -113,17 +125,8 @@ class StaticFiles:
 
         headers["content-length"] = str(file_size)
 
-        async def full_file_stream() -> AsyncGenerator[bytes, None]:
-            with safe_path.open("rb") as file:
-                chunk_size = 64 * 1024
-                while True:
-                    chunk = file.read(chunk_size)
-                    if not chunk:
-                        break
-                    yield chunk
-
         return StreamResponse(
-            generator=full_file_stream(),
+            generator=_file_stream(safe_path),
             status_code=200,
             headers=headers,
             media_type=media_type,

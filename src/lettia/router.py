@@ -1,6 +1,5 @@
 import re
 from collections.abc import Iterable
-from typing import Any
 from urllib.parse import quote
 
 from attrs import define, field
@@ -9,26 +8,28 @@ from lettia.route import Route
 
 
 @define(slots=True)
-class RadixNode:
+class RadixNode[HandlerT]:
     part: str
-    children: dict[str, "RadixNode"] = field(factory=dict)
-    param_child: "RadixNode | None" = None
-    wildcard_child: "RadixNode | None" = None
-    routes: dict[str, Route] = field(factory=dict)
+    children: dict[str, "RadixNode[HandlerT]"] = field(
+        factory=dict[str, "RadixNode[HandlerT]"]
+    )
+    param_child: "RadixNode[HandlerT] | None" = None
+    wildcard_child: "RadixNode[HandlerT] | None" = None
+    routes: dict[str, Route[HandlerT]] = field(factory=dict[str, Route[HandlerT]])
     param_name: str | None = None
-    param_names: dict[str, str] = field(factory=dict)
-    wildcard_names: dict[str, str] = field(factory=dict)
+    param_names: dict[str, str] = field(factory=dict[str, str])
+    wildcard_names: dict[str, str] = field(factory=dict[str, str])
 
 
-class Router:
+class Router[HandlerT]:
     def __init__(self) -> None:
-        self._static_routes: dict[tuple[str, str], Route] = {}
-        self._named_routes: dict[str, Route] = {}
-        self._root = RadixNode(part="")
+        self._static_routes: dict[tuple[str, str], Route[HandlerT]] = {}
+        self._named_routes: dict[str, Route[HandlerT]] = {}
+        self._root: RadixNode[HandlerT] = RadixNode(part="")
 
     def add_route(
-        self, method: str, path: str, handler: Any, name: str | None = None
-    ) -> Route:
+        self, method: str, path: str, handler: HandlerT, name: str | None = None
+    ) -> Route[HandlerT]:
         method = method.upper()
         route = Route(method=method, path=path, handler=handler, name=name)
 
@@ -66,7 +67,9 @@ class Router:
         current.routes[method] = route
         return route
 
-    def match(self, method: str, path: str) -> tuple[Route, dict[str, str]] | None:
+    def match(
+        self, method: str, path: str
+    ) -> tuple[Route[HandlerT], dict[str, str]] | None:
         method = method.upper()
 
         # 1. Check static routes (O(1))
@@ -83,7 +86,7 @@ class Router:
 
     def _match_path(
         self, method: str, path: str
-    ) -> tuple[Route, dict[str, str]] | None:
+    ) -> tuple[Route[HandlerT], dict[str, str]] | None:
         # 2. Check Radix Tree (Static > Param > Wildcard)
         if (method, path) in self._static_routes:
             return self._static_routes[(method, path)], {}
@@ -100,12 +103,12 @@ class Router:
 
     def _match_node(
         self,
-        node: RadixNode,
+        node: RadixNode[HandlerT],
         segments: list[str],
         index: int,
         method: str,
         params: dict[str, str],
-    ) -> tuple[Route, dict[str, str]] | None:
+    ) -> tuple[Route[HandlerT], dict[str, str]] | None:
         if index == len(segments):
             if method in node.routes:
                 return node.routes[method], params
@@ -162,7 +165,7 @@ class Router:
 
     def _collect_methods(
         self,
-        node: RadixNode,
+        node: RadixNode[HandlerT],
         segments: list[str],
         index: int,
         methods: set[str],
@@ -184,7 +187,7 @@ class Router:
     def _placeholder_tokens(path: str) -> Iterable[re.Match[str]]:
         return re.finditer(r"([:*])([A-Za-z_]\w*)", path)
 
-    def url_for(self, name: str, **kwargs: Any) -> str:
+    def url_for(self, name: str, **kwargs: str | int | float | bool) -> str:
         if name not in self._named_routes:
             raise KeyError(f"Route with name '{name}' not found")
 
