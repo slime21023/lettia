@@ -78,7 +78,8 @@ class Context:
                 name = k.decode("latin-1").lower()
                 val = v.decode("latin-1")
                 if name in hdr_dict:
-                    hdr_dict[name] += f", {val}"
+                    separator = "; " if name == "cookie" else ", "
+                    hdr_dict[name] += f"{separator}{val}"
                 else:
                     hdr_dict[name] = val
             self._headers = hdr_dict

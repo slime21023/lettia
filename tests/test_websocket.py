@@ -25,6 +25,7 @@ async def test_websocket_lifecycle() -> None:
         websocket_scope(path="/ws", headers=[(b"host", b"localhost")]),
         websocket_receive(
             [
+                {"type": "websocket.connect"},
                 {"type": "websocket.receive", "text": "Hello WebSocket"},
             ]
         ),
@@ -95,7 +96,7 @@ async def test_websocket_handles_missing_and_failing_handlers() -> None:
     ] = []
     await missing_app(
         websocket_scope(path="/missing"),
-        websocket_receive([]),
+        websocket_receive([{"type": "websocket.connect"}]),
         websocket_sender(missing_messages),
     )
     assert missing_messages == [{"type": "websocket.close", "code": 404}]
@@ -112,7 +113,7 @@ async def test_websocket_handles_missing_and_failing_handlers() -> None:
     ] = []
     await failing_app(
         websocket_scope(path="/failing"),
-        websocket_receive([]),
+        websocket_receive([{"type": "websocket.connect"}]),
         websocket_sender(failed_messages),
     )
     assert failed_messages[-1] == {

@@ -90,8 +90,13 @@ class AttrsBinder:
     async def bind(self, ctx: Context, target_type: type[T]) -> T:
         if not has(target_type):
             raise TypeError(f"Target type {target_type} is not an attrs class")
+        try:
+            resolved_annotations: dict[str, object] = typing.get_type_hints(target_type)
+        except (NameError, TypeError):
+            resolved_annotations = {}
         annotations = {
-            attribute.name: attribute.type for attribute in fields(target_type)
+            attribute.name: resolved_annotations.get(attribute.name, attribute.type)
+            for attribute in fields(target_type)
         }
         return cast(T, await _bind_constructed(ctx, target_type, annotations))
 
@@ -100,8 +105,14 @@ class DataclassBinder:
     async def bind(self, ctx: Context, target_type: type[T]) -> T:
         if not dataclasses.is_dataclass(target_type):
             raise TypeError(f"Target type {target_type} is not a dataclass")
+        try:
+            resolved_annotations: dict[str, object] = typing.get_type_hints(
+                target_type
+            )
+        except (NameError, TypeError):
+            resolved_annotations = {}
         annotations = {
-            attribute.name: attribute.type
+            attribute.name: resolved_annotations.get(attribute.name, attribute.type)
             for attribute in dataclasses.fields(target_type)
         }
         return await _bind_constructed(ctx, target_type, annotations)

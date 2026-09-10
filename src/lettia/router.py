@@ -16,15 +16,15 @@ class RadixNode[HandlerT]:
     param_child: "RadixNode[HandlerT] | None" = None
     wildcard_child: "RadixNode[HandlerT] | None" = None
     routes: dict[str, Route[HandlerT]] = field(factory=dict[str, Route[HandlerT]])
-    param_name: str | None = None
-    param_names: dict[str, str] = field(factory=dict[str, str])
-    wildcard_names: dict[str, str] = field(factory=dict[str, str])
 
 
 class Router[HandlerT]:
     def __init__(self) -> None:
         self._static_routes: dict[tuple[str, str], Route[HandlerT]] = {}
         self._named_routes: dict[str, Route[HandlerT]] = {}
+        self._parameter_specs: dict[
+            tuple[str, str], tuple[tuple[int, str, bool], ...]
+        ] = {}
         self._root: RadixNode[HandlerT] = RadixNode(part="")
 
     def add_route(
@@ -33,11 +33,15 @@ class Router[HandlerT]:
         method = method.upper()
         route = Route(method=method, path=path, handler=handler, name=name)
 
-        if name:
-            self._named_routes[name] = route
+        if name is not None and name in self._named_routes:
+            raise ValueError(f"Route name '{name}' is already registered")
 
         # Determine if static route (no ':' or '*')
         if ":" not in path and "*" not in path:
+            if (method, path) in self._static_routes:
+                raise ValueError(f"Route {method} {path} is already registered")
+            if name is not None:
+                self._named_routes[name] = route
             self._static_routes[(method, path)] = route
             return route
 
@@ -47,16 +51,12 @@ class Router[HandlerT]:
 
         for seg in segments:
             if seg.startswith(":"):
-                param_name = seg[1:]
                 if current.param_child is None:
-                    current.param_child = RadixNode(part=seg, param_name=param_name)
-                current.param_child.param_names[method] = param_name
+                    current.param_child = RadixNode(part=seg)
                 current = current.param_child
             elif seg.startswith("*"):
-                param_name = seg[1:] if len(seg) > 1 else "wildcard"
                 if current.wildcard_child is None:
-                    current.wildcard_child = RadixNode(part=seg, param_name=param_name)
-                current.wildcard_child.wildcard_names[method] = param_name
+                    current.wildcard_child = RadixNode(part=seg)
                 current = current.wildcard_child
                 break  # Wildcard consumes the rest of the path
             else:
@@ -64,6 +64,18 @@ class Router[HandlerT]:
                     current.children[seg] = RadixNode(part=seg)
                 current = current.children[seg]
 
+        if method in current.routes:
+            raise ValueError(f"Route {method} {path} is already registered")
+        parameter_specs: list[tuple[int, str, bool]] = []
+        for index, segment in enumerate(segments):
+            if segment.startswith(":"):
+                parameter_specs.append((index, segment[1:], False))
+            elif segment.startswith("*"):
+                parameter_specs.append((index, segment[1:] or "wildcard", True))
+                break
+        self._parameter_specs[(method, path)] = tuple(parameter_specs)
+        if name is not None:
+            self._named_routes[name] = route
         current.routes[method] = route
         return route
 
@@ -76,11 +88,12 @@ class Router[HandlerT]:
         if (method, path) in self._static_routes:
             return self._static_routes[(method, path)], {}
 
-        # HEAD uses the GET representation when no explicit HEAD route exists.
+        # Prefer an explicit HEAD route, then use the GET representation.
         if method == "HEAD":
-            get_match = self._match_path("GET", path)
-            if get_match is not None:
-                return get_match
+            head_match = self._match_path("HEAD", path)
+            if head_match is not None:
+                return head_match
+            return self._match_path("GET", path)
 
         return self._match_path(method, path)
 
@@ -92,14 +105,7 @@ class Router[HandlerT]:
             return self._static_routes[(method, path)], {}
 
         segments = [s for s in path.split("/") if s]
-        params: dict[str, str] = {}
-
-        result = self._match_node(self._root, segments, 0, method, params)
-        if result:
-            matched_route, matched_params = result
-            return matched_route, matched_params
-
-        return None
+        return self._match_node(self._root, segments, 0, method)
 
     def _match_node(
         self,
@@ -107,51 +113,51 @@ class Router[HandlerT]:
         segments: list[str],
         index: int,
         method: str,
-        params: dict[str, str],
     ) -> tuple[Route[HandlerT], dict[str, str]] | None:
         if index == len(segments):
             if method in node.routes:
-                return node.routes[method], params
+                route = node.routes[method]
+                return route, self._path_params(route, segments)
+            if node.wildcard_child is not None:
+                wildcard_route = node.wildcard_child.routes.get(method)
+                if wildcard_route is not None:
+                    return wildcard_route, self._path_params(wildcard_route, segments)
             return None
 
         seg = segments[index]
 
         # 1. Try exact static match
         if seg in node.children:
-            matched = self._match_node(
-                node.children[seg], segments, index + 1, method, params
-            )
+            matched = self._match_node(node.children[seg], segments, index + 1, method)
             if matched:
                 return matched
 
         # 2. Try parameter match (:param)
         if node.param_child is not None:
-            new_params = params.copy()
-            parameter_name = node.param_child.param_names.get(
-                method, node.param_child.param_name
-            )
-            if parameter_name:
-                new_params[parameter_name] = seg
-            matched = self._match_node(
-                node.param_child, segments, index + 1, method, new_params
-            )
+            matched = self._match_node(node.param_child, segments, index + 1, method)
             if matched:
                 return matched
 
         # 3. Try wildcard match (*path)
         if node.wildcard_child is not None:
-            new_params = params.copy()
-            wildcard_name = (
-                node.wildcard_child.wildcard_names.get(
-                    method, node.wildcard_child.param_name
-                )
-                or "wildcard"
-            )
-            new_params[wildcard_name] = "/".join(segments[index:])
-            if method in node.wildcard_child.routes:
-                return node.wildcard_child.routes[method], new_params
+            wildcard_route = node.wildcard_child.routes.get(method)
+            if wildcard_route is not None:
+                return wildcard_route, self._path_params(wildcard_route, segments)
 
         return None
+
+    def _path_params(
+        self, route: Route[HandlerT], segments: list[str]
+    ) -> dict[str, str]:
+        params: dict[str, str] = {}
+        specs = self._parameter_specs.get((route.method, route.path), ())
+        for index, name, is_wildcard in specs:
+            if is_wildcard:
+                params[name] = "/".join(segments[index:])
+                break
+            if index < len(segments):
+                params[name] = segments[index]
+        return params
 
     def allowed_methods(self, path: str) -> set[str]:
         methods = {
@@ -159,6 +165,7 @@ class Router[HandlerT]:
         }
         segments = [s for s in path.split("/") if s]
         self._collect_methods(self._root, segments, 0, methods)
+        methods.discard("WEBSOCKET")
         if "GET" in methods:
             methods.add("HEAD")
         return methods
@@ -172,6 +179,8 @@ class Router[HandlerT]:
     ) -> None:
         if index == len(segments):
             methods.update(node.routes)
+            if node.wildcard_child is not None:
+                methods.update(node.wildcard_child.routes)
             return
 
         segment = segments[index]

@@ -14,6 +14,9 @@ def test_app_has_no_application_state() -> None:
     app = App()
 
     assert not hasattr(app, "state")
+    assert not hasattr(app, "router")
+    assert not hasattr(app, "global_middlewares")
+    assert not hasattr(app, "on_startup")
     with pytest.raises(AttributeError):
         object.__setattr__(app, "state", {})
 
@@ -72,6 +75,13 @@ def test_app_handles_default_and_custom_errors() -> None:
     assert response.status_code == 200
     assert response.text == "handled: boom"
 
+    sync_app = App()
+    sync_app.set_error_handler(lambda ctx, exc: f"handled: {exc}")
+    sync_app.add_route("GET", "/explode", explode)
+    sync_response = TestClient(sync_app).get("/explode")
+    assert sync_response.status_code == 200
+    assert sync_response.text == "handled: boom"
+
 
 @pytest.mark.asyncio
 async def test_app_lifespan() -> None:
@@ -84,8 +94,8 @@ async def test_app_lifespan() -> None:
     def shutdown() -> None:
         events.append("shutdown")
 
-    app.on_startup.append(startup)
-    app.on_shutdown.append(shutdown)
+    app.on_event("startup")(startup)
+    app.on_event("shutdown")(shutdown)
 
     sent_messages: list[LifespanSendEvent] = []
     await app(
@@ -106,7 +116,7 @@ async def test_app_lifespan_reports_startup_failure() -> None:
     def fail_startup() -> None:
         raise RuntimeError("startup failed")
 
-    app.on_startup.append(fail_startup)
+    app.on_event("startup")(fail_startup)
     sent_messages: list[LifespanSendEvent] = []
     await app(
         lifespan_scope(),

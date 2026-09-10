@@ -11,4 +11,6 @@ type WebSocketHandler = Callable[[WebSocketContext], Awaitable[None]]
 type RouteHandler = HTTPHandler | WebSocketHandler
 type HTTPDecorator = Callable[[HTTPHandler], HTTPHandler]
 type LifecycleHandler = Callable[[], Awaitable[None] | None]
-type ErrorHandler = Callable[[Context, Exception], Awaitable[ResponseValue]]
+type ErrorHandler = Callable[
+    [Context, Exception], ResponseValue | Awaitable[ResponseValue]
+]

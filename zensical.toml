@@ -6,6 +6,7 @@ use_directory_urls = false
 
 nav = [
     { "Overview" = "index.md" },
+    { "Release Notes" = "migrations/v1-rc2.md" },
     { "Getting Started" = [
         { "Build Your First App" = "getting_started.md" }
     ] },
@@ -41,7 +42,7 @@ nav = [
 [site]
 name = "Lettia Documentation"
 title = "Lettia Documentation"
-version = "1.0.1"
+version = "1.0.1rc2"
 
 [theme]
 name = "zensical"

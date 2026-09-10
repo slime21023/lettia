@@ -15,9 +15,9 @@ from lettia import App
 app = App()
 ```
 
-An application starts with an empty `Router`. Create it in an app factory and
-pass dependencies explicitly to route registration. Request-local values belong
-in `Context.state` through `StateKey[T]` values.
+An application starts with an empty internal `Router`. Create it in an app
+factory and pass dependencies explicitly to route registration. Request-local
+values belong in `Context.state` through `StateKey[T]` values.
 
 ## Registration API
 
@@ -93,10 +93,10 @@ async def handle_error(ctx: Context, exc: Exception) -> ResponseValue:
     ...
 ```
 
-The handler receives both the request context and the exception. It may return
-any value accepted by `normalize_response()`. `HTTPException` represents an
-expected HTTP failure; unexpected exceptions are converted to a 500 response
-by the default handler.
+The handler receives both the request context and the exception. It may be
+synchronous or asynchronous and return any value accepted by
+`normalize_response()`. `HTTPException` represents an expected HTTP failure;
+unexpected exceptions are converted to a 500 response by the default handler.
 
 ## Lifespan
 

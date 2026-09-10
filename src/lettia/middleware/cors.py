@@ -13,6 +13,8 @@ def cors(
     max_age: int = 600,
 ) -> Middleware:
     origins_set = set(allow_origins)
+    if allow_credentials and "*" in origins_set:
+        raise ValueError("allow_credentials cannot be used with wildcard origins")
     methods_str = ", ".join(allow_methods)
     headers_str = ", ".join(allow_headers)
 

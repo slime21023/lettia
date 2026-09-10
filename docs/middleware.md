@@ -69,7 +69,7 @@ app.use_pre(normalize_slash)
 
 | Middleware | Purpose | Important options |
 |---|---|---|
-| `recover()` | Convert unexpected exceptions to HTTP 500 | `on_recover` callback |
+| `recover()` | Log and re-raise unexpected exceptions for App's error handler | — |
 | `request_logger()` | Log method, path, status, and duration | `log_func` |
 | `cors()` | CORS headers and OPTIONS preflight | origins, methods, headers, credentials |
 | `request_id()` | Propagate or generate `X-Request-ID` | header name, generator |
@@ -92,9 +92,9 @@ app.use(
 )
 ```
 
-`recover()` preserves intentional `HTTPException` status codes and handles
-unexpected exceptions. Place it outermost when it should protect the entire
-HTTP chain.
+`recover()` preserves intentional `HTTPException` status codes and logs then
+re-raises unexpected exceptions. The App error handler remains the single
+place that renders an HTTP error response.
 
 ### CORS
 

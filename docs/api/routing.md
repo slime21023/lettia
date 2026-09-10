@@ -47,6 +47,9 @@ router.add_route(
 Static paths are stored in a direct lookup table. Paths containing `:` or `*`
 are inserted into the radix tree.
 
+Registering the same method and path, or reusing a route name, raises
+`ValueError`.
+
 Supported path forms are:
 
 | Form | Captured value |

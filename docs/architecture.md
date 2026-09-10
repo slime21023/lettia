@@ -87,7 +87,8 @@ def require_admin(ctx: Context) -> None:
 ```
 
 The default handler returns dictionary/list details as JSON and other details
-as text. A custom handler can be registered with `@app.error_handler`.
+as text. A custom handler can be registered with `@app.error_handler`. The
+application error handler is the single HTTP error rendering boundary.
 
 Method-aware routing returns 404 when a path is unknown and 405 with an
 `Allow` header when the path exists for another method. `HEAD` falls back to a

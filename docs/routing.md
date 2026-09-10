@@ -50,6 +50,9 @@ returns 404. A known path with an unsupported method returns 405 and includes
 an `Allow` header. `HEAD` uses the matching `GET` route unless an explicit
 `HEAD` route is registered.
 
+Registering the same method and path, or reusing a route name, raises
+`ValueError`.
+
 ## Registering routes
 
 Use decorators for the common case:

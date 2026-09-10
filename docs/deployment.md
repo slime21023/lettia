@@ -100,6 +100,14 @@ uv run pyrefly check
 uv run zensical build --strict
 ```
 
+For a real local server smoke check, run the example and query it over a
+loopback socket:
+
+```bash
+uv run uvicorn examples.rest_api:app --host 127.0.0.1 --port 8765
+curl --fail http://127.0.0.1:8765/api/v1/users/
+```
+
 Run load, failure, and server-integration tests in the target environment as
 well. Unit coverage validates Lettia's contracts; it does not replace capacity
 or infrastructure validation.

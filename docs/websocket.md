@@ -41,6 +41,10 @@ async def echo(ws: WebSocketContext) -> None:
 application catches it at the ASGI boundary; handlers can catch it when they
 need cleanup logic.
 
+`App` consumes the initial ASGI `websocket.connect` event before dispatching to
+the handler. The handler starts in the `CONNECTING` state and must call
+`accept()` before receiving or sending frames.
+
 ## Context methods
 
 | Method | Behavior |

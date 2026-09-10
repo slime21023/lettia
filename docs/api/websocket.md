@@ -26,6 +26,10 @@ CONNECTING --accept()--> CONNECTED --close()/peer disconnect--> DISCONNECTED
 `WebSocketDisconnect` represents a normal peer disconnect and should usually
 be caught by an echo or subscription loop.
 
+`App` consumes the initial ASGI `websocket.connect` event before invoking the
+registered handler. The handler must call `accept()` before receiving or
+sending frames.
+
 ## `WebSocketContext`
 
 ```python

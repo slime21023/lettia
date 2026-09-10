@@ -113,7 +113,7 @@ The conversion rules are:
 | `dict` or `list` | `JsonResponse` |
 | `(body, status_code)` | Body normalized, status replaced |
 | `(body, status_code, headers)` | Body normalized, status and headers applied |
-| Other values | `TextResponse(str(value))` |
+| Other values | `TypeError` |
 
 ## `ResponseWriter`
 

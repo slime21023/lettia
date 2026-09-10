@@ -4,6 +4,7 @@ import pytest
 
 from lettia import SESSION, App, Context
 from lettia.middleware import MemoryRateLimiter, rate_limit, session
+from lettia.middleware.session import _sign, _unsign
 from lettia.testing import TestClient
 
 rate_limit_module = import_module("lettia.middleware.rate_limit")
@@ -81,3 +82,10 @@ def test_signed_session_middleware() -> None:
     r2 = client.get("/get-session", headers={"cookie": cookie})
     assert r2.status_code == 200
     assert r2.json() == {"user_id": "user_999"}
+
+
+def test_signed_session_round_trip_allows_dots_in_payload() -> None:
+    payload = b'{"user_id":"user.999"}'
+    signed = _sign(payload, b"secret")
+
+    assert _unsign(signed, b"secret") == payload

@@ -19,9 +19,12 @@ def _sign(data: bytes, secret: bytes) -> str:
 def _unsign(cookie_value: str, secret: bytes) -> bytes | None:
     try:
         raw_bytes = base64.urlsafe_b64decode(cookie_value.encode("ascii"))
-        if b"." not in raw_bytes:
+        signature_size = hashlib.sha256().digest_size
+        delimiter_index = -(signature_size + 1)
+        if len(raw_bytes) <= signature_size or raw_bytes[delimiter_index] != ord("."):
             return None
-        data, signature = raw_bytes.rsplit(b".", 1)
+        data = raw_bytes[:delimiter_index]
+        signature = raw_bytes[delimiter_index + 1 :]
         expected_sig = hmac.new(secret, data, hashlib.sha256).digest()
         if hmac.compare_digest(signature, expected_sig):
             return data

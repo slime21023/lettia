@@ -21,7 +21,7 @@ from lettia.asgi import (
 from lettia.context import Context
 from lettia.errors import HTTPException
 from lettia.ext import StaticFiles
-from lettia.middleware import Handler, cors, recover
+from lettia.middleware import Handler, cors, recover, request_id, request_logger
 from lettia.response import Response
 from lettia.router import Router
 from lettia.testing import TestClient
@@ -124,6 +124,72 @@ def test_router_keeps_parameter_names_per_method() -> None:
     assert result[1] == {"user_id": "7"}
 
 
+def test_router_keeps_parameter_names_for_shared_prefix_routes() -> None:
+    router: Router[str] = Router()
+    router.add_route("GET", "/a/:first", "short")
+    router.add_route("GET", "/a/:second/b", "long")
+
+    result = router.match("GET", "/a/value")
+
+    assert result is not None
+    assert result[0].handler == "short"
+    assert result[1] == {"first": "value"}
+
+
+def test_explicit_head_route_precedes_get_fallback() -> None:
+    router: Router[str] = Router()
+    router.add_route("GET", "/users/profile", "get-profile")
+    router.add_route("HEAD", "/users/:user_id", "head-user")
+
+    result = router.match("HEAD", "/users/profile")
+
+    assert result is not None
+    assert result[0].handler == "head-user"
+    assert result[1] == {"user_id": "profile"}
+
+
+def test_websocket_routes_are_not_advertised_in_allow_header() -> None:
+    app = App()
+
+    async def websocket_handler(ws: WebSocketContext) -> None:
+        await ws.accept()
+
+    app.websocket("/ws")(websocket_handler)
+
+    response = TestClient(app).get("/ws")
+
+    assert response.status_code == 404
+    assert "allow" not in response.headers
+
+
+def test_error_response_runs_global_response_middleware() -> None:
+    messages: list[str] = []
+    app = App()
+    app.use(
+        cors(allow_origins=["https://example.com"]),
+        request_id(generator=lambda: "request-1"),
+        request_logger(log_func=messages.append),
+    )
+
+    def missing(ctx: Context) -> str:
+        ctx.abort(404, "missing")
+
+    app.add_route("GET", "/missing", missing)
+    response = TestClient(app).get(
+        "/missing", headers={"Origin": "https://example.com"}
+    )
+
+    assert response.status_code == 404
+    assert response.headers["access-control-allow-origin"] == "https://example.com"
+    assert response.headers["x-request-id"] == "request-1"
+    assert "GET /missing -> 404" in messages[0]
+
+
+def test_cors_rejects_wildcard_credentials() -> None:
+    with pytest.raises(ValueError, match="wildcard"):
+        cors(allow_credentials=True)
+
+
 def test_url_for_validates_and_encodes_parameters() -> None:
     router: Router[str] = Router()
     router.add_route("GET", "/users/:id", "user", name="user")
@@ -175,7 +241,12 @@ async def test_websocket_disconnect_is_not_reported_as_internal_error() -> None:
     sent: list[WebSocketAcceptEvent | WebSocketSendEvent | WebSocketCloseEvent] = []
     await app(
         websocket_scope(path="/ws"),
-        websocket_receive([{"type": "websocket.disconnect", "code": 1000}]),
+        websocket_receive(
+            [
+                {"type": "websocket.connect"},
+                {"type": "websocket.disconnect", "code": 1000},
+            ]
+        ),
         websocket_sender(sent),
     )
     assert sent == [{"type": "websocket.accept"}]

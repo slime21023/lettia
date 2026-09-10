@@ -30,8 +30,8 @@ For development:
 uv add --dev pytest pytest-asyncio pytest-cov hypothesis ruff pyright pyrefly
 ```
 
-The runtime dependency is `attrs`. Optional extras are available for Pydantic,
-msgspec-related integrations, and HTTPX-based testing:
+The runtime dependency is `attrs`. Optional extras are available for Pydantic
+and HTTPX-based testing:
 
 ```bash
 uv add "lettia[pydantic]"
@@ -233,8 +233,8 @@ def require_admin(ctx: Context) -> None:
 ```
 
 The default error handler renders dictionary/list details as JSON and other
-details as text. Use `recover()` or `@app.error_handler` to customize
-unexpected-error handling.
+details as text. Use `@app.error_handler` to customize unexpected-error
+handling; `recover()` logs and re-raises unexpected exceptions for that handler.
 
 ## Middleware and built-in capabilities
 
@@ -263,7 +263,7 @@ Built-in middleware includes:
 
 | Middleware | Purpose |
 |---|---|
-| `recover()` | Convert unexpected exceptions into HTTP 500 responses |
+| `recover()` | Log and re-raise unexpected exceptions for App's error handler |
 | `request_logger()` | Log method, path, status, and duration |
 | `cors()` | Add CORS headers and answer preflight requests |
 | `request_id()` | Propagate or generate `X-Request-ID` |

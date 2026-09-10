@@ -40,43 +40,41 @@ logger: logging.Logger = logging.getLogger("lettia.app")
 
 class App:
     __slots__ = (
-        "router",
-        "global_middlewares",
-        "pre_middlewares",
+        "_router",
+        "_global_middlewares",
+        "_pre_middlewares",
         "_error_handler",
         "_route_middlewares",
         "_compiled_chains",
-        "_compiled_global_chain",
         "_compiled_pre_chain",
         "_route_list",
-        "on_startup",
-        "on_shutdown",
+        "_on_startup",
+        "_on_shutdown",
         "_is_compiled",
     )
 
     def __init__(self) -> None:
-        self.router: Router[RouteHandler] = Router()
-        self.global_middlewares: list[Middleware] = []
-        self.pre_middlewares: list[Middleware] = []
+        self._router: Router[RouteHandler] = Router()
+        self._global_middlewares: list[Middleware] = []
+        self._pre_middlewares: list[Middleware] = []
         self._error_handler: ErrorHandler = default_error_handler
 
         self._route_middlewares: dict[tuple[str, str], list[Middleware]] = {}
         self._compiled_chains: dict[tuple[str, str], Handler] = {}
-        self._compiled_global_chain: Handler | None = None
         self._compiled_pre_chain: Handler | None = None
         self._route_list: list[tuple[str, str, RouteHandler]] = []
 
-        self.on_startup: list[LifecycleHandler] = []
-        self.on_shutdown: list[LifecycleHandler] = []
+        self._on_startup: list[LifecycleHandler] = []
+        self._on_shutdown: list[LifecycleHandler] = []
         self._is_compiled: bool = False
 
     def use(self, *middlewares: Middleware) -> "App":
-        self.global_middlewares.extend(middlewares)
+        self._global_middlewares.extend(middlewares)
         self._is_compiled = False
         return self
 
     def use_pre(self, *pre_middlewares: Middleware) -> "App":
-        self.pre_middlewares.extend(pre_middlewares)
+        self._pre_middlewares.extend(pre_middlewares)
         self._is_compiled = False
         return self
 
@@ -96,9 +94,9 @@ class App:
     ) -> Callable[[LifecycleHandler], LifecycleHandler]:
         def decorator(func: LifecycleHandler) -> LifecycleHandler:
             if event_type == "startup":
-                self.on_startup.append(func)
+                self._on_startup.append(func)
             elif event_type == "shutdown":
-                self.on_shutdown.append(func)
+                self._on_shutdown.append(func)
             else:
                 raise ValueError(f"Unknown event type: {event_type}")
             return func
@@ -114,7 +112,7 @@ class App:
         middlewares: list[Middleware] | None = None,
     ) -> None:
         method = method.upper()
-        self.router.add_route(method, path, handler, name=name)
+        self._router.add_route(method, path, handler, name=name)
 
         route_mw = list(middlewares) if middlewares else []
         self._route_middlewares[(method, path)] = route_mw
@@ -160,7 +158,7 @@ class App:
         self, path: str, name: str | None = None
     ) -> Callable[[WebSocketHandler], WebSocketHandler]:
         def decorator(func: WebSocketHandler) -> WebSocketHandler:
-            self.router.add_route("WEBSOCKET", path, func, name=name)
+            self._router.add_route("WEBSOCKET", path, func, name=name)
             self._route_list.append(("WEBSOCKET", path, func))
             self._is_compiled = False
             return func
@@ -168,7 +166,7 @@ class App:
         return decorator
 
     def url_for(self, name: str, **kwargs: str | int | float | bool) -> str:
-        return self.router.url_for(name, **kwargs)
+        return self._router.url_for(name, **kwargs)
 
     def _compile_chains(self) -> None:
         """Pre-compile handler middleware chains during boot time."""
@@ -191,9 +189,9 @@ class App:
             self._compiled_chains[(method, path)] = compiled
 
         async def dispatch(ctx: Context) -> Response:
-            match_result = self.router.match(ctx.method, ctx.path)
+            match_result = self._router.match(ctx.method, ctx.path)
             if match_result is None:
-                allowed_methods = self.router.allowed_methods(ctx.path)
+                allowed_methods = self._router.allowed_methods(ctx.path)
                 if allowed_methods:
                     raise HTTPException(
                         405,
@@ -214,10 +212,14 @@ class App:
                 )
             return await compiled_chain(ctx)
 
-        self._compiled_global_chain = build_chain(dispatch, self.global_middlewares)
-        self._compiled_pre_chain = build_chain(
-            self._compiled_global_chain, self.pre_middlewares
-        )
+        async def dispatch_with_errors(ctx: Context) -> Response:
+            try:
+                return await dispatch(ctx)
+            except Exception as exc:
+                return await self._render_error(ctx, exc)
+
+        global_chain = build_chain(dispatch_with_errors, self._global_middlewares)
+        self._compiled_pre_chain = build_chain(global_chain, self._pre_middlewares)
 
         self._is_compiled = True
 
@@ -294,9 +296,7 @@ class App:
         self, ctx: Context, writer: ResponseWriter, exc: Exception
     ) -> None:
         try:
-            error_response = await self._error_handler(ctx, exc)
-            normalized_err_resp = normalize_response(error_response)
-            await writer.write(normalized_err_resp)
+            await writer.write(await self._render_error(ctx, exc))
         except Exception:
             if not writer.committed:
                 await ctx.send(
@@ -313,11 +313,28 @@ class App:
                     }
                 )
 
+    async def _render_error(self, ctx: Context, exc: Exception) -> Response:
+        try:
+            error_response = self._error_handler(ctx, exc)
+            if isinstance(error_response, Awaitable):
+                error_response = await error_response
+            return normalize_response(error_response)
+        except Exception:
+            logger.exception("Error handler failed")
+            return normalize_response(await default_error_handler(ctx, exc))
+
     async def _handle_websocket(
         self, scope: WebSocketScope, receive: WebSocketReceive, send: WebSocketSend
     ) -> None:
+        initial_message = await receive()
+        if initial_message["type"] == "websocket.disconnect":
+            return
+        if initial_message["type"] != "websocket.connect":
+            await send({"type": "websocket.close", "code": 1002})
+            return
+
         path = scope["path"]
-        match_result = self.router.match("WEBSOCKET", path)
+        match_result = self._router.match("WEBSOCKET", path)
 
         if match_result is None:
             await send({"type": "websocket.close", "code": 404})
@@ -348,7 +365,7 @@ class App:
             if msg_type == "lifespan.startup":
                 try:
                     self._compile_chains()
-                    for handler in self.on_startup:
+                    for handler in self._on_startup:
                         res = handler()
                         if isinstance(res, Awaitable):
                             await res
@@ -363,7 +380,7 @@ class App:
                     return
             elif msg_type == "lifespan.shutdown":
                 try:
-                    for handler in self.on_shutdown:
+                    for handler in self._on_shutdown:
                         res = handler()
                         if isinstance(res, Awaitable):
                             await res

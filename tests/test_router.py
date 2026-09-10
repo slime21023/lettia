@@ -87,3 +87,30 @@ def test_url_for() -> None:
 
     with pytest.raises(KeyError):
         router.url_for("non_existent_route")
+
+
+def test_root_wildcard_matches_empty_path() -> None:
+    router = Router()
+    router.add_route("GET", "/*filepath", "files")
+
+    result = router.match("GET", "/")
+
+    assert result is not None
+    assert result[0].handler == "files"
+    assert result[1] == {"filepath": ""}
+
+
+def test_duplicate_routes_are_rejected() -> None:
+    router = Router()
+    router.add_route("GET", "/items", "first")
+
+    with pytest.raises(ValueError, match="already registered"):
+        router.add_route("GET", "/items", "second")
+
+
+def test_duplicate_route_names_are_rejected() -> None:
+    router = Router()
+    router.add_route("GET", "/first", "first", name="item")
+
+    with pytest.raises(ValueError, match="already registered"):
+        router.add_route("GET", "/second", "second", name="item")

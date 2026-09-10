@@ -13,11 +13,9 @@ def test_group_nesting_and_prefix() -> None:
 
     users.get("/:id", name="user_detail")(get_user)
     assert users.prefix == "/api/v1/users"
-    match_result = app.router.match("GET", "/api/v1/users/42")
-    assert match_result is not None
-    route, params = match_result
-    assert route.name == "user_detail"
-    assert params == {"id": "42"}
+    response = TestClient(app).get("/api/v1/users/42")
+    assert response.status_code == 200
+    assert response.text == "user_42"
 
 
 def test_group_middleware_inheritance() -> None:
@@ -67,5 +65,6 @@ def test_group_normalizes_paths_and_registers_all_methods() -> None:
     group.delete("items")(handler)
     group.patch("items")(handler)
     assert group.prefix == "/api"
+    client = TestClient(app)
     for method in ("GET", "POST", "PUT", "DELETE", "PATCH"):
-        assert app.router.match(method, "/api/items") is not None
+        assert client.request(method, "/api/items").status_code == 200

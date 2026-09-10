@@ -66,13 +66,11 @@ and limits.
 ### `recover()`
 
 ```python
-recover(
-    on_recover: Callable[[Context, Exception], ResponseValue | Awaitable[ResponseValue]] | None = None,
-) -> Middleware
+recover() -> Middleware
 ```
 
-Preserves `HTTPException`. Other exceptions are logged and converted to a 500
-response, or passed to `on_recover` when supplied.
+Preserves `HTTPException`. Other exceptions are logged and re-raised so the
+App error handler renders the response.
 
 ### `request_logger()`
 

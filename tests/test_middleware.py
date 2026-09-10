@@ -64,10 +64,8 @@ async def test_recover_middleware() -> None:
     chain = recover_mw(failing_handler)
 
     ctx = http_context()
-    res = await chain(ctx)
-
-    assert res.status_code == 500
-    assert res.body == b"Internal Server Error"
+    with pytest.raises(ValueError, match="Something went wrong"):
+        await chain(ctx)
 
 
 @pytest.mark.asyncio

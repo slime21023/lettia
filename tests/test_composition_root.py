@@ -2,6 +2,13 @@ import asyncio
 import runpy
 from pathlib import Path
 
+from asgi_helpers import (
+    LifespanSendEvent,
+    lifespan_receive,
+    lifespan_scope,
+    lifespan_sender,
+)
+
 from lettia.testing import TestClient
 
 ROOT = Path(__file__).parent.parent
@@ -29,14 +36,19 @@ def test_composition_root_injects_services_and_owns_lifecycle() -> None:
     )
     app = create_app(services)
 
-    for handler in app.on_startup:
-        asyncio.run(handler())
+    sent_messages: list[LifespanSendEvent] = []
+    asyncio.run(
+        app(
+            lifespan_scope(),
+            lifespan_receive(
+                [{"type": "lifespan.startup"}, {"type": "lifespan.shutdown"}]
+            ),
+            lifespan_sender(sent_messages),
+        )
+    )
 
     client = TestClient(app)
     assert client.get("/users/1").json() == {"id": "1", "name": "Ada"}
     assert client.get("/users/404").status_code == 404
-
-    for handler in app.on_shutdown:
-        asyncio.run(handler())
 
     assert events == ["start", "close"]

@@ -3,6 +3,7 @@ import time
 from collections.abc import Callable
 
 from lettia.context import Context
+from lettia.errors import HTTPException
 from lettia.middleware.base import Handler, Middleware
 from lettia.response import Response, normalize_response
 
@@ -21,6 +22,9 @@ def request_logger(log_func: Callable[[str], None] | None = None) -> Middleware:
                 res = await next_handler(ctx)
                 response_obj = normalize_response(res)
                 return response_obj
+            except HTTPException as exc:
+                response_obj = Response(status_code=exc.status_code)
+                raise
             finally:
                 duration_ms = (time.perf_counter() - start_time) * 1000
                 status = response_obj.status_code if response_obj else 500

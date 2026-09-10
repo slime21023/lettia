@@ -52,6 +52,13 @@ def test_context_lazy_query_and_headers() -> None:
     assert ctx.cookie("nonexistent") is None
 
 
+def test_context_combines_repeated_cookie_headers_with_cookie_separator() -> None:
+    ctx = context_for(headers=[(b"cookie", b"a=1"), (b"cookie", b"b=2")])
+
+    assert ctx.headers["cookie"] == "a=1; b=2"
+    assert ctx.cookies == {"a": "1", "b": "2"}
+
+
 @pytest.mark.asyncio
 async def test_context_lazy_body_and_json() -> None:
     sent: list[HTTPSendEvent] = []
