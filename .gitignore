@@ -13,6 +13,7 @@ wheels/
 .cache/
 .pytest_cache/
 .ruff_cache/
+.hypothesis/
 
 # Virtual environments
 .venv

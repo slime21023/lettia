@@ -31,7 +31,17 @@ def cors(
                     resp.set_header("access-control-allow-origin", "*")
                 elif req_origin in origins_set:
                     resp.set_header("access-control-allow-origin", req_origin)
-                    resp.set_header("vary", "Origin")
+                    vary: dict[str, str] = {}
+                    for name in list(resp.headers):
+                        if name.lower() == "vary":
+                            for token in resp.headers.pop(name).split(","):
+                                token = token.strip()
+                                if token:
+                                    vary.setdefault(token.lower(), token)
+                    vary.setdefault("origin", "Origin")
+                    resp.set_header(
+                        "vary", "*" if "*" in vary else ", ".join(vary.values())
+                    )
 
                 if allow_credentials and "*" not in origins_set:
                     resp.set_header("access-control-allow-credentials", "true")

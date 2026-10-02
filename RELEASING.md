@@ -12,17 +12,24 @@
 
 ```bash
 uv run pytest
+uv run ruff format --check .
 uv run ruff check .
 uv run pyright
 uv run pyrefly check
+uv run pyrefly coverage check src/lettia --strict --public-only --fail-under 100
 uv run zensical build --strict
 uv build
 uvx --from twine twine check dist/*
 ```
 
 Run `uv run python benchmarks/run_benchmark.py` when routing, middleware,
-binding, response, or security code changes. Test the wheel in a clean target
-environment before publishing.
+binding, response, or security code changes. The static benchmark includes content hashing for conditional requests.
+Test the wheel in a clean target environment before publishing.
+
+Confirm the Windows/Ubuntu Python 3.12–3.14 CI matrix passes. Symlink escape
+properties may skip only on Windows without symlink privileges; they must run
+on Linux. See `docs/testing.md` for replaying Hypothesis failures. Release notes
+must call out session invalidation, strict scalar binding, and HTML escaping.
 
 ## Publish
 

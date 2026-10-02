@@ -3,7 +3,7 @@ import binascii
 import hashlib
 import hmac
 import json
-from typing import cast
+import time
 
 from lettia.context import Context, validate_json_value
 from lettia.middleware.base import Handler, Middleware
@@ -40,6 +40,8 @@ def session(
     same_site: str = "lax",
     https_only: bool = False,
 ) -> Middleware:
+    if max_age <= 0:
+        raise ValueError("Session max_age must be positive")
     secret_bytes = secret_key.encode("utf-8")
 
     def middleware(next_handler: Handler) -> Handler:
@@ -51,16 +53,26 @@ def session(
                 raw_json = _unsign(cookie_val, secret_bytes)
                 if raw_json:
                     try:
-                        decoded_session = json.loads(raw_json.decode("utf-8"))
+                        decoded: object = json.loads(raw_json.decode("utf-8"))
+                        envelope = validate_json_value(decoded)
                     except (UnicodeDecodeError, json.JSONDecodeError):
                         session_data = {}
                     else:
-                        decoded_value: object = decoded_session
-                        if isinstance(decoded_value, dict):
-                            raw_mapping = cast(dict[object, object], decoded_value)
-                            validated = validate_json_value(raw_mapping)
-                            if isinstance(validated, dict):
-                                session_data = validated
+                        if (
+                            isinstance(envelope, dict)
+                            and type(envelope.get("v")) is int
+                            and envelope.get("v") == 1
+                        ):
+                            issued_at = envelope.get("iat")
+                            data = envelope.get("data")
+                            now = time.time()
+                            if (
+                                isinstance(issued_at, (int, float))
+                                and not isinstance(issued_at, bool)
+                                and now - max_age < issued_at <= now
+                                and isinstance(data, dict)
+                            ):
+                                session_data = data
 
             ctx.state.set(SESSION, session_data)
             initial_session_str = json.dumps(session_data, sort_keys=True)
@@ -74,7 +86,10 @@ def session(
             # If session was modified, set updated signed cookie
             if current_session_str != initial_session_str:
                 if current_session:
-                    json_bytes = current_session_str.encode("utf-8")
+                    json_bytes = json.dumps(
+                        {"v": 1, "iat": time.time(), "data": current_session},
+                        sort_keys=True,
+                    ).encode("utf-8")
                     signed_val = _sign(json_bytes, secret_bytes)
                     resp.set_cookie(
                         cookie_name,

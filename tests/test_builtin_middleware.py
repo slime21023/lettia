@@ -57,7 +57,7 @@ async def test_request_id_middleware() -> None:
 @pytest.mark.asyncio
 async def test_timeout_middleware() -> None:
     async def slow_handler(ctx: Context) -> Response:
-        await asyncio.sleep(0.1)
+        await asyncio.Event().wait()
         return TextResponse("Slow OK")
 
     with pytest.raises(HTTPException) as exc_info:

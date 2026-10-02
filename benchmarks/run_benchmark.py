@@ -1,11 +1,15 @@
 import asyncio
 import dataclasses
+import tempfile
 import time
+from pathlib import Path
 from typing import Any
 
 from attrs import define
 
 from lettia import App, Context, Response, Router
+from lettia.asgi import HTTPReceiveEvent, HTTPScope, HTTPSendEvent
+from lettia.ext import StaticFiles
 from lettia.middleware import (
     MemoryRateLimiter,
     build_chain,
@@ -245,6 +249,47 @@ def benchmark_response_normalization(iterations: int = 100000) -> None:
     )
 
 
+def benchmark_static_etag(iterations: int = 20) -> None:
+    """Measure warm-filesystem conditional requests, including content hashing."""
+
+    async def receive() -> HTTPReceiveEvent:
+        return {"type": "http.request", "body": b""}
+
+    async def send(message: HTTPSendEvent) -> None:
+        pass
+
+    async def run_loop() -> None:
+        print("\n--- 8. Static Content ETag Benchmark (warm filesystem) ---")
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "file.bin"
+            static = StaticFiles(directory)
+            for size in (1024, 1024 * 1024, 8 * 1024 * 1024):
+                path.write_bytes(b"x" * size)
+                scope: HTTPScope = {
+                    "type": "http",
+                    "method": "GET",
+                    "path": "/file.bin",
+                    "headers": [],
+                }
+                initial = await static.handle(Context(scope, receive, send))
+                scope["headers"] = [
+                    (b"if-none-match", initial.headers["etag"].encode())
+                ]
+                started = time.perf_counter()
+                for _ in range(iterations):
+                    response = await static.handle(Context(scope, receive, send))
+                    if response.status_code != 304:
+                        raise RuntimeError("Conditional request did not return 304")
+                elapsed = time.perf_counter() - started
+                print(
+                    f"SHA-256 ETag {size // 1024:>5,} KiB: "
+                    f"{elapsed * 1000 / iterations:.3f} ms/request "
+                    f"({iterations} conditional requests)"
+                )
+
+    asyncio.run(run_loop())
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("      LETTIA v1.0 BENCHMARK SUITE (Python 3.12 Engine)")
@@ -256,4 +301,5 @@ if __name__ == "__main__":
     benchmark_full_asgi_app_pipeline()
     benchmark_security_and_sessions()
     benchmark_response_normalization()
+    benchmark_static_etag()
     print("=" * 60)

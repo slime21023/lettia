@@ -25,7 +25,7 @@ from lettia.handlers import (
     RouteHandler,
     WebSocketHandler,
 )
-from lettia.middleware import Handler, Middleware, build_chain
+from lettia.middleware import Handler, Middleware
 from lettia.response import (
     Response,
     ResponseTimeout,
@@ -185,7 +185,7 @@ class App:
                     return normalize_response(await res)
                 return normalize_response(res)
 
-            compiled = build_chain(base_handler, route_mw)
+            compiled = self._build_chain(base_handler, route_mw)
             self._compiled_chains[(method, path)] = compiled
 
         async def dispatch(ctx: Context) -> Response:
@@ -212,16 +212,27 @@ class App:
                 )
             return await compiled_chain(ctx)
 
-        async def dispatch_with_errors(ctx: Context) -> Response:
+        global_chain = self._build_chain(dispatch, self._global_middlewares)
+        self._compiled_pre_chain = self._build_chain(
+            global_chain, self._pre_middlewares
+        )
+
+        self._is_compiled = True
+
+    def _protect(self, handler: Handler) -> Handler:
+        async def protected(ctx: Context) -> Response:
             try:
-                return await dispatch(ctx)
+                return await handler(ctx)
             except Exception as exc:
                 return await self._render_error(ctx, exc)
 
-        global_chain = build_chain(dispatch_with_errors, self._global_middlewares)
-        self._compiled_pre_chain = build_chain(global_chain, self._pre_middlewares)
+        return protected
 
-        self._is_compiled = True
+    def _build_chain(self, handler: Handler, middlewares: list[Middleware]) -> Handler:
+        chain = self._protect(handler)
+        for middleware in reversed(middlewares):
+            chain = self._protect(middleware(chain))
+        return chain
 
     @overload
     async def __call__(
@@ -314,6 +325,12 @@ class App:
                 )
 
     async def _render_error(self, ctx: Context, exc: Exception) -> Response:
+        if not isinstance(exc, HTTPException):
+            logger.exception(
+                "Request failed",
+                exc_info=exc,
+                extra={"path": ctx.path, "method": ctx.method},
+            )
         try:
             error_response = self._error_handler(ctx, exc)
             if isinstance(error_response, Awaitable):

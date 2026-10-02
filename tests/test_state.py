@@ -5,30 +5,43 @@ from asgi_helpers import (
     websocket_scope,
     websocket_sender,
 )
+from hypothesis import given
+from hypothesis import strategies as st
 
 from lettia.asgi import WebSocketAcceptEvent, WebSocketCloseEvent, WebSocketSendEvent
 from lettia.state import StateKey
 from lettia.websocket import WebSocketContext
 
 
-def test_state_store_preserves_key_identity_and_value_types() -> None:
-    first_key = StateKey[int]("example.value")
-    same_name_key = StateKey[int]("example.value")
-    ctx = http_context()
-    ctx.state.set(first_key, 42)
-    assert ctx.state.get(first_key) == 42
-    assert ctx.state.get(same_name_key) is None
-    assert ctx.state.require(first_key) == 42
-
-
-def test_state_store_require_and_discard() -> None:
-    key = StateKey[str]("example.token")
-    ctx = http_context()
-    with pytest.raises(KeyError, match="example.token"):
-        ctx.state.require(key)
-    ctx.state.set(key, "token")
-    ctx.state.discard(key)
-    assert ctx.state.get(key) is None
+@given(
+    operations=st.lists(
+        st.tuples(
+            st.sampled_from(["set", "get", "discard"]), st.integers(0, 3), st.integers()
+        ),
+        max_size=50,
+    )
+)
+def test_state_operations_match_identity_key_model(
+    operations: list[tuple[str, int, int]],
+) -> None:
+    keys = [StateKey[int]("same-name") for _ in range(4)]
+    ctx, other = http_context(), http_context()
+    expected: dict[int, int] = {}
+    for operation, index, value in operations:
+        key = keys[index]
+        if operation == "set":
+            ctx.state.set(key, value)
+            expected[index] = value
+        elif operation == "discard":
+            ctx.state.discard(key)
+            expected.pop(index, None)
+        assert ctx.state.get(key) == expected.get(index)
+        assert other.state.get(key) is None
+        if index in expected:
+            assert ctx.state.require(key) == expected[index]
+        else:
+            with pytest.raises(KeyError):
+                ctx.state.require(key)
 
 
 def test_http_and_websocket_context_state_are_isolated() -> None:

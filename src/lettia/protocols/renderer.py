@@ -1,3 +1,5 @@
+import html
+import re
 from collections.abc import Mapping
 from typing import Protocol, runtime_checkable
 
@@ -24,12 +26,15 @@ class SimpleHTMLRenderer:
         context: Mapping[str, object] | None = None,
         status_code: int = 200,
     ) -> Response:
-        html = self.templates.get(template_name, "")
+        template = self.templates.get(template_name, "")
         ctx = context or {}
-        for k, v in ctx.items():
-            html = html.replace(f"{{{{{k}}}}}", str(v))
+
+        def replace(match: re.Match[str]) -> str:
+            return html.escape(str(ctx[match[1]])) if match[1] in ctx else match[0]
+
+        rendered = re.sub(r"\{\{([^{}]+)\}\}", replace, template)
         return TextResponse(
-            text=html,
+            text=rendered,
             status_code=status_code,
             media_type="text/html; charset=utf-8",
         )

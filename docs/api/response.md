@@ -119,17 +119,22 @@ The conversion rules are:
 
 ```python
 ResponseWriter(send: HTTPSend, head_only: bool = False)
-await writer.write(response: Response) -> None
+await writer.write(response: Response, deadline: float | None = None) -> None
 ```
 
 The writer:
 
 - emits `http.response.start` once;
 - adds a default `content-type` when one is not supplied;
-- adds `content-length` for non-streaming bodies;
+- adds `content-length` for non-streaming bodies, except 204 and 304;
 - emits multiple `set-cookie` header lines;
 - streams async body chunks with `more_body=True`; and
-- suppresses body bytes for `HEAD` while retaining response headers.
+- suppresses body bytes for `HEAD` while retaining representation headers; and
+- suppresses body bytes and Content-Length for 204/304, including explicit headers.
 
 After response start is sent, `committed` becomes true and repeated writes are
-ignored.
+ignored. Async iterators are closed on completion, source errors, transport
+errors, and cancellation. A source error terminates the body once and propagates;
+a send failure propagates without attempting another write. A framework deadline
+uses event-loop time; unrelated upstream `TimeoutError` is never converted into
+a framework timeout.

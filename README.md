@@ -188,7 +188,10 @@ It also provides `ctx.path_params`, `ctx.state`, `ctx.bind(TargetType)`,
 `ctx.abort(status_code, detail)`, and `ctx.add_background_task()`.
 
 Built-in binders support `attrs` classes, standard-library dataclasses, and
-Pydantic v2 models when the optional dependency is installed:
+Pydantic v2 models when the optional dependency is installed. Attrs/dataclass
+fields support `str`, `int`, `float`, `bool`, and their nullable forms;
+unsupported annotations raise a configuration `TypeError`. Use Pydantic for
+nested or collection models:
 
 ```python
 from attrs import define
@@ -234,7 +237,8 @@ def require_admin(ctx: Context) -> None:
 
 The default error handler renders dictionary/list details as JSON and other
 details as text. Use `@app.error_handler` to customize unexpected-error
-handling; `recover()` logs and re-raises unexpected exceptions for that handler.
+handling. App renders failures at each middleware boundary so outer middleware
+can add headers to error responses, and logs unexpected exceptions once.
 
 ## Middleware and built-in capabilities
 
@@ -245,13 +249,11 @@ routing with `app.use_pre()`:
 from lettia.middleware import (
     body_limit,
     cors,
-    recover,
     request_id,
     request_logger,
 )
 
 app.use(
-    recover(),
     request_logger(),
     cors(allow_origins=["https://frontend.example"]),
     request_id(),
@@ -263,7 +265,7 @@ Built-in middleware includes:
 
 | Middleware | Purpose |
 |---|---|
-| `recover()` | Log and re-raise unexpected exceptions for App's error handler |
+| `recover()` | Log and re-raise errors in standalone middleware chains |
 | `request_logger()` | Log method, path, status, and duration |
 | `cors()` | Add CORS headers and answer preflight requests |
 | `request_id()` | Propagate or generate `X-Request-ID` |
@@ -273,7 +275,9 @@ Built-in middleware includes:
 | `session()` | Signed JSON cookie sessions |
 
 Signed sessions provide integrity, not encryption. Store identifiers or
-non-sensitive preferences, not passwords or secrets.
+non-sensitive preferences, not passwords or secrets. Signed issue times enforce
+`max_age` on the server; expired, future-dated, and old-format cookies load an
+empty session. Upgrading invalidates existing session cookies.
 
 ## WebSockets and lifespan
 
@@ -367,7 +371,8 @@ def test_health() -> None:
 ```
 
 For async tests, use HTTPX directly with `ASGITransport`. The repository uses
-pytest with a 90% source-coverage gate, Ruff for linting, and Pyright for
+Hypothesis property-based tests with pytest and a 90% statement/branch coverage
+gate, Ruff for linting, and Pyright for
 static type checking:
 
 ```bash
@@ -379,7 +384,7 @@ uv run pyrefly check
 
 The benchmark suite measures routing, context allocation, middleware chains,
 typed binding, the full ASGI pipeline, session/rate-limit primitives, and
-response normalization:
+response normalization, plus content-ETag costs at several file sizes:
 
 ```bash
 uv run python benchmarks/run_benchmark.py

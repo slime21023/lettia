@@ -31,6 +31,11 @@ async def _file_stream(
         await asyncio.to_thread(file.close)
 
 
+def _content_etag(path: Path) -> str:
+    with path.open("rb") as file:
+        return f'"{hashlib.file_digest(file, "sha256").hexdigest()}"'
+
+
 class StaticFiles:
     def __init__(self, directory: str, html: bool = False) -> None:
         self.directory: Path = Path(directory).expanduser().resolve()
@@ -43,9 +48,7 @@ class StaticFiles:
         if ctx.method not in ("GET", "HEAD"):
             abort(405, "Method Not Allowed")
 
-        filepath = ctx.path_params.get("filepath", "")
-        if not filepath:
-            filepath = ctx.path.lstrip("/")
+        filepath = ctx.path_params.get("filepath", ctx.path.lstrip("/"))
 
         safe_path = await asyncio.to_thread(
             lambda: (self.directory / filepath).resolve()
@@ -58,18 +61,16 @@ class StaticFiles:
         if await asyncio.to_thread(safe_path.is_dir):
             if not self.html:
                 abort(404, "Not Found")
-            index_path = safe_path / "index.html"
-            if not await asyncio.to_thread(index_path.is_file):
-                abort(404, "Not Found")
-            safe_path = index_path
+            safe_path = await asyncio.to_thread((safe_path / "index.html").resolve)
+            if not safe_path.is_relative_to(self.directory):
+                abort(403, "Forbidden")
 
         if not await asyncio.to_thread(safe_path.is_file):
             abort(404, "Not Found")
 
         stat_result = await asyncio.to_thread(safe_path.stat)
         file_size = stat_result.st_size
-        mtime = int(stat_result.st_mtime)
-        etag = f'"{hashlib.sha256(f"{mtime}-{file_size}".encode()).hexdigest()}"'
+        etag = await asyncio.to_thread(_content_etag, safe_path)
 
         if_none_match = ctx.header("if-none-match")
         if if_none_match and if_none_match == etag:

@@ -110,6 +110,8 @@ class Context:
 
     async def body(self, max_bytes: int | None = None) -> bytes:
         if self._body is not None:
+            if max_bytes is not None and len(self._body) > max_bytes:
+                abort(413, f"Request payload size exceeds limit of {max_bytes} bytes")
             return self._body
 
         chunks: list[bytes] = []

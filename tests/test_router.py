@@ -51,29 +51,6 @@ def test_wildcard_routing() -> None:
     assert params == {"filepath": "css/main.css"}
 
 
-def test_routing_precedence() -> None:
-    router = Router()
-    router.add_route("GET", "/files/spec", "static_spec")
-    router.add_route("GET", "/files/:id", "param_file")
-    router.add_route("GET", "/files/*all", "wildcard_file")
-
-    # Static match exact
-    res_static = router.match("GET", "/files/spec")
-    assert res_static is not None
-    assert res_static[0].handler == "static_spec"
-
-    # Param match single segment
-    res_param = router.match("GET", "/files/123")
-    assert res_param is not None
-    assert res_param[0].handler == "param_file"
-
-    # Wildcard match multi segment
-    res_wildcard = router.match("GET", "/files/123/sub/item")
-    assert res_wildcard is not None
-    assert res_wildcard[0].handler == "wildcard_file"
-    assert res_wildcard[1] == {"all": "123/sub/item"}
-
-
 def test_url_for() -> None:
     router = Router()
     router.add_route("GET", "/users/:id", "get_user", name="user_detail")

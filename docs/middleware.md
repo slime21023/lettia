@@ -69,7 +69,7 @@ app.use_pre(normalize_slash)
 
 | Middleware | Purpose | Important options |
 |---|---|---|
-| `recover()` | Log and re-raise unexpected exceptions for App's error handler | — |
+| `recover()` | Log and re-raise errors in standalone chains | — |
 | `request_logger()` | Log method, path, status, and duration | `log_func` |
 | `cors()` | CORS headers and OPTIONS preflight | origins, methods, headers, credentials |
 | `request_id()` | Propagate or generate `X-Request-ID` | header name, generator |
@@ -81,10 +81,9 @@ app.use_pre(normalize_slash)
 ### Recommended baseline
 
 ```python
-from lettia.middleware import body_limit, cors, recover, request_id, request_logger
+from lettia.middleware import body_limit, cors, request_id, request_logger
 
 app.use(
-    recover(),
     request_id(),
     request_logger(),
     cors(allow_origins=["https://frontend.example"]),
@@ -92,9 +91,12 @@ app.use(
 )
 ```
 
-`recover()` preserves intentional `HTTPException` status codes and logs then
-re-raises unexpected exceptions. The App error handler remains the single
-place that renders an HTTP error response.
+`App` renders errors from handlers and each middleware layer before returning
+to outer middleware. Put CORS and request IDs outside middleware whose error
+responses need those headers. Unexpected exceptions are logged once by App;
+intentional `HTTPException` values retain their status without error logging.
+Cancellation propagates. Standalone `build_chain()` keeps exception propagation;
+`recover()` remains available there for logging and re-raising.
 
 ### CORS
 
@@ -114,6 +116,8 @@ app.use(
 Only enable credentials with explicit origins; do not combine credentials with
 a wildcard origin. The default origin policy is `"*"` for local or explicitly
 public APIs; production browser APIs should always supply their allowed origins.
+Explicit allowed origins merge `Origin` into existing `Vary` tokens without
+case-insensitive duplicates; `Vary: *` stays `*`.
 
 ### Rate limiting and proxy headers
 
@@ -129,6 +133,16 @@ Session cookies are signed for integrity but not encrypted. Store identifiers
 or non-sensitive preferences, never passwords or secrets. In HTTPS deployments
 pass `https_only=True`; use an explicit CORS policy and separate CSRF/session
 policy appropriate to the application.
+
+The signature covers a versioned envelope, its issue time, and the session data.
+`max_age` must be positive and is enforced when the server reads a cookie;
+expiry is exclusive (`age < max_age`). Invalid signatures, invalid envelopes,
+future issue times, expired cookies, and old unversioned cookies load an empty
+session. Only modified sessions issue a new cookie and reset the issue time.
+Clearing a previously populated session expires the cookie.
+
+**Migration:** existing session cookies are invalidated by this format change.
+Users must sign in again after upgrading.
 
 ## WebSocket boundary
 

@@ -23,13 +23,13 @@ Use the public registration methods instead:
 app.use(middleware)
 app.use_pre(middleware)
 
+
 @app.on_event("startup")
-async def startup() -> None:
-    ...
+async def startup() -> None: ...
+
 
 @app.on_event("shutdown")
-async def shutdown() -> None:
-    ...
+async def shutdown() -> None: ...
 ```
 
 Routes should be registered through `get`, `post`, `add_route`, `group`, or

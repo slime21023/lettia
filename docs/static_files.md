@@ -9,7 +9,10 @@ byte ranges, `GET`, and `HEAD`, and rejects paths that resolve outside the
 configured directory.
 
 File metadata and content reads are offloaded from the event loop, so serving a
-local file does not block unrelated async requests.
+local file does not block unrelated async requests. ETags are strong SHA-256
+hashes of the file contents, recalculated on every request, including HEAD and
+conditional requests. This requires O(file size) reading with bounded memory;
+metadata alone is never used to reuse an ETag.
 
 ## Mount a directory
 
@@ -25,7 +28,8 @@ app.add_route("GET", "/*filepath", static.handle)
 
 With `html=True`, a directory request looks for `index.html`. The router's
 automatic HEAD fallback means the same GET route also serves HEAD requests
-without sending a response body.
+without sending a response body. A prefixed mount such as `/assets/*filepath`
+also serves its index at `/assets/` (the wildcard is empty).
 
 ## Response behavior
 
@@ -51,4 +55,9 @@ full response.
   route parameter; `StaticFiles` validates the resolved path, but application
   code should still avoid unnecessary path transformations.
 
-- ETags provide cache validation, not access control.
+- Final paths are checked again after selecting `index.html`, including symlink
+  targets. Keep the served tree stable during requests; this is path containment,
+  not protection against concurrent filesystem replacement.
+
+- ETags provide cache validation, not access control. A 304 response has no body
+  or Content-Length header.

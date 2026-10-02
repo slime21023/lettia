@@ -94,6 +94,19 @@ def http_sender(messages: list[HTTPSendEvent]) -> HTTPSend:
     return send
 
 
+def response_body(messages: list[HTTPSendEvent]) -> bytes:
+    """Check a completed response against the ASGI event grammar."""
+    assert messages and messages[0]["type"] == "http.response.start"
+    assert sum(message["type"] == "http.response.start" for message in messages) == 1
+    chunks: list[bytes] = []
+    for index, message in enumerate(messages[1:], 1):
+        assert message["type"] == "http.response.body"
+        assert message.get("more_body", False) == (index < len(messages) - 1)
+        chunks.append(message.get("body", b""))
+    assert len(messages) >= 2
+    return b"".join(chunks)
+
+
 def http_context(
     *,
     method: str = "GET",

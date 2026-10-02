@@ -4,8 +4,32 @@ All notable changes to Lettia are documented here.
 
 ## [Unreleased]
 
-- Continue improving the ASGI core, component-oriented documentation, and
-  release automation.
+### Changed
+
+- Migrate core behavioral tests to Hypothesis properties with reference models
+  for state, rate limits, routing, and WebSocket transitions; retain API,
+  lifecycle, documentation, and focused regression tests.
+- Sign session data with a version and issue time; enforce positive `max_age`
+  server-side. **Old session cookies are invalidated; users must sign in again.**
+- Limit attrs/dataclass binding to scalar and nullable annotations. Invalid
+  input returns 400; unsupported schemas raise `TypeError`. Use PydanticBinder
+  for complex models.
+- Escape SimpleHTMLRenderer values in one pass. Previously injected raw HTML
+  now displays as text.
+- Compute strong static-file ETags from content SHA-256 on every request,
+  including HEAD/304. This adds O(file size) reads with bounded memory.
+
+### Fixed
+
+- Recheck request body limits against cached bytes.
+- Preserve outer middleware on error responses and log unexpected errors once.
+- Keep upstream TimeoutError distinct from framework deadline expiry.
+- Close response iterators on failures/cancellation; avoid duplicate stream
+  endings and retries after send failures.
+- Suppress bodies and Content-Length on 204/304 responses.
+- Serve index files at empty wildcard mounts and reject final index symlinks
+  escaping the static root.
+- Merge CORS Vary tokens without losing existing values.
 
 ## [1.0.1] - 2026-09-08
 

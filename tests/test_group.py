@@ -1,21 +1,10 @@
+from hypothesis import given
+from strategies import SEGMENTS
+
 from lettia import App, Context
 from lettia.middleware import Handler
 from lettia.response import Response, TextResponse, normalize_response
 from lettia.testing import TestClient
-
-
-def test_group_nesting_and_prefix() -> None:
-    app = App()
-    users = app.group("/api/v1").group("/users")
-
-    def get_user(ctx: Context) -> str:
-        return "user_42"
-
-    users.get("/:id", name="user_detail")(get_user)
-    assert users.prefix == "/api/v1/users"
-    response = TestClient(app).get("/api/v1/users/42")
-    assert response.status_code == 200
-    assert response.text == "user_42"
 
 
 def test_group_middleware_inheritance() -> None:
@@ -68,3 +57,15 @@ def test_group_normalizes_paths_and_registers_all_methods() -> None:
     client = TestClient(app)
     for method in ("GET", "POST", "PUT", "DELETE", "PATCH"):
         assert client.request(method, "/api/items").status_code == 200
+
+
+@given(parent=SEGMENTS, child=SEGMENTS, value=SEGMENTS)
+def test_nested_group_prefixes_and_parameters_compose(
+    parent: str, child: str, value: str
+) -> None:
+    app = App()
+    group = app.group(parent).group(child)
+    group.add_route("GET", ":id", lambda ctx: ctx.path_params, name="detail")
+    url = app.url_for("detail", id=value)
+    assert url == f"/{parent}/{child}/{value}"
+    assert TestClient(app).get(url).json() == {"id": value}

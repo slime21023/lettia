@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterable, Mapping
+from collections.abc import AsyncIterable, AsyncIterator, Mapping
 
 from attrs import define, field
 
@@ -138,52 +138,59 @@ class ResponseWriter:
     send: HTTPSend
     head_only: bool = False
     committed: bool = field(default=False, init=False)
+    _can_finish: bool = field(default=False, init=False)
 
     async def write(self, response: Response, deadline: float | None = None) -> None:
         if self.committed:
             return
 
+        if deadline is None:
+            await self._write(response)
+            return
+        deadline_scope = asyncio.timeout_at(deadline)
         try:
-            if deadline is None:
+            async with deadline_scope:
                 await self._write(response)
-            else:
-                async with asyncio.timeout_at(deadline):
-                    await self._write(response)
         except TimeoutError as exc:
+            if not deadline_scope.expired():
+                raise
             if not self.committed:
                 raise ResponseTimeout from exc
-            await self._finish_timed_out_stream(response)
+            if not self._can_finish:
+                raise
+            logger.warning("Response deadline expired after headers were sent")
+            await self._send_stream_end()
 
     async def _write(self, response: Response) -> None:
-        raw_headers = self._build_headers(response)
-
-        await self.send(
-            {
-                "type": "http.response.start",
-                "status": response.status_code,
-                "headers": raw_headers,
-            }
-        )
-        self.committed = True
-
-        if self.head_only:
+        stream = aiter(response.async_body) if response.async_body is not None else None
+        try:
+            raw_headers = self._build_headers(response)
             await self.send(
                 {
-                    "type": "http.response.body",
-                    "body": b"",
-                    "more_body": False,
+                    "type": "http.response.start",
+                    "status": response.status_code,
+                    "headers": raw_headers,
                 }
             )
-        elif response.async_body is not None:
-            await self._write_stream(response.async_body)
-        else:
-            await self.send(
-                {
-                    "type": "http.response.body",
-                    "body": response.body,
-                    "more_body": False,
-                }
-            )
+            self.committed = True
+            self._can_finish = True
+
+            if self.head_only or response.status_code in (204, 304):
+                await self._send_stream_end()
+            elif stream is not None:
+                await self._write_stream(stream)
+            else:
+                self._can_finish = False
+                await self.send(
+                    {
+                        "type": "http.response.body",
+                        "body": response.body,
+                        "more_body": False,
+                    }
+                )
+        finally:
+            if stream is not None:
+                await _close_async_iterable(stream)
 
     def _build_headers(self, response: Response) -> list[tuple[bytes, bytes]]:
         raw_headers: list[tuple[bytes, bytes]] = []
@@ -196,6 +203,8 @@ class ResponseWriter:
             if k_bytes == b"content-type":
                 has_content_type = True
             if k_bytes == b"content-length":
+                if response.status_code in (204, 304):
+                    continue
                 if content_length is not None:
                     raise ValueError(
                         "Response cannot contain multiple Content-Length headers"
@@ -214,7 +223,7 @@ class ResponseWriter:
             self._validate_header_component(response.media_type, "value")
             raw_headers.append((b"content-type", response.media_type.encode("latin-1")))
 
-        if response.async_body is None:
+        if response.async_body is None and response.status_code not in (204, 304):
             expected_length = str(len(response.body))
             if content_length is not None and content_length != expected_length:
                 raise ValueError("Content-Length does not match the response body")
@@ -236,15 +245,16 @@ class ResponseWriter:
                 f"HTTP header {component}s must be Latin-1 encodable"
             ) from exc
 
-    async def _finish_timed_out_stream(self, response: Response) -> None:
-        if response.async_body is not None:
-            await _close_async_iterable(response.async_body)
-        logger.warning("Response deadline expired after headers were sent")
-        await self._send_stream_end()
-
-    async def _write_stream(self, stream: AsyncIterable[bytes]) -> None:
-        try:
-            async for chunk in stream:
+    async def _write_stream(self, stream: AsyncIterator[bytes]) -> None:
+        while True:
+            try:
+                chunk = await anext(stream)
+            except StopAsyncIteration:
+                break
+            except Exception:
+                await self._send_stream_end()
+                raise
+            try:
                 await self.send(
                     {
                         "type": "http.response.body",
@@ -252,13 +262,13 @@ class ResponseWriter:
                         "more_body": True,
                     }
                 )
-        except Exception:
-            await _close_async_iterable(stream)
-            await self._send_stream_end()
-            raise
+            except (Exception, asyncio.CancelledError):
+                self._can_finish = False
+                raise
         await self._send_stream_end()
 
     async def _send_stream_end(self) -> None:
+        self._can_finish = False
         await self.send(
             {
                 "type": "http.response.body",

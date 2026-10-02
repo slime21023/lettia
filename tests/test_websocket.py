@@ -1,8 +1,49 @@
 import pytest
 from asgi_helpers import websocket_receive, websocket_scope, websocket_sender
+from hypothesis import given
+from hypothesis import strategies as st
+from strategies import TEXT
 
 from lettia import App, WebSocketContext
 from lettia.asgi import WebSocketAcceptEvent, WebSocketCloseEvent, WebSocketSendEvent
+
+
+@given(
+    operations=st.lists(
+        st.tuples(st.sampled_from(["accept", "send", "close"]), TEXT), max_size=50
+    )
+)
+async def test_websocket_operations_follow_connection_model(
+    operations: list[tuple[str, str]],
+) -> None:
+    sent: list[WebSocketAcceptEvent | WebSocketSendEvent | WebSocketCloseEvent] = []
+    ws = WebSocketContext(
+        websocket_scope(), websocket_receive([]), websocket_sender(sent)
+    )
+    state = "connecting"
+    expected: list[WebSocketAcceptEvent | WebSocketSendEvent | WebSocketCloseEvent] = []
+    for operation, text in operations:
+        if operation == "accept":
+            if state != "connecting":
+                with pytest.raises(RuntimeError):
+                    await ws.accept()
+            else:
+                await ws.accept()
+                state = "connected"
+                expected.append({"type": "websocket.accept"})
+        elif operation == "send":
+            if state != "connected":
+                with pytest.raises(RuntimeError):
+                    await ws.send_text(text)
+            else:
+                await ws.send_text(text)
+                expected.append({"type": "websocket.send", "text": text})
+        else:
+            await ws.close()
+            if state != "closed":
+                expected.append({"type": "websocket.close", "code": 1000})
+            state = "closed"
+        assert sent == expected
 
 
 @pytest.mark.asyncio

@@ -24,6 +24,11 @@ Built-in implementations are:
 
 Each binder reads request data from `Context`, performs the model-specific
 construction, and converts invalid input into HTTP 400 where appropriate.
+Attrs/dataclass binders accept only scalar `str`/`int`/`float`/`bool` annotations
+and nullable variants. Null preserves `None` only for nullable fields; strings
+are checked strictly. Unsupported schema annotations raise `TypeError` rather
+than HTTP 400. JSON fields override query parameters and omitted fields retain
+defaults. Use PydanticBinder for nested or collection models.
 Pydantic is imported lazily; applications that use it must install the
 `pydantic` extra.
 
@@ -69,8 +74,15 @@ renderer = SimpleHTMLRenderer({"hello": "<h1>{{name}}</h1>"})
 response = renderer.render("hello", {"name": "Ada"})
 ```
 
-It performs literal `{{name}}` replacement. It is a small demonstration
-adapter, not a sandboxed template engine.
+It replaces `{{name}}` placeholders in one pass and HTML-escapes inserted
+values, including quotes. Inserted placeholder-looking text is never evaluated
+again; unknown placeholders remain unchanged. Templates must be trusted and
+placeholders should be used as HTML text. This adapter does not provide
+JavaScript, CSS, or URL-context sanitization.
+
+**Migration:** values previously used to inject raw HTML now display as escaped
+text. Use a dedicated renderer with an explicit trusted-markup policy when
+intentional HTML insertion is needed.
 
 ## `StaticFiles`
 
@@ -84,7 +96,7 @@ paths that remain below that root. It supports:
 
 - `GET` and `HEAD`;
 - directory `index.html` when `html=True`;
-- ETags and `If-None-Match` → 304;
+- content SHA-256 ETags and `If-None-Match` → 304 (hashing reads the entire file);
 - byte ranges → 206 and `Content-Range`;
 - streaming file responses; and
 - 403/404/405/416 boundary errors.

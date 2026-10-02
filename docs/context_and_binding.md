@@ -43,7 +43,8 @@ plain_text = await ctx.text()
 ```
 
 The body is read once and cached. A body that exceeds `max_bytes` raises HTTP
-413; a client disconnect or malformed JSON/text body raises HTTP 400. The
+413, including when a previous middleware has already cached it. Every call
+checks its own limit; a client disconnect or malformed JSON/text body raises HTTP 400. The
 `body_limit()` middleware is useful when every route needs the same limit.
 
 ## Binding typed input
@@ -75,8 +76,17 @@ async def create_user(ctx: Context):
     return {"name": user.name, "age": user.age}
 ```
 
-Invalid primitive values produce HTTP 400 instead of silently leaving the
-wrong type in the model.
+Attrs/dataclass fields support `str`, `int`, `float`, `bool`, and nullable forms
+such as `int | None`. JSON null is accepted only for nullable fields, and string
+fields reject non-strings. Numeric strings and boolean strings (`true`, `false`,
+`1`, `0`, `yes`, `no`, case-insensitive) are converted; booleans are not numbers.
+Invalid values or missing required fields produce HTTP 400. Unsupported
+annotations (including collections and nested models) raise configuration
+`TypeError`, even if that field is absent from the input. Use PydanticBinder
+for these models.
+
+JSON object fields take precedence over query parameters. Unknown input fields
+are ignored by the basic binders; omitted fields keep constructor defaults.
 
 ### Dataclass
 

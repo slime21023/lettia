@@ -37,8 +37,9 @@ def timing() -> Middleware:
 build_chain(handler: Handler, middlewares: list[Middleware]) -> Handler
 ```
 
-The first middleware in the list becomes the outermost wrapper. `App` uses the
-function during compilation to build pre-routing, global, and route chains.
+The first middleware in the list becomes the outermost wrapper. Standalone
+composition propagates exceptions. App uses the same nesting order, adding
+error rendering at each layer so outer middleware receives error responses.
 
 ```python
 app.use(first, second)
@@ -69,8 +70,9 @@ and limits.
 recover() -> Middleware
 ```
 
-Preserves `HTTPException`. Other exceptions are logged and re-raised so the
-App error handler renders the response.
+Preserves `HTTPException`. Other exceptions are logged and re-raised in
+standalone chains. App already renders and logs unexpected errors at each
+boundary, so registering `recover()` in an App is optional.
 
 ### `request_logger()`
 
@@ -98,7 +100,8 @@ cors(
 Answers origin-bearing OPTIONS preflight requests before route dispatch and
 adds CORS headers to normal responses. Credentials should use explicit origins,
 not `*`. The default origin value is `"*"`; set explicit origins for production
-browser applications.
+browser applications. For an explicit allowed origin, existing `Vary` tokens
+are merged with `Origin` case-insensitively; `*` is preserved.
 
 ### `request_id()`
 
@@ -121,9 +124,12 @@ body_limit(max_bytes: int) -> Middleware
 
 `timeout()` converts expiry before response headers are committed to HTTP 504.
 The same deadline also limits response streaming; after headers have been sent,
-Lettia closes the stream normally because HTTP status can no longer change.
+Lettia closes the iterator and terminates the stream because HTTP status can no
+longer change. Only expiry of Lettia's deadline becomes 504; unrelated upstream
+`TimeoutError` remains an application error.
 `body_limit()` validates Content-Length and forces body reading with the
 configured limit, returning HTTP 400 or 413 for invalid or oversized requests.
+The limit is checked again even when the body was already cached.
 
 ### `rate_limit()`
 
@@ -164,4 +170,7 @@ session(
 Loads a signed JSON object into `ctx.state` under the typed `SESSION` key and
 writes a new cookie when that mapping changes. The signature protects
 integrity; the payload is not encrypted. Set `https_only=True` when the cookie
-is served over HTTPS.
+is served over HTTPS. A signed issue time enforces positive `max_age` on the
+server. Invalid, expired, future-dated, or old-format cookies load an empty
+session. Cookies are renewed only on modification; upgrading invalidates old
+sessions and requires users to sign in again.

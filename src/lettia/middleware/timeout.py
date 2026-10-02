@@ -13,10 +13,13 @@ def timeout(seconds: float) -> Middleware:
             current_deadline = ctx.response_deadline
             if current_deadline is None or deadline < current_deadline:
                 ctx.response_deadline = deadline
+            deadline_scope = asyncio.timeout(seconds)
             try:
-                async with asyncio.timeout(seconds):
+                async with deadline_scope:
                     return await next_handler(ctx)
             except TimeoutError:
+                if not deadline_scope.expired():
+                    raise
                 abort(504, f"Request timed out after {seconds} seconds")
 
         return handler

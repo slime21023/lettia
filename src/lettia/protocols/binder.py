@@ -13,7 +13,8 @@ from lettia.errors import abort
 T = TypeVar("T")
 
 
-def _coerce_type(value: JSONValue, target_type: object) -> object:
+def _scalar_type(target_type: object) -> tuple[object, bool]:
+    nullable = False
     origin = typing.get_origin(target_type)
     if origin in (typing.Union, types.UnionType):
         non_none_args = [
@@ -21,8 +22,27 @@ def _coerce_type(value: JSONValue, target_type: object) -> object:
             for argument in typing.get_args(target_type)
             if argument is not type(None)
         ]
-        if len(non_none_args) == 1:
+        if len(non_none_args) == 1 and type(None) in typing.get_args(target_type):
             target_type = non_none_args[0]
+            nullable = True
+    if (
+        target_type is not str
+        and target_type is not int
+        and target_type is not float
+        and target_type is not bool
+    ):
+        raise TypeError(
+            f"Unsupported binding annotation {target_type!r}; use PydanticBinder "
+            "for complex models"
+        )
+    return target_type, nullable
+
+
+def _coerce_type(value: JSONValue, target_type: object, nullable: bool) -> object:
+    if nullable and value is None:
+        return None
+    if target_type is str and not isinstance(value, str):
+        raise ValueError(f"Expected a string, got {value!r}")
     if target_type is int:
         if isinstance(value, str):
             try:
@@ -66,13 +86,13 @@ async def _request_data(ctx: Context) -> dict[str, JSONValue]:
 
 
 def _bound_kwargs(
-    data: Mapping[str, JSONValue], annotations: Mapping[str, object]
+    data: Mapping[str, JSONValue], annotations: Mapping[str, tuple[object, bool]]
 ) -> dict[str, object]:
     kwargs: dict[str, object] = {}
     for key, value in data.items():
         target_type = annotations.get(key)
         if target_type is not None:
-            kwargs[key] = _coerce_type(value, target_type)
+            kwargs[key] = _coerce_type(value, *target_type)
     return kwargs
 
 
@@ -106,9 +126,7 @@ class DataclassBinder:
         if not dataclasses.is_dataclass(target_type):
             raise TypeError(f"Target type {target_type} is not a dataclass")
         try:
-            resolved_annotations: dict[str, object] = typing.get_type_hints(
-                target_type
-            )
+            resolved_annotations: dict[str, object] = typing.get_type_hints(target_type)
         except (NameError, TypeError):
             resolved_annotations = {}
         annotations = {
@@ -123,9 +141,10 @@ async def _bind_constructed[T](
     target_type: type[T],
     annotations: Mapping[str, object],
 ) -> T:
+    scalar_fields = {key: _scalar_type(value) for key, value in annotations.items()}
     try:
         data = await _request_data(ctx)
-        return _construct(target_type, _bound_kwargs(data, annotations))
+        return _construct(target_type, _bound_kwargs(data, scalar_fields))
     except (TypeError, ValueError) as exc:
         abort(400, f"Failed to bind payload to {target_type.__name__}: {exc}")
 
