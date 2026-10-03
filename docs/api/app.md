@@ -98,6 +98,13 @@ synchronous or asynchronous and return any value accepted by
 `normalize_response()`. `HTTPException` represents an expected HTTP failure;
 unexpected exceptions are converted to a 500 response by the default handler.
 
+Error handlers run only while a replacement response can still be sent. Once
+response start has been attempted, transport, stream, and cleanup failures are
+logged without invoking the error handler or constructing another response.
+The original stream is closed, and failed requests skip background tasks.
+Validation failures before response start can still use the error handler and,
+if necessary, the fallback response through the same writer.
+
 ## Lifespan
 
 ```python

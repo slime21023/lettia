@@ -66,7 +66,9 @@ async def test_echo() -> None:
     assert response.status_code == 200
 ```
 
-Use this style for streaming and async HTTP behavior. Test lifespan and
+Use this style for application HTTP behavior. In-process transports can buffer
+streams and cannot verify real client disconnects; use the socket smoke suite
+for those boundaries. HTTPX ASGITransport does not run lifespan automatically. Test lifespan and
 WebSocket protocol messages by calling the ASGI application with controlled
 `scope`, `receive`, and `send` callables; HTTPX's ASGI transport is an HTTP
 transport, not a WebSocket client.
@@ -95,7 +97,7 @@ the contract they protect.
 ## Property-based core tests
 
 The core suite uses Hypothesis to generate inputs and shrink failures. Shared
-bounded strategies in `tests/strategies.py` produce JSON, Unicode text, path
+bounded strategies in `tests/support/strategies.py` produce JSON, Unicode text, path
 segments, and byte payloads. Properties check observable contracts against
 simple independent oracles:
 
@@ -124,8 +126,8 @@ and the usual `uv run pytest`; no separate test runner or property profile is
 required. Normal runs use Hypothesis defaults and its local example database.
 
 ~~~bash
-uv run pytest tests/test_router_properties.py --hypothesis-show-statistics
-uv run pytest tests/test_response.py -k stream --hypothesis-seed=12345
+uv run pytest tests/unit/test_routing.py --no-cov --hypothesis-show-statistics
+uv run pytest tests/unit/test_stream_lifecycle.py --no-cov --hypothesis-seed=12345
 ~~~
 
 When a failure occurs, retain the falsifying example and seed/reproduction
@@ -146,6 +148,74 @@ CI already runs the suite on Ubuntu and Windows with Python 3.12, 3.13, and
 
 ## Coverage and quality gates
 
+The repository suite uses a responsibility-based test pyramid:
+
+| Directory / marker | Purpose | Examples |
+|---|---|---|
+| `tests/unit` / `unit` | Pure input partitions and one stateful owner with controlled events | Header atomicity, scalar coercion, Writer transitions, request cache |
+| `tests/integration` / `integration` | Real component handoffs | Error replacement, policies, binding 400, file delivery and mount paths |
+| `tests/smoke` / `smoke` | Real network and server lifetime | HEAD, mid-stream disconnect, startup and shutdown |
+| `tests/architecture` / `architecture` | Dependency, API, documentation and collection policies | No Context dependency in JSON consumers; no Writer flag access from App |
+
+Shared typed transports, strategies and the server harness live in
+`tests/support/`. Import them explicitly through `tests.support`; do not add
+test directories to the import path. Tests that need the repository root must
+derive it from their current file location, not their former flat layout.
+
+### Contracts and TDD
+
+`tests/contracts.toml` records each stable contract ID, owner, rule, inputs,
+outputs, errors, side effects and required layers. Every test function carries
+at least one `@pytest.mark.contract("ID")`. Directory placement supplies the
+layer marker automatically. Unknown IDs, missing contracts, unclassified
+tests and manually assigned layer markers fail collection. Full-tree collection
+also checks required contract layers before marker/name filtering; a focused
+file cannot validate the entire inventory.
+
+```bash
+uv run pytest --collect-only -q
+uv run pytest -m unit --no-cov
+uv run pytest -m integration --no-cov
+uv run pytest -m smoke --no-cov
+uv run pytest -m architecture --no-cov
+uv run pytest tests/unit/test_binding_rules.py --no-cov
+```
+
+The report separates test functions, expanded parameter cases and covered
+contracts. Hypothesis examples are generated within one case and do not inflate
+case counts. There is no target unit/integration ratio or minimum case count.
+
+For a behavior change, select the contract and lowest responsible layer, add a
+minimal failing example, implement the correction, then refactor. Add an
+integration test only when a component handoff changes. Run the affected unit
+tests, neighboring integration tests and the complete stage gate. A structural
+refactor uses the existing passing suite as its baseline; do not manufacture a
+behavior failure. If a defect is discovered, record its failing regression and
+fix it separately from the structural move.
+
+Use events to control send, cancellation and cleanup boundaries. Keep tests for
+transport failure, deadline expiry, repeated cancellation and cleanup conflicts
+even when their individual components also have unit coverage. Property tests
+use independent expected values, and minimal historical reproducers remain
+explicit. Removing a matrix member requires a recorded original case,
+replacement test, contract and retained boundary risk; see the
+[audit](testing_audit.md) and `tests/migration.json`.
+
+### Real server smoke tests
+
+The default full suite includes real Uvicorn/HTTPX tests. The test harness binds
+an IPv4 loopback socket to port zero before starting Uvicorn in a managed thread,
+waits for server startup with an event and uses an HTTP client with bounded
+timeouts and environment proxies disabled. It closes the client, requests
+graceful shutdown, joins the thread and closes the socket even when a test fails.
+Startup and shutdown waits are bounded; forced shutdown is reported as a failure.
+
+The HEAD test reuses the connection for GET to detect stray body bytes. The
+stream test closes a real client connection after the first chunk and waits for
+source cleanup, then verifies background work was skipped. Lifespan tests check
+both ordered startup/shutdown and cleanup after startup or client failures.
+These tests do not rely on ASGITransport or assume HTTPX runs lifespan.
+
 Run the complete development loop:
 
 ```bash
@@ -158,11 +228,22 @@ uv run pyrefly coverage check src/lettia --strict --public-only --fail-under 100
 uv run zensical build --strict
 ```
 
-Pytest is configured to print missing lines and fail below 90% source coverage.
-For a focused report:
+For an additional ty check without changing project dependencies, use the
+verified tool version with the same source, test and example scope:
 
 ```bash
-uv run pytest tests/test_regressions.py --cov=lettia --cov-report=term-missing
+uvx ty@0.0.84 check src tests examples --python .venv --python-version 3.12 --error-on-warning
+uv run pyrefly check --min-severity warn
+```
+
+The ty command uses the project's installed packages. Pyrefly uses the strict
+project configuration; the second command also displays warning diagnostics.
+
+Pytest is configured to print missing lines and fail below 90% source coverage.
+For focused feedback without the whole-project coverage gate:
+
+```bash
+uv run pytest tests/integration/test_error_policies.py --no-cov
 ```
 
 Coverage is a diagnostic, not a target by itself. Prefer tests that protect

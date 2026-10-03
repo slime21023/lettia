@@ -25,6 +25,7 @@ nav = [
     ] },
     { "Reference & Testing" = [
         { "Testing Guide" = "testing.md" },
+        { "Contract Migration Audit" = "testing_audit.md" },
         { "API Reference" = [
             { "Overview" = "api_reference.md" },
             { "App" = "api/app.md" },

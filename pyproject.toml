@@ -78,7 +78,7 @@ venv = ".venv"
 [tool.pyrefly]
 project-includes = ["src", "tests", "examples"]
 project-excludes = [".venv", "build", "dist"]
-search-path = ["src", "tests"]
+search-path = ["src", "."]
 python-version = "3.12"
 preset = "strict"
 
@@ -89,8 +89,10 @@ includes = ["src"]
 minversion = "8.0"
 asyncio_mode = "auto"
 testpaths = ["tests"]
-pythonpath = ["src", "tests"]
+pythonpath = ["src", "."]
 addopts = [
+    "--strict-config",
+    "--strict-markers",
     "--cov=lettia",
     "--cov-branch",
     "--cov-report=term-missing",

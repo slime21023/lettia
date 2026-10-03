@@ -1,12 +1,18 @@
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterable, AsyncIterator, Mapping
+from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable, Mapping
 
 from attrs import define, field
 
+from lettia._headers import (
+    build_headers,
+    cookie_value,
+    header_keys,
+    validate_header_component,
+)
+from lettia._json import validate_json_value
 from lettia.asgi import HTTPSend, JSONDocument, JSONValue
-from lettia.context import validate_json_value
 
 logger: logging.Logger = logging.getLogger("lettia.response")
 
@@ -24,8 +30,10 @@ class Response:
     async_body: AsyncIterable[bytes] | None = None
 
     def set_header(self, name: str, value: str) -> None:
-        if "\r" in name or "\n" in name or "\r" in value or "\n" in value:
-            raise ValueError("HTTP header names and values cannot contain newlines")
+        validate_header_component(name, "name")
+        validate_header_component(value, "value")
+        for key in header_keys(self.headers, name):
+            del self.headers[key]
         self.headers[name.lower()] = value
 
     def set_cookie(
@@ -40,41 +48,38 @@ class Response:
         samesite: str = "lax",
         expires: str | None = None,
     ) -> None:
-        if any("\r" in value or "\n" in value for value in (key, value, path)):
-            raise ValueError("Cookie attributes cannot contain newlines")
-        if domain is not None and ("\r" in domain or "\n" in domain):
-            raise ValueError("Cookie attributes cannot contain newlines")
-        if samesite and ("\r" in samesite or "\n" in samesite):
-            raise ValueError("Cookie attributes cannot contain newlines")
-
-        cookie_val = f"{key}={value}; Path={path}"
-        if max_age is not None:
-            cookie_val += f"; Max-Age={max_age}"
-        if domain:
-            cookie_val += f"; Domain={domain}"
-        if expires:
-            cookie_val += f"; Expires={expires}"
-        if secure:
-            cookie_val += "; Secure"
-        if httponly:
-            cookie_val += "; HttpOnly"
-        if samesite:
-            cookie_val += f"; SameSite={samesite}"
+        cookie_val = cookie_value(
+            key, value, max_age, path, domain, secure, httponly, samesite, expires
+        )
 
         # Store cookies as multi-headers
         # In ASGI, set-cookie headers can be sent repeatedly
-        if "set-cookie" in self.headers:
-            self.headers["set-cookie"] += f"\n{cookie_val}"
-        else:
-            self.headers["set-cookie"] = cookie_val
+        cookie_keys = header_keys(self.headers, "set-cookie")
+        cookie_values = [self.headers[name] for name in cookie_keys]
+        for name in cookie_keys:
+            del self.headers[name]
+        self.headers["set-cookie"] = "\n".join([*cookie_values, cookie_val])
 
     def delete_cookie(
         self,
         key: str,
         path: str = "/",
         domain: str | None = None,
+        *,
+        secure: bool = False,
+        httponly: bool = False,
+        samesite: str = "lax",
     ) -> None:
-        self.set_cookie(key, "", max_age=0, path=path, domain=domain)
+        self.set_cookie(
+            key,
+            "",
+            max_age=0,
+            path=path,
+            domain=domain,
+            secure=secure or key.lower().startswith(("__host-", "__secure-")),
+            httponly=httponly,
+            samesite=samesite,
+        )
 
 
 @define(slots=True)
@@ -138,112 +143,203 @@ class ResponseWriter:
     send: HTTPSend
     head_only: bool = False
     committed: bool = field(default=False, init=False)
+    _start_attempted: bool = field(default=False, init=False)
+    _start_ready: asyncio.Event = field(factory=asyncio.Event, init=False)
     _can_finish: bool = field(default=False, init=False)
+    _body_complete: bool = field(default=False, init=False)
+    _closing: bool = field(default=False, init=False)
+    _cleanup_failed: bool = field(default=False, init=False)
+    _write_lock: asyncio.Lock = field(factory=asyncio.Lock, init=False)
+    _finalize_response: Callable[[Response], None] | None = field(
+        default=None, init=False
+    )
+
+    @property
+    def _can_replace_response(self) -> bool:
+        return not self._start_attempted
 
     async def write(self, response: Response, deadline: float | None = None) -> None:
-        if self.committed:
-            return
+        await self._deliver(response, deadline, None)
 
-        if deadline is None:
-            await self._write(response)
-            return
-        deadline_scope = asyncio.timeout_at(deadline)
+    async def _deliver(
+        self,
+        response: Response,
+        deadline: float | None,
+        finalizer: Callable[[Response], None] | None,
+        wait_for_disconnect: Callable[[], Awaitable[None]] | None = None,
+    ) -> bool:
+        """Serialize delivery and return eligibility for completion work.
+
+        A rejected pre-start response can be replaced. Once send is attempted,
+        neither public writes nor application replacements may start again.
+        """
+        async with self._write_lock:
+            if self._start_attempted:
+                return False
+            self._finalize_response = finalizer
+            try:
+                return await self._coordinate(response, deadline, wait_for_disconnect)
+            finally:
+                self._finalize_response = None
+
+    async def _coordinate(
+        self,
+        response: Response,
+        deadline: float | None,
+        wait_for_disconnect: Callable[[], Awaitable[None]] | None,
+    ) -> bool:
+        if (
+            wait_for_disconnect is None
+            or response.async_body is None
+            or self.head_only
+            or response.status_code in (204, 304)
+        ):
+            await self._write_serial(response, deadline=deadline)
+            return not self._cleanup_failed
+
+        async def monitor_disconnect() -> None:
+            # A response rejected before send must leave the request available to
+            # the error handler. Start listening only after validation succeeds.
+            await self._start_ready.wait()
+            await wait_for_disconnect()
+
+        writing = asyncio.create_task(self._write_serial(response, deadline=deadline))
+        disconnected = asyncio.create_task(monitor_disconnect())
         try:
-            async with deadline_scope:
-                await self._write(response)
-        except TimeoutError as exc:
-            if not deadline_scope.expired():
-                raise
-            if not self.committed:
-                raise ResponseTimeout from exc
-            if not self._can_finish:
-                raise
-            logger.warning("Response deadline expired after headers were sent")
-            await self._send_stream_end()
+            done, _ = await asyncio.wait(
+                (writing, disconnected), return_when=asyncio.FIRST_COMPLETED
+            )
+            if writing in done:
+                await writing
+                return not self._cleanup_failed
+            await disconnected
+            # ASGI also reports disconnect after a successful final body send.
+            # Cleanup belongs to the writer and must not be cancelled by that.
+            if self._closing:
+                await asyncio.shield(writing)
+                return self._body_complete and not self._cleanup_failed
+            return False
+        finally:
+            if not disconnected.done():
+                disconnected.cancel()
+            if not writing.done() and not self._closing:
+                # A deadline may already be cancelling the source inside anext().
+                # Preserve its cleanup, but do not send a timeout end afterwards.
+                self._can_finish = False
+                if not writing.cancelling():
+                    writing.cancel()
+            await _await_cleanup(
+                asyncio.gather(writing, disconnected, return_exceptions=True)
+            )
 
-    async def _write(self, response: Response) -> None:
+    async def _write_serial(self, response: Response, deadline: float | None) -> None:
+        self._closing = False
+        if response.async_body is None:
+            await self._write_owned(response, deadline)
+            return
+
+        started = False
+        cancelled = False
+
+        async def write_and_close() -> None:
+            nonlocal started
+            started = True
+            await self._write_owned(response, deadline, cancelled=cancelled)
+
+        # The same task must acquire, iterate and close the stream. Shield
+        # the owner, rather than moving aclose() to a different task/Context.
+        writing = asyncio.create_task(write_and_close())
+        try:
+            await asyncio.shield(writing)
+        except asyncio.CancelledError:
+            cancelled = True
+            self._can_finish = False
+            if started and not self._closing and not writing.cancelling():
+                writing.cancel()
+            try:
+                await _await_cleanup(asyncio.gather(writing, return_exceptions=True))
+            finally:
+                raise
+
+    async def _write_owned(
+        self, response: Response, deadline: float | None, *, cancelled: bool = False
+    ) -> None:
         stream = aiter(response.async_body) if response.async_body is not None else None
         try:
-            raw_headers = self._build_headers(response)
+            if cancelled:
+                raise asyncio.CancelledError
+            if deadline is None:
+                await self._write(response, stream)
+                return
+            deadline_scope = asyncio.timeout_at(deadline)
+            try:
+                async with deadline_scope:
+                    await self._write(response, stream)
+            except TimeoutError as exc:
+                if not deadline_scope.expired():
+                    raise
+                if not self._start_attempted:
+                    raise ResponseTimeout from exc
+                if not self._can_finish:
+                    raise
+                logger.warning("Response deadline expired after headers were sent")
+                await self._send_stream_end()
+        finally:
+            self._closing = True
+            if stream is not None:
+                try:
+                    await _close_async_iterable(stream)
+                except (Exception, asyncio.CancelledError):
+                    self._cleanup_failed = True
+                    raise
+
+    async def _write(
+        self, response: Response, stream: AsyncIterator[bytes] | None
+    ) -> None:
+        if self._finalize_response is not None:
+            # Reused responses and failed attempts must not retain policy cookies.
+            response = Response(
+                status_code=response.status_code,
+                headers=response.headers.copy(),
+                body=response.body,
+                media_type=response.media_type,
+                async_body=response.async_body,
+            )
+            self._finalize_response(response)
+        raw_headers = build_headers(
+            response.headers,
+            response.media_type,
+            response.status_code,
+            len(response.body),
+            response.async_body is not None,
+            self.head_only,
+        )
+        self._start_ready.set()
+        self._start_attempted = True
+        await self.send(
+            {
+                "type": "http.response.start",
+                "status": response.status_code,
+                "headers": raw_headers,
+            }
+        )
+        self.committed = True
+        self._can_finish = True
+
+        if self.head_only or response.status_code in (204, 304):
+            await self._send_stream_end()
+        elif stream is not None:
+            await self._write_stream(stream)
+        else:
+            self._can_finish = False
             await self.send(
                 {
-                    "type": "http.response.start",
-                    "status": response.status_code,
-                    "headers": raw_headers,
+                    "type": "http.response.body",
+                    "body": response.body,
+                    "more_body": False,
                 }
             )
-            self.committed = True
-            self._can_finish = True
-
-            if self.head_only or response.status_code in (204, 304):
-                await self._send_stream_end()
-            elif stream is not None:
-                await self._write_stream(stream)
-            else:
-                self._can_finish = False
-                await self.send(
-                    {
-                        "type": "http.response.body",
-                        "body": response.body,
-                        "more_body": False,
-                    }
-                )
-        finally:
-            if stream is not None:
-                await _close_async_iterable(stream)
-
-    def _build_headers(self, response: Response) -> list[tuple[bytes, bytes]]:
-        raw_headers: list[tuple[bytes, bytes]] = []
-        has_content_type = False
-        content_length: str | None = None
-
-        for k, v in response.headers.items():
-            self._validate_header_component(k, "name")
-            k_bytes = k.lower().encode("latin-1")
-            if k_bytes == b"content-type":
-                has_content_type = True
-            if k_bytes == b"content-length":
-                if response.status_code in (204, 304):
-                    continue
-                if content_length is not None:
-                    raise ValueError(
-                        "Response cannot contain multiple Content-Length headers"
-                    )
-                content_length = v
-
-            if k_bytes == b"set-cookie":
-                for cookie_line in v.split("\n"):
-                    self._validate_header_component(cookie_line, "value")
-                    raw_headers.append((b"set-cookie", cookie_line.encode("latin-1")))
-            else:
-                self._validate_header_component(v, "value")
-                raw_headers.append((k_bytes, v.encode("latin-1")))
-
-        if not has_content_type and response.media_type:
-            self._validate_header_component(response.media_type, "value")
-            raw_headers.append((b"content-type", response.media_type.encode("latin-1")))
-
-        if response.async_body is None and response.status_code not in (204, 304):
-            expected_length = str(len(response.body))
-            if content_length is not None and content_length != expected_length:
-                raise ValueError("Content-Length does not match the response body")
-            if content_length is None:
-                raw_headers.append(
-                    (b"content-length", expected_length.encode("latin-1"))
-                )
-
-        return raw_headers
-
-    @staticmethod
-    def _validate_header_component(value: str, component: str) -> None:
-        if "\r" in value or "\n" in value:
-            raise ValueError(f"HTTP header {component}s cannot contain newlines")
-        try:
-            value.encode("latin-1")
-        except UnicodeEncodeError as exc:
-            raise ValueError(
-                f"HTTP header {component}s must be Latin-1 encodable"
-            ) from exc
+            self._body_complete = True
 
     async def _write_stream(self, stream: AsyncIterator[bytes]) -> None:
         while True:
@@ -276,12 +372,29 @@ class ResponseWriter:
                 "more_body": False,
             }
         )
+        self._body_complete = True
 
 
 async def _close_async_iterable(stream: AsyncIterable[bytes]) -> None:
     aclose = getattr(stream, "aclose", None)
     if aclose is not None:
         await aclose()
+
+
+async def _await_cleanup[T](task: asyncio.Future[T]) -> T:
+    cancelled = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancelled = True
+        except Exception:
+            break  # Re-raise below after resolving any external cancellation.
+    if cancelled:
+        if not task.cancelled():
+            task.exception()  # Retrieve a cleanup failure before propagating cancel.
+        raise asyncio.CancelledError
+    return task.result()
 
 
 type ResponseBody = Response | str | bytes | JSONDocument

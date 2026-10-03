@@ -5,7 +5,8 @@ import hmac
 import json
 import time
 
-from lettia.context import Context, validate_json_value
+from lettia._json import validate_json_value
+from lettia.context import Context
 from lettia.middleware.base import Handler, Middleware
 from lettia.response import Response
 from lettia.state import SESSION, SessionData
@@ -77,31 +78,32 @@ def session(
             ctx.state.set(SESSION, session_data)
             initial_session_str = json.dumps(session_data, sort_keys=True)
 
-            res = await next_handler(ctx)
-            resp = res
+            resp = await next_handler(ctx)
 
-            current_session = ctx.state.require(SESSION)
-            current_session_str = json.dumps(current_session, sort_keys=True)
-
-            # If session was modified, set updated signed cookie
-            if current_session_str != initial_session_str:
+            def finalize(response: Response) -> None:
+                current_session = ctx.state.require(SESSION)
+                if json.dumps(current_session, sort_keys=True) == initial_session_str:
+                    return
                 if current_session:
                     json_bytes = json.dumps(
                         {"v": 1, "iat": time.time(), "data": current_session},
                         sort_keys=True,
                     ).encode("utf-8")
                     signed_val = _sign(json_bytes, secret_bytes)
-                    resp.set_cookie(
-                        cookie_name,
-                        signed_val,
-                        max_age=max_age,
-                        httponly=True,
-                        secure=https_only,
-                        samesite=same_site,
-                    )
                 else:
-                    # Clear cookie if empty session
-                    resp.set_cookie(cookie_name, "", max_age=0, httponly=True)
+                    signed_val = ""
+                cookie_age = max_age if current_session else 0
+
+                response.set_cookie(
+                    cookie_name,
+                    signed_val,
+                    max_age=cookie_age,
+                    httponly=True,
+                    secure=https_only,
+                    samesite=same_site,
+                )
+
+            ctx._register_response_finalizer(resp, finalize)  # pyright: ignore[reportPrivateUsage]
 
             return resp
 

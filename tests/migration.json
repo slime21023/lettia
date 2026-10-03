@@ -1,0 +1,1768 @@
+[
+  {
+    "source": "tests/test_app.py::test_response_lengths_across_routes_and_body_suppression",
+    "destination": "tests/integration/test_response_headers.py::test_response_lengths_across_routes_and_body_suppression",
+    "contracts": [
+      "RESP-LENGTH"
+    ],
+    "cases": 24,
+    "original_ast_sha256": "b357caa36c9d05291ea2bc4048433f662d6f74e67114d7b3718d123b40f3df67"
+  },
+  {
+    "source": "tests/test_app.py::test_json_depth_errors_share_route_binding_and_middleware_behavior",
+    "destination": "tests/integration/test_binding.py::test_json_depth_errors_share_route_binding_and_middleware_behavior",
+    "contracts": [
+      "BIND-CONSTRUCT",
+      "REQ-JSON"
+    ],
+    "cases": 4,
+    "original_ast_sha256": "d0d2dd43182716042e06172db6770646a500c93094213649aa80666175ef0cb3"
+  },
+  {
+    "source": "tests/test_app.py::test_app_transport_failure_never_retries_or_runs_background",
+    "destination": "tests/integration/test_completion.py::test_app_transport_failure_never_retries_or_runs_background",
+    "contracts": [
+      "APP-COMPLETE"
+    ],
+    "cases": 18,
+    "original_ast_sha256": "574b85a2483e062f1f8b633f31d546313e464f19ba804813dc2e60efbb8b3f32"
+  },
+  {
+    "source": "tests/test_app.py::test_app_invalid_error_headers_use_writer_fallback",
+    "destination": "tests/integration/test_response_headers.py::test_app_invalid_error_headers_use_writer_fallback",
+    "contracts": [
+      "RESP-HEAD"
+    ],
+    "cases": 2,
+    "original_ast_sha256": "e4258f8a22a24385f50e91403646e3e634f9c39b0b867a5e37891ebc74f47172"
+  },
+  {
+    "source": "tests/test_app.py::test_app_has_no_application_state",
+    "destination": "tests/architecture/test_public_api.py::test_app_has_no_application_state",
+    "contracts": [
+      "APP-API"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "41c4e563f945ece7bced62e6fea032609530a553882537b2f7b7153725c085fa"
+  },
+  {
+    "source": "tests/test_app.py::test_app_http_request_response",
+    "destination": "tests/integration/test_response_delivery.py::test_app_http_request_response",
+    "contracts": [
+      "RESP-WRITE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "1f672dd76eeb2068fc54e880b0ce38250a6020cba12345c38e3230e60d9467e9"
+  },
+  {
+    "source": "tests/test_app.py::test_app_handles_default_and_custom_errors",
+    "destination": "tests/integration/test_error_policies.py::test_app_handles_default_and_custom_errors",
+    "contracts": [
+      "APP-ERROR"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "3c9e1c95d3efe37d635256bd5e4a2ec4f795fd0d18227783556b006fd9da7578"
+  },
+  {
+    "source": "tests/test_app.py::test_app_lifespan",
+    "destination": "tests/integration/test_lifespan.py::test_app_lifespan",
+    "contracts": [
+      "APP-LIFESPAN"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "e409ff7428efd595e0a75042c7a5b51d39474aa2810f97a39773d370fd0ec17d"
+  },
+  {
+    "source": "tests/test_app.py::test_app_lifespan_reports_startup_failure",
+    "destination": "tests/integration/test_lifespan.py::test_app_lifespan_reports_startup_failure",
+    "contracts": [
+      "APP-LIFESPAN"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "ffeba19045442e3943fb593a14b59a478e113c473ec5f4432f0b1e68d6cc606b"
+  },
+  {
+    "source": "tests/test_builtin_middleware.py::test_cors_middleware",
+    "destination": "tests/unit/test_cors.py::test_cors_middleware",
+    "contracts": [
+      "MW-CORS"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "4d922ea0f1d4a77608349a4312143c0897fdaf5a332f3437d3950abe8eab85f8"
+  },
+  {
+    "source": "tests/test_builtin_middleware.py::test_request_id_middleware",
+    "destination": "tests/unit/test_request_id.py::test_request_id_middleware",
+    "contracts": [
+      "MW-REQUEST-ID"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "a866099267cd526cf7585fb7ce4dcb4853d1fc2d27b93ac573bc895f92702bfb"
+  },
+  {
+    "source": "tests/test_builtin_middleware.py::test_timeout_middleware",
+    "destination": "tests/unit/test_timeout.py::test_timeout_middleware",
+    "contracts": [
+      "MW-TIMEOUT"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "da3c342370c72cc8a0e3566e1eaa72d15961132081800f44faa5c4ecf52de3cb"
+  },
+  {
+    "source": "tests/test_composition_root.py::test_composition_root_injects_services_and_owns_lifecycle",
+    "destination": "tests/integration/test_lifespan.py::test_composition_root_injects_services_and_owns_lifecycle",
+    "contracts": [
+      "APP-LIFESPAN"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "10c4d7761c803905ecf9fd7d34644b8fd8e3b5c7ba864cd9ebd6db13f6575f2b"
+  },
+  {
+    "source": "tests/test_context.py::test_json_depth_overflow_is_a_client_error",
+    "destination": "tests/unit/test_request_json.py::test_json_depth_overflow_is_a_client_error",
+    "contracts": [
+      "REQ-JSON"
+    ],
+    "cases": 2,
+    "original_ast_sha256": "a63ff42ce5be9a938fcc9d42a81201b76d203d8745de5443a383d0d957c9bff0"
+  },
+  {
+    "source": "tests/test_context.py::test_decoded_json_validation_depth_overflow_is_a_client_error",
+    "destination": "tests/unit/test_request_json.py::test_decoded_json_validation_depth_overflow_is_a_client_error",
+    "contracts": [
+      "REQ-JSON"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "6e1a4ac811f922dfa95cf9d791496a4f626e0948434e778d1382158bbaef4d4a"
+  },
+  {
+    "source": "tests/test_context.py::test_body_rejection_is_sticky_for_later_unlimited_reads",
+    "destination": "tests/unit/test_request_body.py::test_body_rejection_is_sticky_for_later_unlimited_reads",
+    "contracts": [
+      "REQ-BODY"
+    ],
+    "cases": 3,
+    "original_ast_sha256": "3f3332d991ce376cce2d560956aa2dd5ed31ae9a20f802c17e4ee495ecc10b34"
+  },
+  {
+    "source": "tests/test_context.py::test_cancelled_body_read_preserves_chunks_and_limit",
+    "destination": "tests/unit/test_request_body.py::test_cancelled_body_read_preserves_chunks_and_limit",
+    "contracts": [
+      "REQ-BODY"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "eb556ccfd42d4baae08902fb2638a4be9ab822ea45bae66b1af6c7588011708d"
+  },
+  {
+    "source": "tests/test_context.py::test_json_integer_decoder_limit_is_a_client_error",
+    "destination": "tests/unit/test_request_json.py::test_json_integer_decoder_limit_is_a_client_error",
+    "contracts": [
+      "REQ-JSON"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "30bc805e1fa0b6dc5788789e5fbb016767f31653d9da04bd5d38226df08a10ac"
+  },
+  {
+    "source": "tests/test_context.py::test_body_limit_is_independent_of_cache_and_chunking",
+    "destination": "tests/unit/test_request_body.py::test_body_limit_is_independent_of_cache_and_chunking",
+    "contracts": [
+      "REQ-BODY"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "c422fa56a7636e6e234dc52c8ecfcfb5416a02593b0408ad8842797ccd6f95b4"
+  },
+  {
+    "source": "tests/test_context.py::test_json_request_round_trip",
+    "destination": "tests/unit/test_request_json.py::test_json_request_round_trip",
+    "contracts": [
+      "REQ-JSON"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "6703e8af72e42b2e2285aaf92a4f27d953ffccb935c98a607979515ff1136604"
+  },
+  {
+    "source": "tests/test_context.py::test_query_parsing_preserves_repeated_values",
+    "destination": "tests/unit/test_request_metadata.py::test_query_parsing_preserves_repeated_values",
+    "contracts": [
+      "REQ-METADATA"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "40c6744295f6efafd9dea28573fedc6501cff64fc2adc07fd17c6cfef251a48a"
+  },
+  {
+    "source": "tests/test_context.py::test_headers_and_cookies_preserve_repeated_values",
+    "destination": "tests/unit/test_request_metadata.py::test_headers_and_cookies_preserve_repeated_values",
+    "contracts": [
+      "REQ-METADATA"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "35b0ddbb1a0b50210de1c578376c498574ea9184f280d220dde557b5d65bb60d"
+  },
+  {
+    "source": "tests/test_context.py::test_abort_preserves_http_error",
+    "destination": "tests/unit/test_request_metadata.py::test_abort_preserves_http_error",
+    "contracts": [
+      "REQ-METADATA"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "7ea50bfb8800698d8da57f6609d6a4133b9bb66e62c4f30be27ac175f4b644da"
+  },
+  {
+    "source": "tests/test_context.py::test_invalid_json_is_a_client_error",
+    "destination": "tests/unit/test_request_json.py::test_invalid_json_is_a_client_error",
+    "contracts": [
+      "REQ-JSON"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "e1abe56cc40249d5af5b14f8e38e7e71251dba8d97607cf2430f4fa872774ad3"
+  },
+  {
+    "source": "tests/test_documentation_policy.py::test_public_docs_and_examples_do_not_teach_legacy_state_apis",
+    "destination": "tests/architecture/test_documentation.py::test_public_docs_and_examples_do_not_teach_legacy_state_apis",
+    "contracts": [
+      "ARCH-POLICY"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "bb631e9655998ad23b9fe122bdfd6246b99076acf4a2b5b72a5ee2600d6ee8eb"
+  },
+  {
+    "source": "tests/test_documentation_policy.py::test_project_has_no_untyped_escape_hatches",
+    "destination": "tests/architecture/test_documentation.py::test_project_has_no_untyped_escape_hatches",
+    "contracts": [
+      "ARCH-POLICY"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "ef9784595556ff91d64b18753642b84aa3dc2b7e5507fabc1edde633a3fd3455"
+  },
+  {
+    "source": "tests/test_group.py::test_group_middleware_inheritance",
+    "destination": "tests/integration/test_routing.py::test_group_middleware_inheritance",
+    "contracts": [
+      "ROUTE-MATCH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "19796f6145d3ce54bf196a8f70a4dbefe9c555ecb1660280a7c1b204cc25bb6d"
+  },
+  {
+    "source": "tests/test_group.py::test_group_normalizes_paths_and_registers_all_methods",
+    "destination": "tests/integration/test_routing.py::test_group_normalizes_paths_and_registers_all_methods",
+    "contracts": [
+      "ROUTE-MATCH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "15dc509edbc3a9bfeb237e7d9e064a938b76a96ff79961ef9624cdab193ad85e"
+  },
+  {
+    "source": "tests/test_group.py::test_nested_group_prefixes_and_parameters_compose",
+    "destination": "tests/integration/test_routing.py::test_nested_group_prefixes_and_parameters_compose",
+    "contracts": [
+      "ROUTE-MATCH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "fe5c04aa4080a4a08c6e8a4ffe8744396bddb46a8d059a3a7de1d9c5d1416952"
+  },
+  {
+    "source": "tests/test_middleware.py::test_cors_preflight_emits_explicit_permissions",
+    "destination": "tests/integration/test_cors.py::test_cors_preflight_emits_explicit_permissions",
+    "contracts": [
+      "MW-CORS"
+    ],
+    "cases": 4,
+    "original_ast_sha256": "d780c0622178a43921642809300ccb0ff1a7d55e339a8a47afa447d6a4649264"
+  },
+  {
+    "source": "tests/test_middleware.py::test_cors_ordinary_options_reaches_registered_route",
+    "destination": "tests/integration/test_cors.py::test_cors_ordinary_options_reaches_registered_route",
+    "contracts": [
+      "MW-CORS"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "a5691f8e9e2d72eaf59b6ccb3a36f610ca55e79008d509431d715838c2bee098"
+  },
+  {
+    "source": "tests/test_middleware.py::test_middleware_composition_preserves_error_headers_and_cookies",
+    "destination": "tests/integration/test_error_policies.py::test_middleware_composition_preserves_error_headers_and_cookies",
+    "contracts": [
+      "APP-ERROR",
+      "MW-CORS",
+      "MW-SESSION",
+      "MW-REQUEST-ID"
+    ],
+    "cases": 18,
+    "original_ast_sha256": "67fdecf7a9d3452af6220f81d23ab8a06462edf554eae19bdb1253044705e6b3"
+  },
+  {
+    "source": "tests/test_middleware.py::test_recover_middleware",
+    "destination": "tests/unit/test_recover.py::test_recover_middleware",
+    "contracts": [
+      "MW-RECOVER"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "f4503ecb4ddefd2d919637bbe46c3751147afc85a7b6310fb5c06556ec97b9a8"
+  },
+  {
+    "source": "tests/test_middleware.py::test_logger_middleware",
+    "destination": "tests/unit/test_log.py::test_logger_middleware",
+    "contracts": [
+      "MW-LOG"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "b28193b3112b38b5ee08b2305507de07742d25e4fdc833e23bf23fef33d7c56b"
+  },
+  {
+    "source": "tests/test_middleware.py::test_body_limit_middleware",
+    "destination": "tests/unit/test_request_body.py::test_body_limit_middleware",
+    "contracts": [
+      "REQ-BODY"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "ed98ca7f8ac7bbc492af950fe110b72468500f77bb88deeba7cee38b7a341265"
+  },
+  {
+    "source": "tests/test_middleware.py::test_body_limit_rejects_invalid_content_length",
+    "destination": "tests/unit/test_request_body.py::test_body_limit_rejects_invalid_content_length",
+    "contracts": [
+      "REQ-BODY"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "73c9ff757d98897d3536921702d97372e6ef16c2217f0768a635f44f75360f8b"
+  },
+  {
+    "source": "tests/test_middleware.py::test_timeout_covers_response_stream_and_closes_generator",
+    "destination": "tests/integration/test_response_deadlines.py::test_timeout_covers_response_stream_and_closes_generator",
+    "contracts": [
+      "RESP-TIMEOUT"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "b127473ea382146c1915dd5f43ff146c36eda17ce6cb29ab6bcf920a99be3e99"
+  },
+  {
+    "source": "tests/test_middleware.py::test_nested_timeouts_use_the_earliest_deadline",
+    "destination": "tests/integration/test_timeout.py::test_nested_timeouts_use_the_earliest_deadline",
+    "contracts": [
+      "MW-TIMEOUT"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "38a56c0405dea933242545b20666c7811969fedb0ce95dcf4df0610a797fd63e"
+  },
+  {
+    "source": "tests/test_middleware.py::test_generated_middleware_chain_preserves_nesting",
+    "destination": "tests/unit/test_middleware_chain.py::test_generated_middleware_chain_preserves_nesting",
+    "contracts": [
+      "MW-CHAIN"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "45e2d01281cea6813889ae8a0d7f7f03ec8c67202ccc661186e6fa7a56b94afe",
+    "classification_contracts": [
+      "MW-CHAIN",
+      "APP-ERROR"
+    ]
+  },
+  {
+    "source": "tests/test_middleware.py::test_errors_preserve_outer_middleware_and_render_once",
+    "destination": "tests/integration/test_middleware_chain.py::test_errors_preserve_outer_middleware_and_render_once",
+    "contracts": [
+      "MW-CHAIN",
+      "APP-ERROR"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "014c88a09a717eca65184ed4292e6afd1d7f3cc6feef315d7f5af03a872ab7e1"
+  },
+  {
+    "source": "tests/test_middleware.py::test_route_limit_cannot_be_bypassed_by_global_body_cache",
+    "destination": "tests/integration/test_request_body.py::test_route_limit_cannot_be_bypassed_by_global_body_cache",
+    "contracts": [
+      "REQ-BODY"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "c2c303f2e4bb21577dfcf8c7a45fef2663fb92e5a055d3764440ed3b6e6c5bbd"
+  },
+  {
+    "source": "tests/test_middleware.py::test_timeout_middleware_does_not_relabel_upstream_timeout",
+    "destination": "tests/unit/test_timeout.py::test_timeout_middleware_does_not_relabel_upstream_timeout",
+    "contracts": [
+      "MW-TIMEOUT"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "61fc8564dbb15bb102ef52e2372dcd7591644c5f95ffc14d215cb6ac3b5ab18d"
+  },
+  {
+    "source": "tests/test_middleware.py::test_cors_merges_vary_without_losing_existing_tokens",
+    "destination": "tests/unit/test_cors.py::test_cors_merges_vary_without_losing_existing_tokens",
+    "contracts": [
+      "MW-CORS"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "4b41587d5674e21294d4a5307cb6ea5b7691e8472903720f7be0185b9ca72d2b"
+  },
+  {
+    "source": "tests/test_mount_paths.py::test_http_mount_paths_share_routing_and_method_detection",
+    "destination": "tests/integration/test_mount_dispatch.py::test_http_mount_paths_share_routing_and_method_detection",
+    "contracts": [
+      "ROUTE-MOUNT"
+    ],
+    "cases": 48,
+    "original_ast_sha256": "e25cd9cfe2c30d301f1eab0ce1ba48b8f077e2b418171dd8c24a79b0efde6f11"
+  },
+  {
+    "source": "tests/test_mount_paths.py::test_websocket_mount_paths_preserve_external_context",
+    "destination": "tests/integration/test_mount_dispatch.py::test_websocket_mount_paths_preserve_external_context",
+    "contracts": [
+      "ROUTE-MOUNT"
+    ],
+    "cases": 12,
+    "original_ast_sha256": "44c5d72fb9f311f95fab894cf536477b97d49d6ddb3f42d04e6492a378dde628"
+  },
+  {
+    "source": "tests/test_mount_paths.py::test_mount_prefix_never_strips_partial_segments",
+    "destination": "tests/integration/test_mount_dispatch.py::test_mount_prefix_never_strips_partial_segments",
+    "contracts": [
+      "ROUTE-MOUNT"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "0b619dcd8eb88c1b3ebab5f5ede04105e0739b6b89e3ed2c4318b1e45ae9d17d"
+  },
+  {
+    "source": "tests/test_mount_paths.py::test_mounted_pre_middleware_rewrites_are_resolved_at_dispatch",
+    "destination": "tests/integration/test_mount_dispatch.py::test_mounted_pre_middleware_rewrites_are_resolved_at_dispatch",
+    "contracts": [
+      "ROUTE-MOUNT"
+    ],
+    "cases": 2,
+    "original_ast_sha256": "4566af8c0c5db7ed41f77aef912bdbdecacdb999016eedccc9a4bc03071af9a5"
+  },
+  {
+    "source": "tests/test_mount_paths.py::test_mounted_static_files_keep_redirect_prefix_and_resolve_files",
+    "destination": "tests/integration/test_static_paths.py::test_mounted_static_files_keep_redirect_prefix_and_resolve_files",
+    "contracts": [
+      "STATIC-PATH"
+    ],
+    "cases": 8,
+    "original_ast_sha256": "47194071a0de35131271869b2c18549d091bc7b53c8b9bdf8eab2da2ed0f28ca"
+  },
+  {
+    "source": "tests/test_mount_paths.py::test_mounted_missing_route_remains_not_found",
+    "destination": "tests/integration/test_mount_dispatch.py::test_mounted_missing_route_remains_not_found",
+    "contracts": [
+      "ROUTE-MOUNT"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "1187f533b562cb1ba0e967f065147c3a32f4cca67b81c7de4cc44299b2023cd2"
+  },
+  {
+    "source": "tests/test_phase5.py::test_smart_bind_and_background_task",
+    "destination": "tests/integration/test_binding.py::test_smart_bind_and_background_task",
+    "contracts": [
+      "BIND-CONSTRUCT",
+      "APP-COMPLETE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "ce4ae372c3bee608d487d409e3711657f0eefa7ccc9eb277e4d7702f2644f30b"
+  },
+  {
+    "source": "tests/test_protocols.py::test_dataclass_initvars_follow_constructor_and_shared_binding_rules",
+    "destination": "tests/integration/test_binding.py::test_dataclass_initvars_follow_constructor_and_shared_binding_rules",
+    "contracts": [
+      "BIND-CONSTRUCT"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "3451ca882f0ad693aec206858d0009f1f6ebbfcb8657013fb0c3ffa5cee68275"
+  },
+  {
+    "source": "tests/test_protocols.py::test_dataclass_initvars_report_missing_and_invalid_input",
+    "destination": "tests/integration/test_binding.py::test_dataclass_initvars_report_missing_and_invalid_input",
+    "contracts": [
+      "BIND-CONSTRUCT"
+    ],
+    "cases": 2,
+    "original_ast_sha256": "42b17a2a53d266dc6c1796b8bee4210de751202e642dd735d0c61931b6271398"
+  },
+  {
+    "source": "tests/test_protocols.py::test_unsupported_initvar_annotation_is_a_configuration_error",
+    "destination": "tests/integration/test_binding.py::test_unsupported_initvar_annotation_is_a_configuration_error",
+    "contracts": [
+      "BIND-SCHEMA"
+    ],
+    "cases": 2,
+    "original_ast_sha256": "f421ed6f17991705effe94e6925b2e3bb7dadfa6e3cbc6865b24776080f02076"
+  },
+  {
+    "source": "tests/test_protocols.py::test_binders_constructor_fields_preserve_aliases_and_ignore_internal_fields",
+    "destination": "tests/integration/test_binding.py::test_binders_constructor_fields_preserve_aliases_and_ignore_internal_fields",
+    "contracts": [
+      "BIND-CONSTRUCT"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "7d21e03d42fc7ebee0db0a38113711f449efd93a500d39b075efbb50a6acdbd6"
+  },
+  {
+    "source": "tests/test_protocols.py::test_attrs_binder_alias_is_the_only_public_input_name",
+    "destination": "tests/integration/test_binding.py::test_attrs_binder_alias_is_the_only_public_input_name",
+    "contracts": [
+      "BIND-CONSTRUCT"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "711d58796b1c4b0bddc113934c699f652209fbe89706bf2bb0284d39f8c2e0de"
+  },
+  {
+    "source": "tests/test_protocols.py::test_binders_float_overflow_is_a_client_error",
+    "destination": "tests/integration/test_binding.py::test_binders_float_overflow_is_a_client_error",
+    "contracts": [
+      "BIND-SCALAR"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "a88cb97f6f85548417205723d6d81ec9387af9fbaeb4ceca088a3e380c384824"
+  },
+  {
+    "source": "tests/test_protocols.py::test_attrs_binder_rejects_invalid_integer",
+    "destination": "tests/integration/test_binding.py::test_attrs_binder_rejects_invalid_integer",
+    "contracts": [
+      "BIND-SCALAR"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "1e7bab8a9dd06702902a12c3e9a1046140f55549aa93b479e1462dd97ee6ee3b"
+  },
+  {
+    "source": "tests/test_protocols.py::test_binders_coerce_boolean_float_and_optional_values",
+    "destination": "tests/integration/test_binding.py::test_binders_coerce_boolean_float_and_optional_values",
+    "contracts": [
+      "BIND-SCALAR"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "075df169f9b7d56608275247db95faab79bee18643ff4589efdaa336505c6d5b"
+  },
+  {
+    "source": "tests/test_protocols.py::test_binders_reject_wrong_target_and_invalid_boolean",
+    "destination": "tests/integration/test_binding.py::test_binders_reject_wrong_target_and_invalid_boolean",
+    "contracts": [
+      "BIND-SCHEMA"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "d503d7ea00695d8f6a649e60e5940798027b246636a4b14477621b217d5a96f4"
+  },
+  {
+    "source": "tests/test_protocols.py::test_pydantic_binder_reports_validation_errors",
+    "destination": "tests/integration/test_binding.py::test_pydantic_binder_reports_validation_errors",
+    "contracts": [
+      "BIND-PYDANTIC"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "ef77184768f66bca78f9cbb00816965a17ff4ddc349795f6952afcefb0bf88d3"
+  },
+  {
+    "source": "tests/test_protocols.py::test_context_bind_selects_supported_binders",
+    "destination": "tests/integration/test_binding.py::test_context_bind_selects_supported_binders",
+    "contracts": [
+      "BIND-CONSTRUCT"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "09f158800a599ccae4a7ab039e7527aec3dc1f4adcf5b9977173e056d9ca66b1"
+  },
+  {
+    "source": "tests/test_protocols.py::test_nullable_binding_preserves_valid_scalars",
+    "destination": "tests/integration/test_binding.py::test_nullable_binding_preserves_valid_scalars",
+    "contracts": [
+      "BIND-SCALAR"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "eb6e7accb5529a16afeb4f37680d6ddc99e24ac12442e34f4c8562e9840c9765"
+  },
+  {
+    "source": "tests/test_protocols.py::test_string_fields_reject_non_strings",
+    "destination": "tests/integration/test_binding.py::test_string_fields_reject_non_strings",
+    "contracts": [
+      "BIND-SCALAR"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "fab18a0c3096aec91a007fff5d20e7bd787dfc218263b1aa4744b5a8646fef99"
+  },
+  {
+    "source": "tests/test_protocols.py::test_binding_body_precedes_query_and_preserves_defaults",
+    "destination": "tests/integration/test_binding.py::test_binding_body_precedes_query_and_preserves_defaults",
+    "contracts": [
+      "BIND-CONSTRUCT"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "9370e0986841dcca58369bea3bd2fc4faf63063cdfb78feacf1b0299c9c5e23b"
+  },
+  {
+    "source": "tests/test_protocols.py::test_unsupported_binding_schema_is_a_configuration_error",
+    "destination": "tests/integration/test_binding.py::test_unsupported_binding_schema_is_a_configuration_error",
+    "contracts": [
+      "BIND-SCHEMA"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "fad3423ee924d5f19d7c9dfb6ea5d2fd30ea61d62e8e024f4fad6ecc27f435cc"
+  },
+  {
+    "source": "tests/test_protocols.py::test_renderer_preserves_text_without_interpreting_input",
+    "destination": "tests/unit/test_renderer.py::test_renderer_preserves_text_without_interpreting_input",
+    "contracts": [
+      "RENDER-ESCAPE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "e4052f9d30fe9d1f1fc86f1f22016ef50056de354ed05dcc0d1706639e9d638c"
+  },
+  {
+    "source": "tests/test_protocols.py::test_callable_validator_enforces_predicate",
+    "destination": "tests/unit/test_validator.py::test_callable_validator_enforces_predicate",
+    "contracts": [
+      "VALIDATE-PREDICATE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "0ce48dde6eb2e13eaec53ada578657b9ad4a58f3c13d93674d469aef942af0c9"
+  },
+  {
+    "source": "tests/test_rate_limit_session.py::test_session_logout_preserves_cookie_scope_and_security",
+    "destination": "tests/integration/test_session.py::test_session_logout_preserves_cookie_scope_and_security",
+    "contracts": [
+      "MW-SESSION"
+    ],
+    "cases": 9,
+    "original_ast_sha256": "07409f1d90b8991ba05b79c539343943a5e1da5caea7ba98a48f7b3550332170"
+  },
+  {
+    "source": "tests/test_rate_limit_session.py::test_rate_limit_forwarded_headers_cannot_reset_bucket",
+    "destination": "tests/integration/test_rate.py::test_rate_limit_forwarded_headers_cannot_reset_bucket",
+    "contracts": [
+      "MW-RATE"
+    ],
+    "cases": 3,
+    "original_ast_sha256": "38926b7542ff14bd3132f5869e6f7f3f2dfe00226f96e9d7d6ea4404598da65c"
+  },
+  {
+    "source": "tests/test_rate_limit_session.py::test_rate_limit_unknown_and_loopback_have_separate_buckets",
+    "destination": "tests/integration/test_rate.py::test_rate_limit_unknown_and_loopback_have_separate_buckets",
+    "contracts": [
+      "MW-RATE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "e9d01b6d94a2b592578274d96af9c39f58203d7d6e490c9c2b0304c18ae5dbb9"
+  },
+  {
+    "source": "tests/test_rate_limit_session.py::test_rate_limit_custom_key_remains_authoritative",
+    "destination": "tests/integration/test_rate.py::test_rate_limit_custom_key_remains_authoritative",
+    "contracts": [
+      "MW-RATE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "2fd1fa52f3a48d5e2858117c2029cbb537621611f2eef0e290d4578ce3de9235"
+  },
+  {
+    "source": "tests/test_rate_limit_session.py::test_rate_limit_middleware",
+    "destination": "tests/integration/test_rate.py::test_rate_limit_middleware",
+    "contracts": [
+      "MW-RATE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "ca7d2ed7c62d7d9a84f31891d9d833d22c6f1c6f8e48e041c782dae614a13bbb"
+  },
+  {
+    "source": "tests/test_rate_limit_session.py::test_rate_limiter_rejects_non_positive_limit",
+    "destination": "tests/unit/test_rate.py::test_rate_limiter_rejects_non_positive_limit",
+    "contracts": [
+      "MW-RATE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "cec18cb9160f5f775a9980871297551eac6bb528e636a00eeae7219a2cb6d354"
+  },
+  {
+    "source": "tests/test_rate_limit_session.py::test_rate_limiter_purges_inactive_keys",
+    "destination": "tests/unit/test_rate.py::test_rate_limiter_purges_inactive_keys",
+    "contracts": [
+      "MW-RATE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "42c990315f77dab22aa2ab847eaea1aa509bdf5b0454a2f3b62b4982f8b53318"
+  },
+  {
+    "source": "tests/test_rate_limit_session.py::test_signed_session_middleware",
+    "destination": "tests/integration/test_session.py::test_signed_session_middleware",
+    "contracts": [
+      "MW-SESSION"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "5bb4a49697edb618f400a281982b2c56757e6f45b0e9a6d77a3a04c4d483e037"
+  },
+  {
+    "source": "tests/test_rate_limit_session.py::test_signed_session_round_trip_allows_dots_in_payload",
+    "destination": "tests/unit/test_session.py::test_signed_session_round_trip_allows_dots_in_payload",
+    "contracts": [
+      "MW-SESSION"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "58ec740f8cc55d152a2cfb1a00c795bafe7e290e5bc3ab5bae4377df8348899e"
+  },
+  {
+    "source": "tests/test_rate_limit_session.py::test_session_authentication_respects_signed_expiry",
+    "destination": "tests/integration/test_session.py::test_session_authentication_respects_signed_expiry",
+    "contracts": [
+      "MW-SESSION"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "6be78862fd30399eaa597d48360e3c1c3c3539011489c9f05de024a86c7e1caa"
+  },
+  {
+    "source": "tests/test_rate_limit_session.py::test_session_rejects_legacy_cookies",
+    "destination": "tests/integration/test_session.py::test_session_rejects_legacy_cookies",
+    "contracts": [
+      "MW-SESSION"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "c008d179673c6b2b91ea85f96c38b7a9c29835c33c87decab174bbbae6489eef"
+  },
+  {
+    "source": "tests/test_rate_limit_session.py::test_session_rejects_nonpositive_lifetime",
+    "destination": "tests/unit/test_session.py::test_session_rejects_nonpositive_lifetime",
+    "contracts": [
+      "MW-SESSION"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "6cfcdea30346780e2feabeb972768af4cbc37edca8e676ace623361de444d6b6"
+  },
+  {
+    "source": "tests/test_rate_limit_session.py::test_rate_limit_matches_independent_window_model",
+    "destination": "tests/unit/test_rate.py::test_rate_limit_matches_independent_window_model",
+    "contracts": [
+      "MW-RATE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "2599a08df8866ae435c3df4f1c56f96a96ad90b293add83bf20b23e87e78fc7c"
+  },
+  {
+    "source": "tests/test_rate_limit_session.py::test_session_rejects_invalid_signed_envelope",
+    "destination": "tests/integration/test_session.py::test_session_rejects_invalid_signed_envelope",
+    "contracts": [
+      "MW-SESSION"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "a0a8d75f5a77bcb595a1ed5593bb6d07e72d99f88742190e737e807b1110841a"
+  },
+  {
+    "source": "tests/test_regressions.py::test_pre_middleware_can_normalize_path_before_routing",
+    "destination": "tests/integration/test_routing.py::test_pre_middleware_can_normalize_path_before_routing",
+    "contracts": [
+      "ROUTE-MATCH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "e5556f065da857c0838c8a5fbe66fefaf3c89c94e9e8cb2daae95bf2e03018f9"
+  },
+  {
+    "source": "tests/test_regressions.py::test_global_cors_handles_preflight_without_options_route",
+    "destination": "tests/integration/test_cors.py::test_global_cors_handles_preflight_without_options_route",
+    "contracts": [
+      "MW-CORS"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "c0867114c7c422e4c03a1a29c7902bcd0147fdc9c1fe669926231a1eaf015a12"
+  },
+  {
+    "source": "tests/test_regressions.py::test_recover_preserves_http_exception_status",
+    "destination": "tests/integration/test_recover.py::test_recover_preserves_http_exception_status",
+    "contracts": [
+      "MW-RECOVER"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "a63b291ed521280e8cc5a7bc2cabcf7195bd6d7f5ac0e5abdd7b59814ffcd300"
+  },
+  {
+    "source": "tests/test_regressions.py::test_method_mismatch_returns_405_and_allow_header",
+    "destination": "tests/integration/test_routing.py::test_method_mismatch_returns_405_and_allow_header",
+    "contracts": [
+      "ROUTE-MATCH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "d676ec8f83504781c80ae70fa4354e33b44b73b6bffe9237dccdc963815a0d1c"
+  },
+  {
+    "source": "tests/test_regressions.py::test_head_falls_back_to_get_without_sending_body",
+    "destination": "tests/integration/test_response_headers.py::test_head_falls_back_to_get_without_sending_body",
+    "contracts": [
+      "RESP-HEAD"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "b927cfbb862034cd1980ce80e08c8988bff307bfe711abadb52a86570065d4c9"
+  },
+  {
+    "source": "tests/test_regressions.py::test_body_disconnect_raises_http_error_instead_of_looping",
+    "destination": "tests/unit/test_request_body.py::test_body_disconnect_raises_http_error_instead_of_looping",
+    "contracts": [
+      "REQ-BODY"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "1580109721f01bca2f77c66062edb08e3b491d3c694545b5082af3c930b52d38"
+  },
+  {
+    "source": "tests/test_regressions.py::test_invalid_json_is_reported_as_bad_request",
+    "destination": "tests/unit/test_request_json.py::test_invalid_json_is_reported_as_bad_request",
+    "contracts": [
+      "REQ-JSON"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "47e85938674b47d41814ffd29c5f0f4ea35c1482ddbb3fe2dc517fac052641da"
+  },
+  {
+    "source": "tests/test_regressions.py::test_router_keeps_parameter_names_per_method",
+    "destination": "tests/unit/test_routing.py::test_router_keeps_parameter_names_per_method",
+    "contracts": [
+      "ROUTE-MATCH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "20760afda1fd59fec7ef78f93fc47856921cb0ca670f4eba4509626cc4e30bf1"
+  },
+  {
+    "source": "tests/test_regressions.py::test_router_keeps_parameter_names_for_shared_prefix_routes",
+    "destination": "tests/unit/test_routing.py::test_router_keeps_parameter_names_for_shared_prefix_routes",
+    "contracts": [
+      "ROUTE-MATCH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "f82c9b3a01179f827b2dc61637ae35a96523b5f94b445619500bc253096a0265"
+  },
+  {
+    "source": "tests/test_regressions.py::test_explicit_head_route_precedes_get_fallback",
+    "destination": "tests/unit/test_routing.py::test_explicit_head_route_precedes_get_fallback",
+    "contracts": [
+      "ROUTE-MATCH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "a43d140abc23f576fa48a62df23569fae1241ba807881a75294368b06faad0d4"
+  },
+  {
+    "source": "tests/test_regressions.py::test_websocket_routes_are_not_advertised_in_allow_header",
+    "destination": "tests/integration/test_routing.py::test_websocket_routes_are_not_advertised_in_allow_header",
+    "contracts": [
+      "ROUTE-MATCH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "81927ea5a2a509925609796f10b1be513175dd8489e771941522981f0d83d8e2"
+  },
+  {
+    "source": "tests/test_regressions.py::test_error_response_runs_global_response_middleware",
+    "destination": "tests/integration/test_middleware_chain.py::test_error_response_runs_global_response_middleware",
+    "contracts": [
+      "MW-CHAIN",
+      "APP-ERROR"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "d58ba057a65f4b917bb144028fcbeae3975ba1b44c17c12ec320a68217acf888"
+  },
+  {
+    "source": "tests/test_regressions.py::test_cors_rejects_wildcard_credentials",
+    "destination": "tests/unit/test_cors.py::test_cors_rejects_wildcard_credentials",
+    "contracts": [
+      "MW-CORS"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "7e3398956472efbc09349a21bd0314653ff58b1c9664fc99b5f236d045504696"
+  },
+  {
+    "source": "tests/test_regressions.py::test_url_for_validates_and_encodes_parameters",
+    "destination": "tests/unit/test_routing.py::test_url_for_validates_and_encodes_parameters",
+    "contracts": [
+      "ROUTE-NAMES"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "0baf1edd892c8ebabaf134391f8798d08763cd987fe0f17791de5f74db15e1f9"
+  },
+  {
+    "source": "tests/test_regressions.py::test_static_files_rejects_sibling_directory_escape",
+    "destination": "tests/integration/test_static_paths.py::test_static_files_rejects_sibling_directory_escape",
+    "contracts": [
+      "STATIC-PATH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "e800179bfa41c446025dff76d126ce117f5d95d904aeaec7c8ec8574a0ae1525"
+  },
+  {
+    "source": "tests/test_regressions.py::test_static_files_supports_suffix_ranges",
+    "destination": "tests/integration/test_static_conditions.py::test_static_files_supports_suffix_ranges",
+    "contracts": [
+      "STATIC-CONDITIONAL"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "26281ba7bca40b9aa511d1064207b68d0b4a6c03e348c13086302c835503608e"
+  },
+  {
+    "source": "tests/test_regressions.py::test_websocket_disconnect_is_not_reported_as_internal_error",
+    "destination": "tests/integration/test_websocket.py::test_websocket_disconnect_is_not_reported_as_internal_error",
+    "contracts": [
+      "WS-STATE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "06f9346aa21e66a09a7e3eac9ae907b52814d8a50c0a47180968c44bcaa0cd78"
+  },
+  {
+    "source": "tests/test_response.py::test_content_length_numeric_equivalence_preserves_response",
+    "destination": "tests/unit/test_response_headers.py::test_content_length_numeric_equivalence_preserves_response",
+    "contracts": [
+      "RESP-LENGTH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "e4922d07918aa48176f0b8151af4b1c9c45c410b6378e9a1718361038af95a84"
+  },
+  {
+    "source": "tests/test_response.py::test_content_length_representation_length_is_independent_for_head",
+    "destination": "tests/unit/test_response_headers.py::test_content_length_representation_length_is_independent_for_head",
+    "contracts": [
+      "RESP-LENGTH"
+    ],
+    "cases": 4,
+    "original_ast_sha256": "7430598b2415126aa28404f16fd5dd2033bd4e7aa7118c32ce142430fbfe0d2e"
+  },
+  {
+    "source": "tests/test_response.py::test_head_still_rejects_invalid_or_duplicate_lengths",
+    "destination": "tests/unit/test_response_headers.py::test_head_still_rejects_invalid_or_duplicate_lengths",
+    "contracts": [
+      "RESP-HEAD"
+    ],
+    "cases": 3,
+    "original_ast_sha256": "1977c5199fcfda667d3b400bcc952090c73519d1cceb8cd8417172aef7192a85"
+  },
+  {
+    "source": "tests/test_response.py::test_stream_context_is_preserved_through_iteration_and_close",
+    "destination": "tests/unit/test_stream_lifecycle.py::test_stream_context_is_preserved_through_iteration_and_close",
+    "contracts": [
+      "RESP-STREAM"
+    ],
+    "cases": 5,
+    "original_ast_sha256": "1e86aa8c43adcabc8514912b839d768f9e3c1c6f32667101a11840e660d6e43f"
+  },
+  {
+    "source": "tests/test_response.py::test_iterable_acquisition_and_close_share_context",
+    "destination": "tests/unit/test_stream_lifecycle.py::test_iterable_acquisition_and_close_share_context",
+    "contracts": [
+      "RESP-STREAM"
+    ],
+    "cases": 8,
+    "original_ast_sha256": "8bcb8f131212b3208b920dbfd6eb14372a8f839e3a4a3e425b8b2c68e2f82d37"
+  },
+  {
+    "source": "tests/test_response.py::test_writer_repeated_cancellation_preserves_cleanup_context",
+    "destination": "tests/unit/test_stream_lifecycle.py::test_writer_repeated_cancellation_preserves_cleanup_context",
+    "contracts": [
+      "RESP-STREAM"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "3139c73d839c95b731968a23ab7b940c66511995cf7574e8ba8c223e99e775b0"
+  },
+  {
+    "source": "tests/test_response.py::test_concurrent_writer_calls_attempt_only_one_response_start",
+    "destination": "tests/unit/test_response_delivery.py::test_concurrent_writer_calls_attempt_only_one_response_start",
+    "contracts": [
+      "RESP-WRITE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "9df2e105892a581b64bcd727d855aa9ee9b1554218e57af2b09ebad63366fdfc"
+  },
+  {
+    "source": "tests/test_response.py::test_delete_cookie_preserves_explicit_security_attributes",
+    "destination": "tests/unit/test_cookies.py::test_delete_cookie_preserves_explicit_security_attributes",
+    "contracts": [
+      "RESP-COOKIES"
+    ],
+    "cases": 12,
+    "original_ast_sha256": "1e7516c62993a91102a4649fcfdde2e030dcc3ff1f30a935d1e34ebae2734204"
+  },
+  {
+    "source": "tests/test_response.py::test_delete_prefixed_cookie_is_secure_without_extra_arguments",
+    "destination": "tests/unit/test_cookies.py::test_delete_prefixed_cookie_is_secure_without_extra_arguments",
+    "contracts": [
+      "RESP-COOKIES"
+    ],
+    "cases": 3,
+    "original_ast_sha256": "1b2986490f13614215f8b2214644a54f398bd1369be4b62d2b84e72b010a3aa6"
+  },
+  {
+    "source": "tests/test_response.py::test_delete_cookie_keeps_positional_scope_and_validates_atomically",
+    "destination": "tests/unit/test_cookies.py::test_delete_cookie_keeps_positional_scope_and_validates_atomically",
+    "contracts": [
+      "RESP-COOKIES"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "e24b719c0e11f1ddccc7e9059750ec4b955f32d3cfe5df38c5b183e4087a0a0a"
+  },
+  {
+    "source": "tests/test_response.py::test_cookie_prefix_scope_rules_apply_to_creation_and_deletion",
+    "destination": "tests/unit/test_cookies.py::test_cookie_prefix_scope_rules_apply_to_creation_and_deletion",
+    "contracts": [
+      "RESP-COOKIES"
+    ],
+    "cases": 4,
+    "original_ast_sha256": "9c691a7755429440f79826bd1a33ef0d67d9453112e6a767db9058014a2727a5"
+  },
+  {
+    "source": "tests/test_response.py::test_cookie_creation_requires_secure_for_security_prefix",
+    "destination": "tests/unit/test_cookies.py::test_cookie_creation_requires_secure_for_security_prefix",
+    "contracts": [
+      "RESP-COOKIES"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "db507f88258a7be42b50fa5b34eff5f6b170ec9c1cf9d1aad79a4b7b93a18b86"
+  },
+  {
+    "source": "tests/test_response.py::test_response_headers_and_cookies",
+    "destination": "tests/unit/test_cookies.py::test_response_headers_and_cookies",
+    "contracts": [
+      "RESP-COOKIES"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "3fa10e7f35940b9d6544ed7a41261eab1458441faba889ae01eea04cc2e5a60e"
+  },
+  {
+    "source": "tests/test_response.py::test_response_delete_cookie_and_header_validation",
+    "destination": "tests/unit/test_cookies.py::test_response_delete_cookie_and_header_validation",
+    "contracts": [
+      "RESP-COOKIES"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "c4a3d4d4742e488b6c17530092669f8dde873313685d9c7e2569b557aaa269b2"
+  },
+  {
+    "source": "tests/test_response.py::test_response_cookie_optional_attributes_and_validation",
+    "destination": "tests/unit/test_cookies.py::test_response_cookie_optional_attributes_and_validation",
+    "contracts": [
+      "RESP-COOKIES"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "76651478250c90954d27ac8c739c1a7a0a9684bbb78adad2f8e88933d102b059"
+  },
+  {
+    "source": "tests/test_response.py::test_response_writer_rejects_non_latin_headers",
+    "destination": "tests/unit/test_response_headers.py::test_response_writer_rejects_non_latin_headers",
+    "contracts": [
+      "RESP-HEADERS"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "eeb4592a8dfe68e12077aacd51a70733e4bd928d92f8266614294adf7e5c13cf"
+  },
+  {
+    "source": "tests/test_response.py::test_response_types",
+    "destination": "tests/unit/test_response_values.py::test_response_types",
+    "contracts": [
+      "RESP-VALUES"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "7218c0373f0420674e8130877180af66ac97106df81eb34ab0add18b6742840f"
+  },
+  {
+    "source": "tests/test_response.py::test_normalize_response",
+    "destination": "tests/unit/test_response_values.py::test_normalize_response",
+    "contracts": [
+      "RESP-VALUES"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "3ee42471e2f5f3eca5218a8eb2c727c2e329b5f6d1ec1f84d8ae34c51445c68c"
+  },
+  {
+    "source": "tests/test_response.py::test_response_writer_committed_safety",
+    "destination": "tests/unit/test_response_delivery.py::test_response_writer_committed_safety",
+    "contracts": [
+      "RESP-WRITE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "1b299701ae624ad5da99925fe240a9bb257201c29528c2b2d8fd9b5af8948c95"
+  },
+  {
+    "source": "tests/test_response.py::test_response_writer_head_request_has_no_body",
+    "destination": "tests/unit/test_response_headers.py::test_response_writer_head_request_has_no_body",
+    "contracts": [
+      "RESP-HEAD"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "3917da877b506b66c0a9f9df6bca38c9915879abacbd71a38b8bde78c9c54d92"
+  },
+  {
+    "source": "tests/test_response.py::test_response_writer_preserves_explicit_content_type",
+    "destination": "tests/unit/test_response_delivery.py::test_response_writer_preserves_explicit_content_type",
+    "contracts": [
+      "RESP-WRITE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "e27e4ae77bcf4823e0859ec525649e9f836ada4e73ab6e26a0e4c722b3083726"
+  },
+  {
+    "source": "tests/test_response.py::test_response_writer_rejects_unsafe_direct_headers",
+    "destination": "tests/unit/test_response_headers.py::test_response_writer_rejects_unsafe_direct_headers",
+    "contracts": [
+      "RESP-HEADERS"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "1b7212c9d41756151620f0cab9cb043014da48838d49fd291714c772fe6f4939"
+  },
+  {
+    "source": "tests/test_response.py::test_response_writer_validates_content_length_and_multiple_cookies",
+    "destination": "tests/unit/test_cookies.py::test_response_writer_validates_content_length_and_multiple_cookies",
+    "contracts": [
+      "RESP-COOKIES"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "5268479386a7dbd1c4e3730af2c7fc594012dae4a9959006d6731b0be5fa8216"
+  },
+  {
+    "source": "tests/test_response.py::test_response_events_follow_method_and_status_semantics",
+    "destination": "tests/unit/test_response_headers.py::test_response_events_follow_method_and_status_semantics",
+    "contracts": [
+      "RESP-HEAD"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "2a3b190b3100cbe021898391928c93c6414eece121c9a8255672bb87d8b24e52"
+  },
+  {
+    "source": "tests/test_response.py::test_stream_content_length_preserves_valid_representation_headers",
+    "destination": "tests/unit/test_response_headers.py::test_stream_content_length_preserves_valid_representation_headers",
+    "contracts": [
+      "RESP-LENGTH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "34601a4482e99fe9533caa23a2aca525e1ff81e15d1c3655a1d1998e3038d029"
+  },
+  {
+    "source": "tests/test_response.py::test_json_response_round_trip",
+    "destination": "tests/unit/test_response_values.py::test_json_response_round_trip",
+    "contracts": [
+      "RESP-VALUES"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "ee0d1964b5fc5b3571fdcb515e2c39df424e01a08880d6adec19222b75f5f271"
+  },
+  {
+    "source": "tests/test_response.py::test_response_normalization_preserves_text_and_metadata",
+    "destination": "tests/unit/test_response_values.py::test_response_normalization_preserves_text_and_metadata",
+    "contracts": [
+      "RESP-VALUES"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "1d3f77d77f9a0e5006ca0bd725e5fd01d79ab0cb15fb70fc5b4a352675da0b0b"
+  },
+  {
+    "source": "tests/test_response.py::test_stream_finishes_once_and_preserves_upstream_errors",
+    "destination": "tests/unit/test_stream_lifecycle.py::test_stream_finishes_once_and_preserves_upstream_errors",
+    "contracts": [
+      "RESP-STREAM"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "f77a9eb692162e794ba1080df38a91d11e9af11bd3997f7dc11ff9ee1d752647"
+  },
+  {
+    "source": "tests/test_response.py::test_stream_transport_failure_closes_without_retry",
+    "destination": "tests/unit/test_stream_lifecycle.py::test_stream_transport_failure_closes_without_retry",
+    "contracts": [
+      "RESP-STREAM"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "8709b4594b2be30cb7b3f116ae5ff83b919a116360a5525d3d108ae207f3df77"
+  },
+  {
+    "source": "tests/test_response.py::test_response_deadline_only_finishes_after_commit",
+    "destination": "tests/unit/test_response_deadlines.py::test_response_deadline_only_finishes_after_commit",
+    "contracts": [
+      "RESP-TIMEOUT"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "35ca52cb3d4a37dbd7c3c6ad99f52a3c2579418021b8664d48ca57108f2c0dfb"
+  },
+  {
+    "source": "tests/test_response.py::test_header_override_all_response_types_replaces_case_variants",
+    "destination": "tests/unit/test_response_headers.py::test_header_override_all_response_types_replaces_case_variants",
+    "contracts": [
+      "RESP-HEADERS"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "d007dacf8e7cf77d1d0edd267ce220f8fe333bbe6c00e81a2745378afb5a0cf9"
+  },
+  {
+    "source": "tests/test_response.py::test_header_invalid_override_leaves_headers_unchanged",
+    "destination": "tests/unit/test_response_headers.py::test_header_invalid_override_leaves_headers_unchanged",
+    "contracts": [
+      "RESP-HEADERS"
+    ],
+    "cases": 3,
+    "original_ast_sha256": "a08aba2d803e55bd2be84e540eeb523c6d8f7be05eab5a79273e8210179b4a1c"
+  },
+  {
+    "source": "tests/test_response.py::test_cookie_invalid_attribute_leaves_headers_unchanged",
+    "destination": "tests/unit/test_cookies.py::test_cookie_invalid_attribute_leaves_headers_unchanged",
+    "contracts": [
+      "RESP-COOKIES"
+    ],
+    "cases": 18,
+    "original_ast_sha256": "d207afffa071349e5a913026a85645f5625f270880c4e9a9038fe646714865da"
+  },
+  {
+    "source": "tests/test_response.py::test_cookie_append_preserves_all_case_variants_and_order",
+    "destination": "tests/unit/test_cookies.py::test_cookie_append_preserves_all_case_variants_and_order",
+    "contracts": [
+      "RESP-COOKIES"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "cebdc564752b5a6c0b33bd1bc15b118e4bb898eb0de4d13d5234a3da3afada49"
+  },
+  {
+    "source": "tests/test_response.py::test_duplicate_content_length_is_rejected_before_start",
+    "destination": "tests/unit/test_response_headers.py::test_duplicate_content_length_is_rejected_before_start",
+    "contracts": [
+      "RESP-LENGTH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "3a20d3f8640f63105c4fd9a3ce1c3e51af2c48a00d4d860a98ae50e3175b55af"
+  },
+  {
+    "source": "tests/test_response.py::test_deadline_during_send_never_retries_transport",
+    "destination": "tests/unit/test_response_deadlines.py::test_deadline_during_send_never_retries_transport",
+    "contracts": [
+      "RESP-TIMEOUT"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "c68c61b9ac4f0b9e6706bee733ac7e427f8ac2d42ff236b441e4cb6ddb4d3a6e"
+  },
+  {
+    "source": "tests/test_response.py::test_invalid_header_grammar_is_rejected_before_mutation_or_send",
+    "destination": "tests/unit/test_response_headers.py::test_invalid_header_grammar_is_rejected_before_mutation_or_send",
+    "contracts": [
+      "RESP-HEADERS"
+    ],
+    "cases": 7,
+    "original_ast_sha256": "ea9d002c24daec240c2bb1af8f63b89f325550b088db53835f4543088d70bc29"
+  },
+  {
+    "source": "tests/test_response.py::test_cookie_structure_validation_is_atomic",
+    "destination": "tests/unit/test_cookies.py::test_cookie_structure_validation_is_atomic",
+    "contracts": [
+      "RESP-COOKIES"
+    ],
+    "cases": 6,
+    "original_ast_sha256": "d577b0f7e26b2c962087eaafe9e5b21249ed4d4988f0d92889869e5fde88b87b"
+  },
+  {
+    "source": "tests/test_response.py::test_cookie_legal_values_round_trip_without_extra_attributes",
+    "destination": "tests/unit/test_cookies.py::test_cookie_legal_values_round_trip_without_extra_attributes",
+    "contracts": [
+      "RESP-COOKIES"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "4167f50855c4f4ced09dbe6e6b04b03d046fa279808ffdc9c9daffe1f5ea53df"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_writer_replacement_replays_response_policies_without_rerunning_route",
+    "destination": "tests/integration/test_error_policies.py::test_writer_replacement_replays_response_policies_without_rerunning_route",
+    "contracts": [
+      "APP-ERROR",
+      "MW-CORS",
+      "MW-SESSION",
+      "MW-REQUEST-ID",
+      "RESP-POLICY"
+    ],
+    "cases": 24,
+    "original_ast_sha256": "29a641d5da14b18af42d497ce4cce7732a9bfa49521ff970b4b5dad198cefd20",
+    "classification_contracts": [
+      "APP-ERROR",
+      "MW-CORS",
+      "MW-SESSION",
+      "MW-REQUEST-ID"
+    ]
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_session_error_response_uses_latest_state",
+    "destination": "tests/integration/test_session.py::test_session_error_response_uses_latest_state",
+    "contracts": [
+      "MW-SESSION",
+      "APP-ERROR"
+    ],
+    "cases": 12,
+    "original_ast_sha256": "741c0a14429b1aaefd42c187542749aface0068aa754cc6345676ecbe73964cf"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_reused_error_response_does_not_accumulate_policy_cookies",
+    "destination": "tests/integration/test_cookies.py::test_reused_error_response_does_not_accumulate_policy_cookies",
+    "contracts": [
+      "RESP-COOKIES"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "2a5fd72940ba997bbe1708533797290c6833264fe4276d438c7a81349e3c9542"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_session_clear_survives_error_handler_fallback",
+    "destination": "tests/integration/test_session.py::test_session_clear_survives_error_handler_fallback",
+    "contracts": [
+      "MW-SESSION",
+      "APP-ERROR"
+    ],
+    "cases": 2,
+    "original_ast_sha256": "158f2ff267a3c8cf17e9b043e73415a9fec1b77131abeb2a234de173d361acb7"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_outer_middleware_session_changes_are_finalized_after_chain",
+    "destination": "tests/integration/test_session.py::test_outer_middleware_session_changes_are_finalized_after_chain",
+    "contracts": [
+      "MW-SESSION"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "8e1a610e052be994a68bf10b45a9d44131f91c7c586e3cd04e728b6a611ae10a"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_failed_response_policies_preserve_fallback_and_close_stream",
+    "destination": "tests/integration/test_error_policies.py::test_failed_response_policies_preserve_fallback_and_close_stream",
+    "contracts": [
+      "APP-ERROR",
+      "RESP-STREAM",
+      "RESP-POLICY"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "6638f7a4add9bb780064ceeac3413cb60f889c33f20823b053d18c68145132a8",
+    "classification_contracts": [
+      "APP-ERROR",
+      "RESP-STREAM"
+    ]
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_stream_invalid_content_length_is_rejected_before_send",
+    "destination": "tests/integration/test_response_headers.py::test_stream_invalid_content_length_is_rejected_before_send",
+    "contracts": [
+      "RESP-LENGTH"
+    ],
+    "cases": 14,
+    "original_ast_sha256": "8e5befe1e87750b925bd2cfa3cca0f38801fc2d1f2d2e3ccf9e0eb5bec890ce2"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_completed_stream_awaits_cleanup_before_background",
+    "destination": "tests/integration/test_completion.py::test_completed_stream_awaits_cleanup_before_background",
+    "contracts": [
+      "APP-COMPLETE"
+    ],
+    "cases": 6,
+    "original_ast_sha256": "6b01469cb31ef94b8b83377075a56706e5b22fc8d471cb2c6abc779980bcd59d"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_external_cancellation_during_cleanup_waits_and_propagates",
+    "destination": "tests/integration/test_stream_lifecycle.py::test_external_cancellation_during_cleanup_waits_and_propagates",
+    "contracts": [
+      "RESP-STREAM"
+    ],
+    "cases": 4,
+    "original_ast_sha256": "9b58815f56ca51a581ba62fcd117633de923be3c676be80c67019bc91be41e34"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_timeout_cleanup_survives_disconnect_and_repeated_cancellation",
+    "destination": "tests/integration/test_response_deadlines.py::test_timeout_cleanup_survives_disconnect_and_repeated_cancellation",
+    "contracts": [
+      "RESP-TIMEOUT"
+    ],
+    "cases": 3,
+    "original_ast_sha256": "da484f272233847e3210d64b53ee588bc3de452cd8e3d87777f3099119989260"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_delivered_error_responses_run_background_tasks_once",
+    "destination": "tests/integration/test_completion.py::test_delivered_error_responses_run_background_tasks_once",
+    "contracts": [
+      "APP-COMPLETE"
+    ],
+    "cases": 12,
+    "original_ast_sha256": "1fe01f2e86d282d3ccd98f4fa8528efac5c80fc9c7b26a0fc177f2fb7b21d105"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_pre_start_cleanup_failure_suppresses_background_after_fallback",
+    "destination": "tests/integration/test_completion.py::test_pre_start_cleanup_failure_suppresses_background_after_fallback",
+    "contracts": [
+      "APP-COMPLETE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "a2000885ebf314dc5ee39a67ab5af5356e0d54a4339002543dc29cdd1f27ad76"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_error_response_resources_are_created_only_before_start",
+    "destination": "tests/integration/test_error_policies.py::test_error_response_resources_are_created_only_before_start",
+    "contracts": [
+      "APP-ERROR"
+    ],
+    "cases": 7,
+    "original_ast_sha256": "7159818fc488215a9ef7db1b4cd91e1f4e4a537c4e3a92b141d974a77b762b8f"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_error_response_transport_failure_suppresses_background",
+    "destination": "tests/integration/test_completion.py::test_error_response_transport_failure_suppresses_background",
+    "contracts": [
+      "APP-COMPLETE"
+    ],
+    "cases": 6,
+    "original_ast_sha256": "f1216415ae1cabd56a3bc7acb6c392ec50dd09aa61a03eaf3a7640a7ee811ccf"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_rejected_body_is_not_cached_by_stream_disconnect_monitor",
+    "destination": "tests/integration/test_request_body.py::test_rejected_body_is_not_cached_by_stream_disconnect_monitor",
+    "contracts": [
+      "REQ-BODY",
+      "RESP-STREAM"
+    ],
+    "cases": 2,
+    "original_ast_sha256": "23e54b6e41d850b6e01a85c252dca52c90a78ffc0de15495a1a9432fff672263"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_handler_timeout_can_send_error_through_yielding_transport",
+    "destination": "tests/integration/test_timeout.py::test_handler_timeout_can_send_error_through_yielding_transport",
+    "contracts": [
+      "MW-TIMEOUT"
+    ],
+    "cases": 8,
+    "original_ast_sha256": "3ccf3af7b3c18b7d885520e949c8f07bbb595e5317832ea19c88cbc0b299eeb8"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_invalid_headers_produce_one_valid_error_response",
+    "destination": "tests/integration/test_response_headers.py::test_invalid_headers_produce_one_valid_error_response",
+    "contracts": [
+      "RESP-HEAD"
+    ],
+    "cases": 5,
+    "original_ast_sha256": "df2341344e8a480d20e092e84a1a18616b0a61dedc0188feac42e4d59ac75091"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_idle_stream_disconnect_or_cancellation_closes_all_tasks",
+    "destination": "tests/integration/test_stream_lifecycle.py::test_idle_stream_disconnect_or_cancellation_closes_all_tasks",
+    "contracts": [
+      "RESP-STREAM"
+    ],
+    "cases": 4,
+    "original_ast_sha256": "bc0bcf2e5234891e3eba211fae26ced47aacf69a81e36367d4c6b4f8a7f548fe"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_stream_monitor_preserves_request_body_and_normal_completion",
+    "destination": "tests/integration/test_request_body.py::test_stream_monitor_preserves_request_body_and_normal_completion",
+    "contracts": [
+      "REQ-BODY",
+      "RESP-STREAM"
+    ],
+    "cases": 4,
+    "original_ast_sha256": "e93fb42c97c2152c701a050f076e34b74e63bb402f23ae51f034592a8ebb9b37"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_stream_validation_failure_preserves_body_for_error_handler",
+    "destination": "tests/integration/test_request_body.py::test_stream_validation_failure_preserves_body_for_error_handler",
+    "contracts": [
+      "REQ-BODY",
+      "RESP-STREAM"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "aef6b384b95f169d3257bf86f88465f511b3f7402a0916a664da385c6dc88d16"
+  },
+  {
+    "source": "tests/test_response_lifecycle.py::test_disconnect_interrupts_blocked_send_without_retry",
+    "destination": "tests/integration/test_stream_lifecycle.py::test_disconnect_interrupts_blocked_send_without_retry",
+    "contracts": [
+      "RESP-STREAM"
+    ],
+    "cases": 3,
+    "original_ast_sha256": "98406807e0eaa156f983303310df9d3c99acd99e0de24b10196c705bdc673a4c"
+  },
+  {
+    "source": "tests/test_router.py::test_static_routing",
+    "destination": "tests/unit/test_routing.py::test_static_routing",
+    "contracts": [
+      "ROUTE-MATCH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "17b08683ead3a2f5186af25314d80a791321aca2154d353b1d7bbc6d04cb9ae6"
+  },
+  {
+    "source": "tests/test_router.py::test_param_routing",
+    "destination": "tests/unit/test_routing.py::test_param_routing",
+    "contracts": [
+      "ROUTE-MATCH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "150a3ac711f6bac3a6309049963307cc645236c7c645c6b755fce07efb8f0078"
+  },
+  {
+    "source": "tests/test_router.py::test_wildcard_routing",
+    "destination": "tests/unit/test_routing.py::test_wildcard_routing",
+    "contracts": [
+      "ROUTE-MATCH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "b30e577621271c023038e42d0658dc2a2f4162cd914bcec64d0211792abf2e21"
+  },
+  {
+    "source": "tests/test_router.py::test_url_for",
+    "destination": "tests/unit/test_routing.py::test_url_for",
+    "contracts": [
+      "ROUTE-NAMES"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "6048dd265d63209152d513c109f94fa258ff0638db1b7c28731d4ef9e383ad01"
+  },
+  {
+    "source": "tests/test_router.py::test_root_wildcard_matches_empty_path",
+    "destination": "tests/unit/test_routing.py::test_root_wildcard_matches_empty_path",
+    "contracts": [
+      "ROUTE-MATCH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "dc9cd3c5cf7bbc748892f8e2fe4fc7c9ae94b51cfe637a5035823a13e95da42b"
+  },
+  {
+    "source": "tests/test_router.py::test_duplicate_routes_are_rejected",
+    "destination": "tests/unit/test_routing.py::test_duplicate_routes_are_rejected",
+    "contracts": [
+      "ROUTE-MATCH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "3cf0981692f3ff3906655e59b45c8d9d60b92357c66177961b749723cbc7ab80"
+  },
+  {
+    "source": "tests/test_router.py::test_duplicate_route_names_are_rejected",
+    "destination": "tests/unit/test_routing.py::test_duplicate_route_names_are_rejected",
+    "contracts": [
+      "ROUTE-MATCH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "6c9605e5ca3644333d585375d6efe1f02fc05a600d04fa31bee7c6778d073a66"
+  },
+  {
+    "source": "tests/test_router_properties.py::test_router_precedence_is_independent_of_registration_order",
+    "destination": "tests/unit/test_routing.py::test_router_precedence_is_independent_of_registration_order",
+    "contracts": [
+      "ROUTE-MATCH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "60890598e02e56bfca9d83fb8348f3ac5b361bc28b74b1261a638126550f421a"
+  },
+  {
+    "source": "tests/test_router_properties.py::test_url_for_encodes_one_raw_segment",
+    "destination": "tests/unit/test_routing.py::test_url_for_encodes_one_raw_segment",
+    "contracts": [
+      "ROUTE-NAMES"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "d67de1723808f864920a70d2881651ca9c507e0d2d9ffb3a84427c87c5ce86d7"
+  },
+  {
+    "source": "tests/test_router_properties.py::test_named_wildcard_round_trip_preserves_handler_and_parameters",
+    "destination": "tests/unit/test_routing.py::test_named_wildcard_round_trip_preserves_handler_and_parameters",
+    "contracts": [
+      "ROUTE-NAMES"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "431ff18dea2d67a24e648b5e25d1745c06c43e06d5108b5673aec83b38307c5b"
+  },
+  {
+    "source": "tests/test_router_properties.py::test_head_and_allowed_methods_follow_registered_representations",
+    "destination": "tests/unit/test_routing.py::test_head_and_allowed_methods_follow_registered_representations",
+    "contracts": [
+      "ROUTE-MATCH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "52878b0abdf2e1724fd8aa4097a82193ce75e14c1f665f2540db386e5f87ea44"
+  },
+  {
+    "source": "tests/test_state.py::test_state_operations_match_identity_key_model",
+    "destination": "tests/unit/test_state.py::test_state_operations_match_identity_key_model",
+    "contracts": [
+      "STATE-STORE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "7fb2e657529c786d641da15ab96474719c8add6abd7322cadcbf67c49745d489"
+  },
+  {
+    "source": "tests/test_state.py::test_http_and_websocket_context_state_are_isolated",
+    "destination": "tests/integration/test_state.py::test_http_and_websocket_context_state_are_isolated",
+    "contracts": [
+      "STATE-STORE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "a524925a8d8ac4a0361373f6012baab04a79d528bfcf38f4244280a5178b5f19"
+  },
+  {
+    "source": "tests/test_state.py::test_state_store_has_no_dictionary_style_api",
+    "destination": "tests/unit/test_state.py::test_state_store_has_no_dictionary_style_api",
+    "contracts": [
+      "STATE-STORE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "75ad5984bde9b9bd89a1248995d06ddaa49eae33848ddae168eeba4ea7678090"
+  },
+  {
+    "source": "tests/test_static.py::test_static_stream_cancellation_during_open_closes_file",
+    "destination": "tests/integration/test_static_io.py::test_static_stream_cancellation_during_open_closes_file",
+    "contracts": [
+      "STATIC-IO"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "f6c4f5dd48f2ec95b57d840410ac53b8add53678aee60823e9ed9d3a17451a0e"
+  },
+  {
+    "source": "tests/test_static.py::test_static_directory_redirect_preserves_query_and_relative_assets",
+    "destination": "tests/integration/test_static_paths.py::test_static_directory_redirect_preserves_query_and_relative_assets",
+    "contracts": [
+      "STATIC-PATH"
+    ],
+    "cases": 4,
+    "original_ast_sha256": "d92e1846979d5567e611fceb647398b69b8be39ffdd60e630b5ae671e10db688"
+  },
+  {
+    "source": "tests/test_static.py::test_static_redirect_quotes_path_and_cannot_change_origin",
+    "destination": "tests/integration/test_static_paths.py::test_static_redirect_quotes_path_and_cannot_change_origin",
+    "contracts": [
+      "STATIC-PATH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "fc36d6aac7aa30010bceca7150623874bb5300cc00f58c2aa91f77df84a27edd"
+  },
+  {
+    "source": "tests/test_static.py::test_static_if_none_match_precedes_ranges",
+    "destination": "tests/integration/test_static_conditions.py::test_static_if_none_match_precedes_ranges",
+    "contracts": [
+      "STATIC-CONDITIONAL"
+    ],
+    "cases": 20,
+    "original_ast_sha256": "12e7475e64bef9be96b6330856065373c6542a949366c177c288dcd6a3c16282"
+  },
+  {
+    "source": "tests/test_static.py::test_static_if_range_requires_matching_strong_etag",
+    "destination": "tests/integration/test_static_conditions.py::test_static_if_range_requires_matching_strong_etag",
+    "contracts": [
+      "STATIC-CONDITIONAL"
+    ],
+    "cases": 14,
+    "original_ast_sha256": "9ef2a27e97a8543d4e1fd26a0b5360a336a96dd544dfde98f665187c90327d73"
+  },
+  {
+    "source": "tests/test_static.py::test_static_unsatisfiable_range_includes_representation_size",
+    "destination": "tests/integration/test_static_conditions.py::test_static_unsatisfiable_range_includes_representation_size",
+    "contracts": [
+      "STATIC-CONDITIONAL"
+    ],
+    "cases": 12,
+    "original_ast_sha256": "af4391156b9496968cabbc3477e6fcaef295a3c121f0746e3ccba91395b912b5",
+    "stage5_audit": {
+      "retained_cases": 4,
+      "removed_parameters": [
+        "bytes=0-1,3-4",
+        "bytes=-0",
+        "bytes=-",
+        "bytes=4-1"
+      ],
+      "payloads": [
+        "",
+        "hello"
+      ],
+      "replacement": "tests/unit/test_conditional_rules.py::test_range_invalid_partitions_raise_value_error",
+      "reason": "All six parsing/error partitions remain covered for empty/nonempty sizes at the pure rule. Integration retains numeric unsatisfiable and malformed input, asserting the common ValueError-to-416 boundary and Content-Range size."
+    }
+  },
+  {
+    "source": "tests/test_static.py::test_static_mount_serves_index_and_files",
+    "destination": "tests/integration/test_static_paths.py::test_static_mount_serves_index_and_files",
+    "contracts": [
+      "STATIC-PATH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "0e4bc8ba817f51c2f54fa41807b4fb6d0fb57f8f3d3d0d604a143b55a1331e60"
+  },
+  {
+    "source": "tests/test_static.py::test_static_ranges_match_byte_slices",
+    "destination": "tests/integration/test_static_conditions.py::test_static_ranges_match_byte_slices",
+    "contracts": [
+      "STATIC-CONDITIONAL"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "3650df94eb9e37d9bf4b7bce8fbe610cbd01e1ad9747f7948e552b5fc7b91f3b"
+  },
+  {
+    "source": "tests/test_static.py::test_etag_tracks_content_even_when_metadata_is_unchanged",
+    "destination": "tests/integration/test_static_conditions.py::test_etag_tracks_content_even_when_metadata_is_unchanged",
+    "contracts": [
+      "STATIC-CONDITIONAL"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "ac1f17538ac0e0f5ebc5a7381f796d3316d025d244e64cb3a816d605df88c1a7"
+  },
+  {
+    "source": "tests/test_static.py::test_static_rejects_paths_outside_root",
+    "destination": "tests/integration/test_static_paths.py::test_static_rejects_paths_outside_root",
+    "contracts": [
+      "STATIC-PATH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "cd204ce3794e16e520b324892b73296713c9457630e60572a464386fde189655"
+  },
+  {
+    "source": "tests/test_static.py::test_static_rejects_symlink_escape_including_index",
+    "destination": "tests/integration/test_static_paths.py::test_static_rejects_symlink_escape_including_index",
+    "contracts": [
+      "STATIC-PATH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "29f3726a929a0b34b450c98222458ce2f75e0eca6e88d85a94fd828b76194264"
+  },
+  {
+    "source": "tests/test_static.py::test_static_boundary_errors",
+    "destination": "tests/integration/test_static_paths.py::test_static_boundary_errors",
+    "contracts": [
+      "STATIC-PATH"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "67a7f969b33f9412f91cb10e84bf5dadcf308c265e669ba31f8b9cb8490691a9"
+  },
+  {
+    "source": "tests/test_static.py::test_static_file_operations_are_offloaded",
+    "destination": "tests/integration/test_static_io.py::test_static_file_operations_are_offloaded",
+    "contracts": [
+      "STATIC-IO"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "bda293a713eb1e7569ae6f5601c7c980f84434513c545575258e0a979652129f"
+  },
+  {
+    "source": "tests/test_websocket.py::test_websocket_operations_follow_connection_model",
+    "destination": "tests/unit/test_websocket.py::test_websocket_operations_follow_connection_model",
+    "contracts": [
+      "WS-STATE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "6e2c987f2cf0ca5684d922177f45b8d9a81ed93048de21aa7d0123a268f4a6ac"
+  },
+  {
+    "source": "tests/test_websocket.py::test_websocket_lifecycle",
+    "destination": "tests/integration/test_websocket.py::test_websocket_lifecycle",
+    "contracts": [
+      "WS-STATE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "760a0ae3c632b37d0b3a5e723af2cc39941c7d096685e85b37a3263a17350148"
+  },
+  {
+    "source": "tests/test_websocket.py::test_websocket_binary_json_and_headers",
+    "destination": "tests/unit/test_websocket.py::test_websocket_binary_json_and_headers",
+    "contracts": [
+      "WS-STATE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "304de8c9547d52d225a76bda6f70e68080a8026a182f5052c9adc10460cf8d9d"
+  },
+  {
+    "source": "tests/test_websocket.py::test_websocket_rejects_invalid_state_transitions",
+    "destination": "tests/unit/test_websocket.py::test_websocket_rejects_invalid_state_transitions",
+    "contracts": [
+      "WS-STATE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "71197c8cbc0255e4bae2339fb962c4daa9e2cb2f6a91844085b8a0d51a62e7be"
+  },
+  {
+    "source": "tests/test_websocket.py::test_websocket_handles_missing_and_failing_handlers",
+    "destination": "tests/integration/test_websocket.py::test_websocket_handles_missing_and_failing_handlers",
+    "contracts": [
+      "WS-STATE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "3818e5c0d623ffff5816f78fac2f89f206d4729581098c934921a2a0bb865457"
+  },
+  {
+    "source": "tests/test_websocket.py::test_websocket_converts_text_and_rejects_duplicate_accept",
+    "destination": "tests/unit/test_websocket.py::test_websocket_converts_text_and_rejects_duplicate_accept",
+    "contracts": [
+      "WS-STATE"
+    ],
+    "cases": 1,
+    "original_ast_sha256": "35a7a44415cc13d38b6b519a834c22e0f1c914cfb01ee504a8a6a23f91846651"
+  }
+]

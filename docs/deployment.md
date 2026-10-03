@@ -28,6 +28,12 @@ uv run uvicorn app:app --host 0.0.0.0 --port 8000
 Lettia does not terminate TLS or manage workers. Put a TLS-capable reverse
 proxy or load balancer in front of public deployments.
 
+For a proxy that removes `/api` before forwarding requests, configure the ASGI
+server's mount prefix, for example `uvicorn app:app --root-path /api`. Declare
+routes relative to the application, such as `/health`. Lettia resolves the mount
+for both HTTP and WebSocket routing, and static-directory redirects preserve
+the external prefix.
+
 ## Application factory and lifecycle
 
 Build long-lived dependencies in an explicit composition root. Start and close
@@ -74,7 +80,11 @@ belongs in `WebSocketContext.state`.
 ## Background tasks and reliability
 
 `ctx.add_background_task()` runs after the HTTP response has been written in
-the same application process. It is appropriate for short, best-effort work
+the same application process, including successfully delivered error and fallback
+responses. Tasks run once, after iterator cleanup. Disconnects, cancellation,
+transport errors, source errors, and cleanup failures suppress them; a rejected
+response replaced successfully before transmission does not. It is appropriate
+for short, best-effort work
 such as an audit notification. It is not durable: a process stop or failure
 can prevent completion, and Lettia does not retry it. Use an external queue and
 worker for delivery that must survive failures.

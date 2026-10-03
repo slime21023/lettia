@@ -1,0 +1,362 @@
+# Single source of truth for behavioral ownership and required test layers.
+version = 1
+
+[contracts.JSON-VALUE]
+owner = "JSON value rules"
+rule = "Validate recursive JSON-compatible values independently of request decoding"
+inputs = "Python scalar, list or dictionary"
+outputs = "typed JSON value with recursively copied containers"
+errors = "TypeError for non-string keys or unsupported objects"
+side_effects = "no request, transport or I/O dependency"
+required_layers = ["unit", "architecture"]
+
+[contracts.RESP-POLICY]
+owner = "Context policy registry"
+rule = "Defer registered policies once, preserve ordering and drop only failed callbacks"
+inputs = "response finalizers and current request state"
+outputs = "response policy effects at the writer boundary"
+errors = "first policy exception propagates after remaining policies run"
+side_effects = "standalone registration applies immediately; activation is idempotent"
+required_layers = ["unit", "integration"]
+
+[contracts.RESP-HEAD]
+owner = "ResponseWriter"
+rule = "HEAD and 204/304 suppress body bytes while preserving permitted representation metadata"
+inputs = "method, status and response"
+outputs = "ASGI headers and empty body"
+errors = "invalid headers raise before start"
+side_effects = "one start, one terminal body"
+required_layers = ["integration", "unit", "smoke"]
+
+[contracts.RESP-LENGTH]
+owner = "ResponseWriter"
+rule = "Validate decimal length numerically, reject duplicates, permit HEAD representation lengths"
+inputs = "body, method and length fields"
+outputs = "validated length or omission"
+errors = "ValueError before start for malformed or mismatched length"
+side_effects = "no transmission on rejection"
+required_layers = ["integration", "unit"]
+
+[contracts.RESP-HEADERS]
+owner = "Response"
+rule = "Header replacement is case-insensitive, atomic and safe for encoding"
+inputs = "header names and values"
+outputs = "one override plus encoded header pairs"
+errors = "ValueError for unsafe or unencodable components"
+side_effects = "mutation only after validation"
+required_layers = ["unit"]
+
+[contracts.RESP-COOKIES]
+owner = "Response"
+rule = "Preserve cookie order, delimiters and security attributes across creation and deletion"
+inputs = "cookie fields and existing headers"
+outputs = "separate ordered Set-Cookie fields"
+errors = "ValueError before mutation"
+side_effects = "append or expire cookies atomically"
+required_layers = ["integration", "unit"]
+
+[contracts.RESP-VALUES]
+owner = "Response"
+rule = "Normalize supported values without losing payload, status or header overrides"
+inputs = "response return values"
+outputs = "Response with UTF-8 data"
+errors = "TypeError for unsupported values"
+side_effects = "no network access"
+required_layers = ["unit"]
+
+[contracts.RESP-WRITE]
+owner = "ResponseWriter"
+rule = "Attempt response start once and report commitment only after successful send"
+inputs = "response and send callable"
+outputs = "ordered ASGI events"
+errors = "send exceptions propagate without retries"
+side_effects = "single delivery per writer"
+required_layers = ["integration", "unit", "smoke"]
+
+[contracts.RESP-STREAM]
+owner = "ResponseWriter"
+rule = "Acquire, iterate and close in one task/context, await cleanup through cancellation"
+inputs = "async iterable and transport/disconnect events"
+outputs = "chunks and cleanup completion"
+errors = "source/send/close failures propagate; cancellation preserved"
+side_effects = "close once and leave no writer tasks"
+required_layers = ["integration", "unit", "smoke"]
+
+[contracts.RESP-TIMEOUT]
+owner = "ResponseWriter"
+rule = "Distinguish framework deadlines from upstream timeout and preserve cleanup"
+inputs = "deadline, iterable and send callable"
+outputs = "timeout response opportunity or stream termination"
+errors = "pre-start ResponseTimeout; transport failures are not retried"
+side_effects = "deadline does not interrupt final close"
+required_layers = ["integration", "unit"]
+
+[contracts.REQ-BODY]
+owner = "Context"
+rule = "Receive ownership preserves cached chunks, sticky limits and disconnect semantics"
+inputs = "ASGI request events and byte limit"
+outputs = "cached bytes or shared disconnect notification"
+errors = "400 disconnect/malformed input; 413 overflow"
+side_effects = "serialize reads; release rejected chunks"
+required_layers = ["integration", "unit"]
+
+[contracts.REQ-JSON]
+owner = "Context"
+rule = "Parse request JSON and classify decoding/validation limits as input errors"
+inputs = "request bytes"
+outputs = "JSON values or None for empty body"
+errors = "HTTP 400 for malformed JSON, integer/depth limits"
+side_effects = "body cache remains readable"
+required_layers = ["integration", "unit"]
+
+[contracts.REQ-METADATA]
+owner = "Context"
+rule = "Preserve query repetitions, case-insensitive headers and cookie parsing"
+inputs = "scope metadata"
+outputs = "cached request mappings"
+errors = "HTTP 400 for malformed metadata"
+side_effects = "lazy per-request caches"
+required_layers = ["unit"]
+
+[contracts.BIND-CONSTRUCT]
+owner = "Binder"
+rule = "Bind constructor aliases and InitVar, preserve defaults and JSON precedence, ignore non-init/unknown fields"
+inputs = "model schema plus JSON/query mappings"
+outputs = "constructed model"
+errors = "400 missing/invalid input; unsupported schema remains TypeError"
+side_effects = "construct once after coercion"
+required_layers = ["integration", "unit"]
+
+[contracts.BIND-SCALAR]
+owner = "Binder"
+rule = "Coerce supported scalar/nullable inputs without confusing bool and numbers"
+inputs = "scalar input and annotation"
+outputs = "typed constructor values"
+errors = "400 conversion/overflow; configuration TypeError outside input handling"
+side_effects = "no request side effects"
+required_layers = ["integration", "unit"]
+
+[contracts.BIND-SCHEMA]
+owner = "Binder"
+rule = "Validate supported constructor annotations before reading input"
+inputs = "attrs/dataclass constructor schema"
+outputs = "field annotation mapping"
+errors = "TypeError for unsupported model/schema"
+side_effects = "non-init annotations excluded"
+required_layers = ["integration", "unit"]
+
+[contracts.BIND-PYDANTIC]
+owner = "PydanticBinder"
+rule = "Delegate validation to the optional Pydantic adapter"
+inputs = "model and merged request data"
+outputs = "validated model"
+errors = "ValidationError becomes 400; validator programming errors propagate unchanged; absent dependency is configuration failure"
+side_effects = "no custom replacement of model validation"
+required_layers = ["integration"]
+
+[contracts.ROUTE-MATCH]
+owner = "Router"
+rule = "Preserve precedence, method-specific parameters, HEAD fallback and 405 method discovery"
+inputs = "registered routes and request path/method"
+outputs = "matched route/parameters or allowed methods"
+errors = "duplicate registration rejected; App emits 404/405"
+side_effects = "registration state only"
+required_layers = ["integration", "unit"]
+
+[contracts.ROUTE-NAMES]
+owner = "Router"
+rule = "Validate and encode named-route parameters"
+inputs = "route name and parameter values"
+outputs = "URL"
+errors = "KeyError for missing names; TypeError for extra parameters"
+side_effects = "no route mutation"
+required_layers = ["unit"]
+
+[contracts.ROUTE-MOUNT]
+owner = "ASGI path resolution"
+rule = "Resolve mount prefixes on segment boundaries across HTTP, WebSocket and static delivery"
+inputs = "scope root/path and routes"
+outputs = "application-relative dispatch with external context preserved"
+errors = "normal 404/405 when unmatched"
+side_effects = "scope path remains visible to handlers"
+required_layers = ["integration"]
+
+[contracts.MW-CHAIN]
+owner = "Middleware composition"
+rule = "Preserve nesting and applied outer response policies on downstream errors"
+inputs = "ordered middleware and handler"
+outputs = "one normalized response"
+errors = "shared error rendering without repeated route execution"
+side_effects = "request work runs once"
+required_layers = ["integration", "unit"]
+
+[contracts.MW-CORS]
+owner = "CORS"
+rule = "Apply explicit/wildcard permissions and cache variation consistently"
+inputs = "configuration, origin and preflight fields"
+outputs = "CORS headers and ordinary OPTIONS dispatch"
+errors = "wildcard credentials rejected"
+side_effects = "merge Vary without losing tokens"
+required_layers = ["integration", "unit"]
+
+[contracts.MW-REQUEST-ID]
+owner = "Request ID"
+rule = "Preserve or generate identity and finalize one response header"
+inputs = "request header and generator"
+outputs = "request state and response ID"
+errors = "header validation errors follow writer fallback"
+side_effects = "generate once per request"
+required_layers = ["integration", "unit"]
+
+[contracts.MW-SESSION]
+owner = "Session"
+rule = "Authenticate versioned expiry and sign latest session state with secure deletion scope"
+inputs = "signed cookie, clock and state mutations"
+outputs = "restored session and optional Set-Cookie"
+errors = "invalid envelopes ignored; invalid lifetime rejected"
+side_effects = "state scoped per request; cookies do not accumulate"
+required_layers = ["integration", "unit"]
+
+[contracts.MW-RATE]
+owner = "Rate limiter"
+rule = "Sliding windows isolate trusted scope identities and custom keys"
+inputs = "client identity, timestamps and configured limit"
+outputs = "allow result or 429 with Retry-After"
+errors = "nonpositive configuration rejected"
+side_effects = "purge expired process-local history"
+required_layers = ["integration", "unit"]
+
+[contracts.MW-TIMEOUT]
+owner = "Timeout middleware"
+rule = "Apply earliest deadline without relabeling upstream errors or reusing expired handler deadlines"
+inputs = "handler duration and nested timeout configuration"
+outputs = "response or framework timeout"
+errors = "framework expiry maps to 504"
+side_effects = "cancel handler and preserve response cleanup"
+required_layers = ["integration", "unit"]
+
+[contracts.MW-LOG]
+owner = "Request logger"
+rule = "Log observable middleware response status and request duration"
+inputs = "request and downstream outcome"
+outputs = "one access log entry"
+errors = "downstream exceptions propagate"
+side_effects = "invoke configured log action"
+required_layers = ["unit"]
+
+[contracts.MW-RECOVER]
+owner = "Recovery middleware"
+rule = "Log unexpected downstream failures and preserve HTTP exceptions"
+inputs = "downstream callable"
+outputs = "response or original error"
+errors = "re-raise original exception"
+side_effects = "unexpected errors logged"
+required_layers = ["integration", "unit"]
+
+[contracts.APP-ERROR]
+owner = "App"
+rule = "Render replacements only before start, preserve applied policies and use one writer"
+inputs = "route/policy/writer failures"
+outputs = "error or fallback response"
+errors = "post-start failures logged without constructing unused resources"
+side_effects = "no duplicate send or repeated handler"
+required_layers = ["integration"]
+
+[contracts.APP-COMPLETE]
+owner = "App"
+rule = "Run background work once after successful delivery and cleanup"
+inputs = "delivery completion and registered work"
+outputs = "background effects after completion"
+errors = "failed sends/cleanup or cancellation suppress completion work"
+side_effects = "normal/error/fallback share one completion gate"
+required_layers = ["integration", "smoke"]
+
+[contracts.APP-LIFESPAN]
+owner = "App"
+rule = "Own startup/shutdown and explicitly supplied service lifetime"
+inputs = "lifespan events and registered callbacks"
+outputs = "complete/failed events"
+errors = "callback errors reported as lifespan failures"
+side_effects = "services start and close in order"
+required_layers = ["integration", "smoke"]
+
+[contracts.APP-API]
+owner = "Public interfaces"
+rule = "Preserve public signatures, imports and explicit dependency composition"
+inputs = "public API surface"
+outputs = "compatible callable interfaces"
+errors = "no implicit application state bag"
+side_effects = "no new public mutable global state"
+required_layers = ["architecture"]
+
+[contracts.STATIC-PATH]
+owner = "StaticFiles"
+rule = "Contain resolved paths and preserve safe mounted directory redirects"
+inputs = "root directory and request path/query"
+outputs = "file response or origin-relative redirect"
+errors = "403 escape; 404 missing; 405 wrong method"
+side_effects = "resolve/check before opening representation"
+required_layers = ["integration"]
+
+[contracts.STATIC-CONDITIONAL]
+owner = "StaticFiles"
+rule = "Evaluate validators before ranges, weak-list matching and strong If-Range only"
+inputs = "ETag, file size and conditional headers"
+outputs = "200/206/304 or range error with total size"
+errors = "416 for unsatisfiable supported ranges"
+side_effects = "HEAD ignores Range; content hash remains authoritative"
+required_layers = ["integration", "unit"]
+
+[contracts.STATIC-IO]
+owner = "StaticFiles"
+rule = "Offload file operations and reclaim handles through interrupted opens/reads"
+inputs = "filesystem path, offset and length"
+outputs = "bounded byte stream"
+errors = "I/O/cancellation propagate after cleanup"
+side_effects = "worker-open handles reclaimed"
+required_layers = ["integration"]
+
+[contracts.WS-STATE]
+owner = "WebSocketContext"
+rule = "Preserve connection transitions and disconnect classification"
+inputs = "ASGI frames and application operations"
+outputs = "accept/send/close events"
+errors = "illegal transitions rejected; disconnect is not internal failure"
+side_effects = "connection-local state"
+required_layers = ["integration", "unit"]
+
+[contracts.STATE-STORE]
+owner = "StateStore"
+rule = "Use typed identity keys and isolate request/connection stores"
+inputs = "key operations"
+outputs = "stored values"
+errors = "missing required key raises KeyError"
+side_effects = "only local store mutates"
+required_layers = ["integration", "unit"]
+
+[contracts.RENDER-ESCAPE]
+owner = "SimpleHTMLRenderer"
+rule = "Escape values once without interpreting inserted placeholders"
+inputs = "trusted template and value mapping"
+outputs = "HTML text response"
+errors = "missing template/values retain documented behavior"
+side_effects = "no I/O"
+required_layers = ["unit"]
+
+[contracts.VALIDATE-PREDICATE]
+owner = "CallableValidator"
+rule = "Convert failed predicates to input errors and preserve HTTP exceptions"
+inputs = "object and predicate"
+outputs = "successful validation or HTTP error"
+errors = "false/validation errors become 400"
+side_effects = "invoke predicate once"
+required_layers = ["unit"]
+
+[contracts.ARCH-POLICY]
+owner = "Architecture"
+rule = "Enforce typed public examples, test classification and dependency boundaries"
+inputs = "project sources, documentation and contract registry"
+outputs = "auditable compatible structure"
+errors = "test/collection failure on prohibited dependency or missing contract"
+side_effects = "read-only checks"
+required_layers = ["architecture"]

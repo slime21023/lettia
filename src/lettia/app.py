@@ -13,6 +13,7 @@ from lettia.asgi import (
     WebSocketReceive,
     WebSocketScope,
     WebSocketSend,
+    _route_path,  # pyright: ignore[reportPrivateUsage]
 )
 from lettia.context import Context
 from lettia.errors import HTTPException, default_error_handler
@@ -189,9 +190,10 @@ class App:
             self._compiled_chains[(method, path)] = compiled
 
         async def dispatch(ctx: Context) -> Response:
-            match_result = self._router.match(ctx.method, ctx.path)
+            path = _route_path(ctx.scope)
+            match_result = self._router.match(ctx.method, path)
             if match_result is None:
-                allowed_methods = self._router.allowed_methods(ctx.path)
+                allowed_methods = self._router.allowed_methods(path)
                 if allowed_methods:
                     raise HTTPException(
                         405,
@@ -268,6 +270,7 @@ class App:
         ctx = Context(
             scope=scope, receive=cast(HTTPReceive, receive), send=cast(HTTPSend, send)
         )
+        ctx._defer_response_policies()  # pyright: ignore[reportPrivateUsage]
         writer = ResponseWriter(
             send=cast(HTTPSend, send), head_only=ctx.method == "HEAD"
         )
@@ -280,49 +283,63 @@ class App:
                 raise RuntimeError("Application middleware chain was not compiled")
             raw_response = await compiled_pre_chain(ctx)
             response = normalize_response(raw_response)
-            await writer.write(response, deadline=ctx.response_deadline)
-
-            # Execute background tasks after response is delivered
-            for task_func, task_args, task_kwargs in ctx.background_tasks:
-                try:
-                    res = task_func(*task_args, **task_kwargs)
-                    if isinstance(res, Awaitable):
-                        await res
-                except Exception:
-                    logger.exception(
-                        "Background task failed",
-                        extra={"path": ctx.path, "method": ctx.method},
-                    )
-
+            completed = await self._write_response(ctx, writer, response)
         except ResponseTimeout:
-            await self._write_error(
+            completed = await self._write_error(
                 ctx,
                 writer,
                 HTTPException(504, "Request timed out while writing the response"),
             )
         except Exception as exc:
-            await self._write_error(ctx, writer, exc)
+            completed = await self._write_error(ctx, writer, exc)
+
+        if not completed:
+            return
+        # Normal and replacement responses share the same completion path.
+        for task_func, task_args, task_kwargs in ctx.background_tasks:
+            try:
+                res = task_func(*task_args, **task_kwargs)
+                if isinstance(res, Awaitable):
+                    await res
+            except Exception:
+                logger.exception(
+                    "Background task failed",
+                    extra={"path": ctx.path, "method": ctx.method},
+                )
+
+    async def _write_response(
+        self, ctx: Context, writer: ResponseWriter, response: Response
+    ) -> bool:
+        return await writer._deliver(  # pyright: ignore[reportPrivateUsage]
+            response,
+            ctx.response_deadline,
+            ctx._finalize_response,  # pyright: ignore[reportPrivateUsage]
+            ctx._wait_for_disconnect,  # pyright: ignore[reportPrivateUsage]
+        )
 
     async def _write_error(
         self, ctx: Context, writer: ResponseWriter, exc: Exception
-    ) -> None:
+    ) -> bool:
+        if not writer._can_replace_response:  # pyright: ignore[reportPrivateUsage]
+            logger.error(
+                "Response failed after start was attempted",
+                exc_info=exc,
+                extra={"path": ctx.path, "method": ctx.method},
+            )
+            return False
+        ctx.response_deadline = None
         try:
-            await writer.write(await self._render_error(ctx, exc))
+            response = await self._render_error(ctx, exc)
+            return await self._write_response(ctx, writer, response)
         except Exception:
-            if not writer.committed:
-                await ctx.send(
-                    {
-                        "type": "http.response.start",
-                        "status": 500,
-                        "headers": [(b"content-type", b"text/plain")],
-                    }
+            if not writer._can_replace_response:  # pyright: ignore[reportPrivateUsage]
+                logger.exception(
+                    "Error response failed after start was attempted",
+                    extra={"path": ctx.path, "method": ctx.method},
                 )
-                await ctx.send(
-                    {
-                        "type": "http.response.body",
-                        "body": b"Internal Server Error",
-                    }
-                )
+                return False
+            response = Response(status_code=500, body=b"Internal Server Error")
+            return await self._write_response(ctx, writer, response)
 
     async def _render_error(self, ctx: Context, exc: Exception) -> Response:
         if not isinstance(exc, HTTPException):
@@ -350,7 +367,7 @@ class App:
             await send({"type": "websocket.close", "code": 1002})
             return
 
-        path = scope["path"]
+        path = _route_path(scope)
         match_result = self._router.match("WEBSOCKET", path)
 
         if match_result is None:

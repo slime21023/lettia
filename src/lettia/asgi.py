@@ -54,6 +54,16 @@ class LifespanScope(TypedDict):
 type ASGIScope = HTTPScope | WebSocketScope | LifespanScope
 
 
+# Shared by framework components without adding a public routing API.
+def _route_path(scope: HTTPScope | WebSocketScope) -> str:  # pyright: ignore[reportUnusedFunction]
+    path = scope["path"]
+    root = scope.get("root_path", "")
+    for prefix in (root, root.rstrip("/")):
+        if prefix and (path == prefix or path.startswith(prefix + "/")):
+            return path[len(prefix) :] or "/"
+    return path
+
+
 class HTTPRequestEvent(TypedDict):
     type: Literal["http.request"]
     body: NotRequired[bytes]

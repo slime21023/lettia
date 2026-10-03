@@ -1,76 +1,18 @@
-import dataclasses
-import types
-import typing
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Protocol, TypeVar, cast, runtime_checkable
 
-from attrs import fields, has
-
+from lettia._binding import (
+    attrs_annotations,
+    bound_kwargs,
+    construct,
+    dataclass_annotations,
+    scalar_type,
+)
 from lettia.asgi import JSONValue
 from lettia.context import Context
 from lettia.errors import abort
 
 T = TypeVar("T")
-
-
-def _scalar_type(target_type: object) -> tuple[object, bool]:
-    nullable = False
-    origin = typing.get_origin(target_type)
-    if origin in (typing.Union, types.UnionType):
-        non_none_args = [
-            argument
-            for argument in typing.get_args(target_type)
-            if argument is not type(None)
-        ]
-        if len(non_none_args) == 1 and type(None) in typing.get_args(target_type):
-            target_type = non_none_args[0]
-            nullable = True
-    if (
-        target_type is not str
-        and target_type is not int
-        and target_type is not float
-        and target_type is not bool
-    ):
-        raise TypeError(
-            f"Unsupported binding annotation {target_type!r}; use PydanticBinder "
-            "for complex models"
-        )
-    return target_type, nullable
-
-
-def _coerce_type(value: JSONValue, target_type: object, nullable: bool) -> object:
-    if nullable and value is None:
-        return None
-    if target_type is str and not isinstance(value, str):
-        raise ValueError(f"Expected a string, got {value!r}")
-    if target_type is int:
-        if isinstance(value, str):
-            try:
-                return int(value)
-            except ValueError as exc:
-                raise ValueError(f"Expected an integer, got {value!r}") from exc
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise ValueError(f"Expected an integer, got {value!r}")
-    if target_type is float:
-        if isinstance(value, str):
-            try:
-                return float(value)
-            except ValueError as exc:
-                raise ValueError(f"Expected a number, got {value!r}") from exc
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ValueError(f"Expected a number, got {value!r}")
-        return float(value)
-    if target_type is bool:
-        if isinstance(value, str):
-            normalized = value.lower()
-            if normalized in ("true", "1", "yes"):
-                return True
-            if normalized in ("false", "0", "no"):
-                return False
-            raise ValueError(f"Expected a boolean, got {value!r}")
-        if not isinstance(value, bool):
-            raise ValueError(f"Expected a boolean, got {value!r}")
-    return value
 
 
 async def _request_data(ctx: Context) -> dict[str, JSONValue]:
@@ -85,22 +27,6 @@ async def _request_data(ctx: Context) -> dict[str, JSONValue]:
     return data
 
 
-def _bound_kwargs(
-    data: Mapping[str, JSONValue], annotations: Mapping[str, tuple[object, bool]]
-) -> dict[str, object]:
-    kwargs: dict[str, object] = {}
-    for key, value in data.items():
-        target_type = annotations.get(key)
-        if target_type is not None:
-            kwargs[key] = _coerce_type(value, *target_type)
-    return kwargs
-
-
-def _construct[T](target_type: type[T], kwargs: Mapping[str, object]) -> T:
-    constructor = cast(Callable[..., T], target_type)
-    return constructor(**kwargs)
-
-
 @runtime_checkable
 class Binder(Protocol):
     async def bind(self, ctx: Context, target_type: type[T]) -> T: ...
@@ -108,32 +34,14 @@ class Binder(Protocol):
 
 class AttrsBinder:
     async def bind(self, ctx: Context, target_type: type[T]) -> T:
-        if not has(target_type):
-            raise TypeError(f"Target type {target_type} is not an attrs class")
-        try:
-            resolved_annotations: dict[str, object] = typing.get_type_hints(target_type)
-        except (NameError, TypeError):
-            resolved_annotations = {}
-        annotations = {
-            attribute.name: resolved_annotations.get(attribute.name, attribute.type)
-            for attribute in fields(target_type)
-        }
-        return cast(T, await _bind_constructed(ctx, target_type, annotations))
+        return await _bind_constructed(ctx, target_type, attrs_annotations(target_type))
 
 
 class DataclassBinder:
     async def bind(self, ctx: Context, target_type: type[T]) -> T:
-        if not dataclasses.is_dataclass(target_type):
-            raise TypeError(f"Target type {target_type} is not a dataclass")
-        try:
-            resolved_annotations: dict[str, object] = typing.get_type_hints(target_type)
-        except (NameError, TypeError):
-            resolved_annotations = {}
-        annotations = {
-            attribute.name: resolved_annotations.get(attribute.name, attribute.type)
-            for attribute in dataclasses.fields(target_type)
-        }
-        return await _bind_constructed(ctx, target_type, annotations)
+        return await _bind_constructed(
+            ctx, target_type, dataclass_annotations(target_type)
+        )
 
 
 async def _bind_constructed[T](
@@ -141,10 +49,10 @@ async def _bind_constructed[T](
     target_type: type[T],
     annotations: Mapping[str, object],
 ) -> T:
-    scalar_fields = {key: _scalar_type(value) for key, value in annotations.items()}
+    scalar_fields = {key: scalar_type(value) for key, value in annotations.items()}
     try:
         data = await _request_data(ctx)
-        return _construct(target_type, _bound_kwargs(data, scalar_fields))
+        return construct(target_type, bound_kwargs(data, scalar_fields))
     except (TypeError, ValueError) as exc:
         abort(400, f"Failed to bind payload to {target_type.__name__}: {exc}")
 

@@ -61,9 +61,8 @@ def rate_limit(
     def default_key_func(ctx: Context) -> str:
         client = ctx.scope.get("client")
         if client:
-            return str(client[0])
-        forwarded_for = ctx.header("x-forwarded-for") or "127.0.0.1"
-        return forwarded_for.split(",")[0].strip()
+            return client[0]
+        return "<unknown-client>"
 
     get_key = key_func if key_func is not None else default_key_func
 

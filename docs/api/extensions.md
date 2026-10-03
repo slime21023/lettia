@@ -29,6 +29,13 @@ and nullable variants. Null preserves `None` only for nullable fields; strings
 are checked strictly. Unsupported schema annotations raise `TypeError` rather
 than HTTP 400. JSON fields override query parameters and omitted fields retain
 defaults. Use PydanticBinder for nested or collection models.
+Only `init=True` fields are bound and schema-checked. Attrs uses constructor
+aliases (including the implicit `_name` to `name` alias); dataclasses use field
+names. Dataclass `InitVar[T]` constructor parameters also participate, using the
+scalar or nullable annotation `T`; inherited parameters, keyword-only
+parameters, and defaults are preserved. Integer-to-float overflow and JSON
+decoding/validation depth overflow return 400. These rules apply both to direct
+binder calls and `ctx.bind()`.
 Pydantic is imported lazily; applications that use it must install the
 `pydantic` extra.
 
@@ -100,6 +107,11 @@ paths that remain below that root. It supports:
 - byte ranges → 206 and `Content-Range`;
 - streaming file responses; and
 - 403/404/405/416 boundary errors.
+
+If-None-Match supports wildcard, lists, and weak comparison before range
+evaluation. If-Range must match the strong ETag; other validators return a full
+response. HEAD ignores Range. Unsatisfiable ranges include `bytes */size` in
+Content-Range. See [static files](../static_files.md) for conditional semantics.
 
 Mount it as a wildcard route:
 

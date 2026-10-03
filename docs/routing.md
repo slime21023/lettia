@@ -24,6 +24,16 @@ radix tree. The matching precedence is:
 
 3. Wildcard route.
 
+HTTP and WebSocket dispatch respect the ASGI `root_path` mount prefix. For
+example, `root_path="/api"` with `path="/api/users/42"` matches a route declared
+as `/users/:user_id`. The prefix is removed once, only at a complete path-segment
+boundary; `/api` does not strip `/api2`. A path already relative to the mount is
+used as-is. HEAD fallback and 404/405 detection use the same resolved path.
+
+`ctx.path` and `ws.path` retain the path supplied in the scope. Pre-middleware
+may still rewrite `ctx.path` before dispatch, using either a complete mounted
+path or an application-relative path.
+
 ```python
 from lettia import App, Context
 
@@ -109,3 +119,5 @@ url = app.url_for("user_detail", user_id="a user")
 Parameterized values are URL-encoded. Wildcard values preserve `/` so nested
 paths remain nested. Missing parameters raise `KeyError`; unexpected
 parameters raise `TypeError` instead of silently producing a partial URL.
+`app.url_for()` returns an application-relative path. It has no request scope;
+include the deployment's mount prefix when constructing an external URL.

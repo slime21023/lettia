@@ -3,7 +3,11 @@ import hashlib
 import mimetypes
 from collections.abc import AsyncGenerator
 from pathlib import Path
+from typing import NoReturn
+from urllib.parse import quote, quote_from_bytes
 
+from lettia._conditional import if_none_match, select_byte_range
+from lettia.asgi import _route_path  # pyright: ignore[reportPrivateUsage]
 from lettia.context import Context
 from lettia.errors import abort
 from lettia.response import Response, StreamResponse
@@ -12,7 +16,16 @@ from lettia.response import Response, StreamResponse
 async def _file_stream(
     path: Path, start: int = 0, length: int | None = None
 ) -> AsyncGenerator[bytes, None]:
-    file = await asyncio.to_thread(path.open, "rb")
+    # Resolve the binary overload before passing the callable to to_thread.
+    opening = asyncio.create_task(asyncio.to_thread(lambda: path.open("rb")))
+    try:
+        file = await asyncio.shield(opening)
+    except asyncio.CancelledError:
+        # A worker thread keeps running after cancellation. Reclaim its file
+        # before propagating a disconnect or timeout to the response writer.
+        file = await opening
+        await asyncio.to_thread(file.close)
+        raise
     try:
         if start:
             await asyncio.to_thread(file.seek, start)
@@ -36,6 +49,14 @@ def _content_etag(path: Path) -> str:
         return f'"{hashlib.file_digest(file, "sha256").hexdigest()}"'
 
 
+def _range_not_satisfiable(file_size: int) -> NoReturn:
+    abort(
+        416,
+        "Range Not Satisfiable",
+        headers={"Content-Range": f"bytes */{file_size}"},
+    )
+
+
 class StaticFiles:
     def __init__(self, directory: str, html: bool = False) -> None:
         self.directory: Path = Path(directory).expanduser().resolve()
@@ -48,7 +69,7 @@ class StaticFiles:
         if ctx.method not in ("GET", "HEAD"):
             abort(405, "Method Not Allowed")
 
-        filepath = ctx.path_params.get("filepath", ctx.path.lstrip("/"))
+        filepath = ctx.path_params.get("filepath", _route_path(ctx.scope).lstrip("/"))
 
         safe_path = await asyncio.to_thread(
             lambda: (self.directory / filepath).resolve()
@@ -58,7 +79,8 @@ class StaticFiles:
         except ValueError:
             abort(403, "Forbidden")
 
-        if await asyncio.to_thread(safe_path.is_dir):
+        is_directory = await asyncio.to_thread(safe_path.is_dir)
+        if is_directory:
             if not self.html:
                 abort(404, "Not Found")
             safe_path = await asyncio.to_thread((safe_path / "index.html").resolve)
@@ -68,12 +90,23 @@ class StaticFiles:
         if not await asyncio.to_thread(safe_path.is_file):
             abort(404, "Not Found")
 
+        if is_directory and not ctx.path.endswith("/"):
+            # Use an origin-relative URL, even for paths beginning with //.
+            external_path = ctx.scope.get("root_path", "").rstrip("/") + _route_path(
+                ctx.scope
+            )
+            location = quote("/" + external_path.strip("/") + "/", safe="/")
+            query = ctx.scope["query_string"]
+            if query:
+                location += "?" + quote_from_bytes(query, safe="!$&'()*+,-./:;=?@_%~")
+            return Response(status_code=307, headers={"location": location})
+
         stat_result = await asyncio.to_thread(safe_path.stat)
         file_size = stat_result.st_size
         etag = await asyncio.to_thread(_content_etag, safe_path)
 
-        if_none_match = ctx.header("if-none-match")
-        if if_none_match and if_none_match == etag:
+        validator = ctx.header("if-none-match")
+        if validator and if_none_match(validator, etag):
             return Response(status_code=304, headers={"etag": etag})
 
         media_type, _ = mimetypes.guess_type(str(safe_path))
@@ -85,44 +118,28 @@ class StaticFiles:
             "accept-ranges": "bytes",
         }
 
-        range_header = ctx.header("range")
-        if range_header and range_header.startswith("bytes="):
-            try:
-                bytes_range = range_header.removeprefix("bytes=").strip()
-                if "," in bytes_range:
-                    abort(416, "Range Not Satisfiable")
-                start_str, end_str = bytes_range.split("-", 1)
-                if not start_str and not end_str:
-                    abort(416, "Range Not Satisfiable")
+        try:
+            selected = select_byte_range(
+                ctx.method,
+                ctx.header("range"),
+                ctx.header("if-range"),
+                etag,
+                file_size,
+            )
+        except ValueError:
+            _range_not_satisfiable(file_size)
+        if selected is not None:
+            start, end = selected
+            length = end - start + 1
+            headers["content-range"] = f"bytes {start}-{end}/{file_size}"
+            headers["content-length"] = str(length)
 
-                if not start_str:
-                    suffix_length = int(end_str)
-                    if suffix_length <= 0:
-                        abort(416, "Range Not Satisfiable")
-                    start = max(file_size - suffix_length, 0)
-                    end = file_size - 1
-                else:
-                    start = int(start_str)
-                    end = int(end_str) if end_str else file_size - 1
-                    if start >= file_size:
-                        abort(416, "Range Not Satisfiable")
-                    end = min(end, file_size - 1)
-
-                if start > end:
-                    abort(416, "Range Not Satisfiable")
-
-                length = end - start + 1
-                headers["content-range"] = f"bytes {start}-{end}/{file_size}"
-                headers["content-length"] = str(length)
-
-                return StreamResponse(
-                    generator=_file_stream(safe_path, start=start, length=length),
-                    status_code=206,
-                    headers=headers,
-                    media_type=media_type,
-                )
-            except ValueError:
-                abort(416, "Range Not Satisfiable")
+            return StreamResponse(
+                generator=_file_stream(safe_path, start=start, length=length),
+                status_code=206,
+                headers=headers,
+                media_type=media_type,
+            )
 
         headers["content-length"] = str(file_size)
 

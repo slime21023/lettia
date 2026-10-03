@@ -1,14 +1,19 @@
+import asyncio
 import dataclasses
 import json
 from collections.abc import Callable
-from typing import NoReturn, TypeVar, cast
+from typing import TYPE_CHECKING, NoReturn, TypeVar, cast
 from urllib.parse import parse_qs
 
 from attrs import define, field, has
 
+from lettia._json import validate_json_value as validate_json_value
 from lettia.asgi import HTTPReceive, HTTPRequestEvent, HTTPScope, HTTPSend, JSONValue
-from lettia.errors import abort
+from lettia.errors import HTTPException, abort
 from lettia.state import StateStore
+
+if TYPE_CHECKING:
+    from lettia.response import Response
 
 T = TypeVar("T")
 DefaultT = TypeVar("DefaultT")
@@ -27,7 +32,16 @@ class Context:
     _headers: dict[str, str] | None = field(default=None, init=False)
     _cookies: dict[str, str] | None = field(default=None, init=False)
     _body: bytes | None = field(default=None, init=False)
+    _body_lock: asyncio.Lock = field(factory=asyncio.Lock, init=False)
+    _body_limit: int | None = field(default=None, init=False)
+    _body_error: HTTPException | None = field(default=None, init=False)
+    _body_chunks: list[bytes] = field(factory=list[bytes], init=False)
+    _body_received: int = field(default=0, init=False)
+    _disconnected: bool = field(default=False, init=False)
     _response_deadline: float | None = field(default=None, init=False)
+    _response_finalizers: list[Callable[["Response"], None]] | None = field(
+        default=None, init=False
+    )
 
     # Background task list
     _background_tasks: list[
@@ -109,34 +123,112 @@ class Context:
         return self.cookies.get(key, default)
 
     async def body(self, max_bytes: int | None = None) -> bytes:
+        if max_bytes is not None:
+            if self._body_limit is None or max_bytes < self._body_limit:
+                self._body_limit = max_bytes
+        async with self._body_lock:
+            if self._body_error is not None:
+                raise HTTPException(
+                    self._body_error.status_code,
+                    self._body_error.detail,
+                    self._body_error.headers,
+                )
+            try:
+                self._check_body_limit()
+                return await self._read_body()
+            except HTTPException as exc:
+                # Keep the rejection, not a traceback retaining request chunks.
+                self._body_error = HTTPException(
+                    exc.status_code, exc.detail, exc.headers
+                )
+                self._body = None
+                self._body_chunks.clear()
+                raise
+
+    def _check_body_limit(self) -> None:
+        if self._body_limit is None:
+            return
+        content_length = self.header("content-length")
+        if content_length is not None:
+            try:
+                length = int(content_length)
+            except ValueError:
+                abort(400, "Content-Length must be an integer")
+            if length < 0:
+                abort(400, "Content-Length must not be negative")
+            if length > self._body_limit:
+                abort(413, f"Content-Length exceeds limit of {self._body_limit} bytes")
+        if self._body_received > self._body_limit:
+            abort(
+                413, f"Request payload size exceeds limit of {self._body_limit} bytes"
+            )
+
+    async def _read_body(self) -> bytes:
         if self._body is not None:
-            if max_bytes is not None and len(self._body) > max_bytes:
-                abort(413, f"Request payload size exceeds limit of {max_bytes} bytes")
             return self._body
 
-        chunks: list[bytes] = []
-        bytes_received = 0
         more_body = True
 
         while more_body:
             message = await self.receive()
             if message["type"] == "http.disconnect":
+                self._disconnected = True
                 abort(400, "Client disconnected while reading request body")
             if message["type"] != "http.request":
                 abort(400, f"Unexpected ASGI message: {message['type']!r}")
 
             chunk = _body_chunk(message)
-            bytes_received += len(chunk)
-            if max_bytes is not None and bytes_received > max_bytes:
-                abort(
-                    413,
-                    f"Request payload size exceeds limit of {max_bytes} bytes",
-                )
-            chunks.append(chunk)
+            self._body_received += len(chunk)
+            self._check_body_limit()
+            self._body_chunks.append(chunk)
             more_body = message.get("more_body", False)
 
-        self._body = b"".join(chunks)
+        self._body = b"".join(self._body_chunks)
+        self._body_chunks.clear()
         return self._body
+
+    async def _wait_for_disconnect(self) -> None:
+        # Share the body cache with streams that read their request lazily.
+        # Only one reader may own the ASGI receive channel at a time.
+        try:
+            await self.body()
+        except HTTPException:
+            if self._disconnected:
+                return
+            # Rejected input must never be cached or made readable again.
+            # Drain subsequent ASGI events without retaining their bodies so
+            # disconnect monitoring still works for streamed error responses.
+        while not self._disconnected:
+            message = await self.receive()
+            self._disconnected = message["type"] == "http.disconnect"
+
+    def _defer_response_policies(self) -> None:
+        if self._response_finalizers is None:
+            self._response_finalizers = []
+
+    def _register_response_finalizer(
+        self, response: "Response", finalize: Callable[["Response"], None]
+    ) -> None:
+        if self._response_finalizers is None:
+            # Standalone middleware still returns a fully decorated response.
+            finalize(response)
+        else:
+            self._response_finalizers.append(finalize)
+
+    def _finalize_response(self, response: "Response") -> None:
+        if self._response_finalizers is None:
+            return
+        failure: Exception | None = None
+        for finalize in self._response_finalizers.copy():
+            try:
+                finalize(response)
+            except Exception as exc:
+                # A broken policy must not also prevent the fallback response.
+                self._response_finalizers.remove(finalize)
+                if failure is None:
+                    failure = exc
+        if failure is not None:
+            raise failure
 
     async def json(self) -> JSONValue:
         body_data = await self.body()
@@ -145,7 +237,9 @@ class Context:
         try:
             decoded: object = json.loads(body_data.decode("utf-8"))
             return validate_json_value(decoded)
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        except RecursionError:
+            abort(400, "JSON request body exceeds maximum nesting depth")
+        except ValueError as exc:
             abort(400, f"Invalid JSON request body: {exc}")
 
     async def text(self) -> str:
@@ -182,20 +276,22 @@ class Context:
         )
 
         if has(target_type):
+            # attrs.has() narrows to AttrsInstance, losing the caller's T in Pyrefly.
             return cast(T, await AttrsBinder().bind(self, target_type))
         if dataclasses.is_dataclass(target_type):
+            # Preserve T across ty's dataclass protocol narrowing.
             return cast(T, await DataclassBinder().bind(self, target_type))
 
-        # Check for Pydantic BaseModel or fallback
         try:
             import pydantic  # pyright: ignore[reportMissingImports]
-
-            if issubclass(target_type, pydantic.BaseModel):
-                return await PydanticBinder().bind(self, target_type)
-        except (ImportError, TypeError):
+        except ImportError:
             pass
+        else:
+            if issubclass(target_type, pydantic.BaseModel):
+                # The binder constructs target_type, preserving the caller's T.
+                return cast(T, await PydanticBinder().bind(self, target_type))
 
-        # Default fallback to AttrsBinder or raise ValueError
+        # Preserve the unsupported-target TypeError from AttrsBinder.
         return await AttrsBinder().bind(self, target_type)
 
     def abort(
@@ -205,23 +301,6 @@ class Context:
         headers: dict[str, str] | None = None,
     ) -> NoReturn:
         abort(status_code, detail, headers)
-
-
-def validate_json_value(value: object) -> JSONValue:
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, list):
-        items = cast(list[object], value)
-        return [validate_json_value(item) for item in items]
-    if isinstance(value, dict):
-        converted: dict[str, JSONValue] = {}
-        items = cast(dict[object, object], value)
-        for key, item in items.items():
-            if not isinstance(key, str):
-                raise TypeError("JSON object keys must be strings")
-            converted[key] = validate_json_value(item)
-        return converted
-    raise TypeError(f"Decoded JSON has unsupported type: {type(value).__name__}")
 
 
 def _body_chunk(message: HTTPRequestEvent) -> bytes:

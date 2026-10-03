@@ -46,6 +46,10 @@ The body is read once and cached. A body that exceeds `max_bytes` raises HTTP
 413, including when a previous middleware has already cached it. Every call
 checks its own limit; a client disconnect or malformed JSON/text body raises HTTP 400. The
 `body_limit()` middleware is useful when every route needs the same limit.
+JSON numbers exceeding Python's integer-decoding length limit also return 400.
+JSON nesting beyond the decoder or validation recursion limit returns 400
+through both `ctx.json()` and binding. This limit is independent of body size
+and depends on the Python runtime and current call depth.
 
 ## Binding typed input
 
@@ -87,6 +91,16 @@ for these models.
 
 JSON object fields take precedence over query parameters. Unknown input fields
 are ignored by the basic binders; omitted fields keep constructor defaults.
+Only constructor fields participate: `init=False` fields are excluded, including
+their annotations. Attrs input names follow constructor aliases: `_name: str`
+accepts `name`, and `field(alias="years")` accepts `years` rather than the field
+name. Dataclasses use their constructor field names, including `InitVar[T]`
+parameters passed to `__post_init__()`. These use the same scalar and nullable
+rules as `T`; inherited parameters, keyword-only parameters, and defaults are
+preserved. Unsupported `InitVar` types are configuration errors.
+Integer-to-float overflow
+is invalid input and returns 400, while unsupported constructor annotations
+remain configuration errors.
 
 ### Dataclass
 

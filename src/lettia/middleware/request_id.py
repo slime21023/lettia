@@ -21,7 +21,11 @@ def request_id(
 
             ctx.state.set(REQUEST_ID, req_id)
             res = await next_handler(ctx)
-            res.set_header(header_name, req_id)
+
+            def finalize(response: Response) -> None:
+                response.set_header(header_name, req_id)
+
+            ctx._register_response_finalizer(res, finalize)  # pyright: ignore[reportPrivateUsage]
             return res
 
         return handler

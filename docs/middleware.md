@@ -116,14 +116,25 @@ app.use(
 Only enable credentials with explicit origins; do not combine credentials with
 a wildcard origin. The default origin policy is `"*"` for local or explicitly
 public APIs; production browser APIs should always supply their allowed origins.
-Explicit allowed origins merge `Origin` into existing `Vary` tokens without
-case-insensitive duplicates; `Vary: *` stays `*`.
+An explicit origin list merges `Origin` into existing `Vary` tokens for every
+response, including requests without Origin and disallowed origins. Tokens are
+deduplicated case-insensitively; `Vary: *` stays `*`.
+
+Preflight means OPTIONS with both Origin and Access-Control-Request-Method;
+ordinary OPTIONS requests reach routing. Wildcard `allow_headers` echoes the
+requested header names as an explicit, deduplicated list, including Authorization,
+so credentialed requests work. Wildcard `allow_methods` echoes the requested
+method. Reflected fields also add Access-Control-Request-Headers or
+Access-Control-Request-Method to Vary. Explicit lists retain their configured
+permissions; they are not expanded to match the request.
 
 ### Rate limiting and proxy headers
 
-The default key is the client address. `X-Forwarded-For` is only trustworthy
-when requests come through a configured, trusted proxy. Otherwise clients can
-spoof the value and bypass limits. The limiter is process-local, so use a
+The default key is the ASGI client address. If that address is missing or None,
+all unknown clients share one separate bucket. The default never reads
+X-Forwarded-For. Configure trusted proxies at the ASGI server, or explicitly
+provide a `key_func` that uses already-verified identity. The limiter is
+process-local, so use a
 gateway, a shared limiter, or a custom `key_func` and external middleware when
 the application runs in more than one process.
 
@@ -139,10 +150,33 @@ The signature covers a versioned envelope, its issue time, and the session data.
 expiry is exclusive (`age < max_age`). Invalid signatures, invalid envelopes,
 future issue times, expired cookies, and old unversioned cookies load an empty
 session. Only modified sessions issue a new cookie and reset the issue time.
-Clearing a previously populated session expires the cookie.
+Clearing a previously populated session expires the cookie with the configured
+Secure and SameSite attributes intact, including for secure cookie prefixes.
 
 **Migration:** existing session cookies are invalidated by this format change.
 Users must sign in again after upgrading.
+
+### Response finalization
+
+Within `App`, built-in CORS, Request ID, and Session middleware register response
+policies. The writer applies them after the complete middleware chain returns,
+before validating headers or attempting response start. Outer middleware can
+therefore update Session state before it is signed. Error handlers can also
+update or clear it, including when the original response fails validation.
+Unchanged sessions do not issue a cookie; clearing an existing session issues a
+deletion cookie, while clearing a newly created session leaves it unsaved.
+
+Normal responses, middleware errors, writer validation errors, and fallback
+responses use the same finalization path. Each attempt uses a separate header
+copy, so reusing a response does not accumulate policy cookies or mutate its
+original headers. Existing application cookies retain their order. Request
+handlers and middleware request-side work are not executed again.
+
+Outer middleware inspecting a returned response sees its application headers;
+the registered built-in policy headers are added at the send boundary. Calling
+middleware directly without `App` still returns a decorated response. A policy
+that raises during finalization is omitted from this request's error response;
+other registered policies still apply, and stream resources are closed.
 
 ## WebSocket boundary
 

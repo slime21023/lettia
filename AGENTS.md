@@ -17,8 +17,8 @@ Use Python 3.12+ and `uv`:
 
 ```bash
 uv sync
-uv run pytest                         # tests with the 80% coverage gate
-uv run pytest tests/test_router.py    # focused tests
+uv run pytest                         # tests with the 90% coverage gate
+uv run pytest tests/unit/test_routing.py --no-cov    # focused tests
 uv run ruff check .                   # lint
 uv run pyright                        # type check
 uv run python benchmarks/run_benchmark.py
@@ -39,16 +39,16 @@ boundaries.
 
 ## Testing Guidelines
 
-Name files `tests/test_<component>.py` and tests
+Name files `tests/<layer>/test_<component>.py` (unit, integration, smoke or
+architecture), mark every test with a registered contract ID, and name tests
 `test_<unit>_<scenario>_<expected_result>()`. Test observable contracts and
 edge cases: routing precedence, middleware order, invalid input, headers,
 streaming, traversal, sessions, and WebSocket disconnects. Add regression tests
-for every bug fix and keep coverage at or above 80%.
+for every bug fix and keep coverage at or above 90%.
 
 ## Commit & Pull Request Guidelines
 
-The repository currently has no commit history, so no established convention
-can be inferred. Use concise imperative subjects, for example
+Use concise imperative subjects, for example
 `Fix HEAD fallback for GET routes`. Pull requests should describe behavior
 changes, link relevant issues, list validation commands, and call out API or
 documentation changes. Include benchmark results for performance work.

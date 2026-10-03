@@ -28,6 +28,51 @@ The package deliberately does not impose a database, dependency injection
 container, template engine, application configuration system, or distributed
 job/limit service.
 
+## Responsibility layers
+
+| Layer | Owners | Boundary |
+|---|---|---|
+| L0: pure rules | `_json`, `_headers`, `_conditional`, `_binding` | Values in, validated values or narrow exceptions out; no request or file I/O |
+| L1: independent components | Response, Router, StateStore, rate window | Own representation and local invariants |
+| L2: I/O and lifetime | Context body reader, ResponseWriter, static file stream | Own channels, resource cleanup, deadlines and cancellation |
+| L3: request adapters | Context, Binder, Middleware, StaticFiles | Read request data, apply policy, translate rule results to HTTP responses |
+| L4: application coordination | App | Dispatch, choose error replacements, run completion work and lifespan |
+
+These are responsibilities, not a requirement for five inheritance hierarchies
+or directories. Context spans request adaptation and body ownership; StaticFiles
+keeps path security, metadata, content hashing and file delivery together.
+Router and WebSocket behavior remain in their existing components.
+
+Response and WebSocket JSON validation share `_json`; neither imports Context
+for that rule. `lettia.context.validate_json_value` remains a compatibility
+entry point. Response mutations and final Writer encoding share `_headers`.
+StaticFiles passes values to `_conditional` after resolving and checking the
+file. Binders use `_binding` to analyze constructor fields and coerce scalars;
+the request adapter owns JSON/query precedence and HTTP 400 translation.
+
+### Writer and policy ownership
+
+App enables Context's deferred policy registry through an internal method.
+Middleware registers callbacks; standalone middleware applies them immediately.
+Writer finalizes a fresh header copy before validation, so reused responses do
+not accumulate cookies. Context runs callbacks in registration order, removes
+failed policies, and continues remaining policies before reporting the first
+failure. Session callbacks read the latest request state.
+
+Writer's private delivery entry accepts a response, deadline, finalizer and
+optional disconnect callback. It returns completion eligibility; exceptions
+and cancellation still propagate. The public `write()` keeps its `None` return
+and does not attach a request receiver. Both entries share one write lock.
+
+Only Writer owns attempted start, committed start, body completion and cleanup
+state. App checks a read-only replacement query before constructing an error
+response and uses the delivery result to gate background work. It never edits
+transport flags. Context continues to own receive, body cache and rejection;
+Writer receives only a disconnect callback, not Context or an ASGI receiver.
+
+See the [contract migration audit](testing_audit.md) for the transition table,
+test mapping and validation evidence.
+
 ## HTTP request lifecycle
 
 ```mermaid

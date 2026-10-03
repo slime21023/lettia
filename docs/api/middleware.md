@@ -97,11 +97,13 @@ cors(
 ) -> Middleware
 ```
 
-Answers origin-bearing OPTIONS preflight requests before route dispatch and
-adds CORS headers to normal responses. Credentials should use explicit origins,
-not `*`. The default origin value is `"*"`; set explicit origins for production
-browser applications. For an explicit allowed origin, existing `Vary` tokens
-are merged with `Origin` case-insensitively; `*` is preserved.
+Answers OPTIONS requests with both Origin and Access-Control-Request-Method
+before route dispatch; ordinary OPTIONS reaches routing. Credentials require
+explicit origins, not `*`. An explicit origin list merges `Vary: Origin` on
+every response, including missing or disallowed origins, preserving existing
+tokens and `Vary: *`. Wildcard allowed headers/methods produce explicit reflected
+preflight permissions with corresponding Vary fields. See the
+[CORS guide](../middleware.md#cors) for the policy and examples.
 
 ### `request_id()`
 
@@ -122,14 +124,20 @@ timeout(seconds: float) -> Middleware
 body_limit(max_bytes: int) -> Middleware
 ```
 
-`timeout()` converts expiry before response headers are committed to HTTP 504.
+`timeout()` converts expiry before the response-start attempt to HTTP 504.
+When the handler times out, the resulting error response is sent without the
+expired deadline, including with nested timeout middleware and yielding sends.
 The same deadline also limits response streaming; after headers have been sent,
 Lettia closes the iterator and terminates the stream because HTTP status can no
 longer change. Only expiry of Lettia's deadline becomes 504; unrelated upstream
-`TimeoutError` remains an application error.
+`TimeoutError` remains an application error. Expiry during a transport send
+does not retry the event or send replacement headers; the iterator is closed.
 `body_limit()` validates Content-Length and forces body reading with the
 configured limit, returning HTTP 400 or 413 for invalid or oversized requests.
 The limit is checked again even when the body was already cached.
+The shared Context reader retains the strictest limit and any body rejection;
+streamed error responses cannot cause the disconnect monitor to cache rejected
+input. It discards remaining body events while waiting for disconnect.
 
 ### `rate_limit()`
 
@@ -140,8 +148,9 @@ rate_limit(
 ) -> Middleware
 ```
 
-Uses an in-memory sliding window. The default key is the client address, with
-`X-Forwarded-For` fallback when no ASGI client tuple exists. A rejected request
+Uses an in-memory sliding window. The default key is the ASGI client address;
+missing/None clients share a fixed unknown-client bucket. Forwarded headers are
+never read by the default key function. A rejected request
 raises HTTP 429 and includes `Retry-After`.
 
 `MemoryRateLimiter` is also public:
@@ -152,8 +161,8 @@ limiter.is_allowed(key: str) -> tuple[bool, int]
 ```
 
 This limiter is process-local and should not be treated as a distributed rate
-limit. Its fallback `X-Forwarded-For` key is safe only when a trusted proxy
-controls that header.
+limit. Trusted proxy identity must be established by the server or an explicit
+`key_func`; do not trust client-supplied forwarding headers.
 
 ### `session()`
 
@@ -174,3 +183,15 @@ is served over HTTPS. A signed issue time enforces positive `max_age` on the
 server. Invalid, expired, future-dated, or old-format cookies load an empty
 session. Cookies are renewed only on modification; upgrading invalidates old
 sessions and requires users to sign in again.
+
+Clearing a populated session expires the cookie with the same Path, Secure,
+HttpOnly, and SameSite attributes used when creating it. With `https_only=True`,
+this also preserves valid deletion for `__Host-` and `__Secure-` cookie names.
+
+Within `App`, Session signing and CORS/Request ID response headers are finalized
+after the entire middleware chain returns, just before the writer validates and
+sends headers. Session uses the latest state, including changes by outer
+middleware or error handlers. Normal, replaced, and fallback responses share
+this step without rerunning request-side middleware. The writer uses a header
+copy; it does not append policy cookies to the original response object.
+Standalone middleware calls still decorate their returned response immediately.

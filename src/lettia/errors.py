@@ -3,6 +3,7 @@ from typing import NoReturn, override
 
 from attrs import define, field
 
+from lettia._json import validate_json_value
 from lettia.asgi import JSONValue
 
 if typing.TYPE_CHECKING:
@@ -59,8 +60,6 @@ async def default_error_handler(ctx: "Context", exc: Exception) -> "Response":
 
 
 def _json_container(value: object) -> dict[str, JSONValue] | list[JSONValue] | None:
-    from lettia.context import validate_json_value
-
     try:
         validated = validate_json_value(value)
     except TypeError:

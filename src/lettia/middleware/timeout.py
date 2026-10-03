@@ -20,6 +20,8 @@ def timeout(seconds: float) -> Middleware:
             except TimeoutError:
                 if not deadline_scope.expired():
                     raise
+                # The timeout response must not inherit the expired deadline.
+                ctx.response_deadline = None
                 abort(504, f"Request timed out after {seconds} seconds")
 
         return handler

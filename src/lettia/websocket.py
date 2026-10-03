@@ -3,6 +3,7 @@ from enum import Enum
 
 from attrs import define, field
 
+from lettia._json import validate_json_value
 from lettia.asgi import (
     Headers,
     JSONValue,
@@ -14,7 +15,6 @@ from lettia.asgi import (
     WebSocketSend,
     WebSocketSendEvent,
 )
-from lettia.context import validate_json_value
 from lettia.state import StateStore
 
 
