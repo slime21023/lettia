@@ -15,5 +15,10 @@ wheels/
 .ruff_cache/
 .hypothesis/
 
+# Local agent planning records
+/task_plan.md
+/findings.md
+/progress.md
+
 # Virtual environments
 .venv
