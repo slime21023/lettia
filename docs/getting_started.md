@@ -51,6 +51,11 @@ curl http://127.0.0.1:8000/health
 curl http://127.0.0.1:8000/users/42
 ```
 
+The synchronous handlers above do short in-memory work. They run directly on
+the event-loop thread, without automatic thread-pool offloading. Use async
+handlers and awaitable operations for I/O; declaring a handler `async` alone
+does not make blocking calls nonblocking.
+
 ## 2. Add a JSON request
 
 Append this route to `app.py`. `ctx.json()` returns the decoded request data;
@@ -84,12 +89,13 @@ Register global middleware with `app.use()`. Register a middleware that must
 run before route matching with `app.use_pre()`.
 
 ```python
-from lettia.middleware import cors, request_id, request_logger
+from lettia.middleware import body_limit, cors, request_id, request_logger
 
 app.use(
     request_id(),
     request_logger(),
     cors(allow_origins=["http://localhost:3000"]),
+    body_limit(max_bytes=1024 * 1024),
 )
 ```
 

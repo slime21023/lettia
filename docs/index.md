@@ -34,7 +34,7 @@ Save this as `app.py` after installing Lettia and Uvicorn, then run
 | If you are… | Start with |
 |---|---|
 | New to Lettia | [Getting started](getting_started.md) |
-| Returning status codes, headers, cookies or streams | [Responses](context_and_binding.md#responses-cookies-and-streams) |
+| Returning status codes, headers, cookies or streams | [Responses and errors](responses.md) |
 | Building an HTTP API | [Routing](routing.md), then [Context and binding](context_and_binding.md) |
 | Adding authentication, CORS, or limits | [Middleware](middleware.md) |
 | Deploying an application | [Deployment](deployment.md) |
@@ -63,6 +63,6 @@ provide TLS, proxy trust and worker management.
 
 The [architecture diagrams](architecture.md) explain internal responsibility
 and lifecycle boundaries for deeper debugging and framework contributions.
-The [repository quality gates](testing.md#coverage-and-quality-gates) and
+The [repository quality gates](contributing_testing.md#coverage-and-quality-gates) and
 [migration audit](testing_audit.md) describe Lettia maintenance; they are not
 setup requirements for an application using Lettia.

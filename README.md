@@ -68,246 +68,96 @@ Then open `http://127.0.0.1:8000/health` or
 
 ## Working with requests
 
-Register a route on `App`, read request data through `Context`, and return a
-value. Dictionaries become JSON responses; strings become text. Use an explicit
-`Response` when you need a status code, headers, cookies or an async stream.
-
-Middleware adds shared behavior around your handlers. The first middleware
-passed to `app.use()` is the outermost wrapper; global middleware also handles
-routing errors such as 404 and 405. Route/group middleware runs only for matched
-routes. See [Middleware](docs/middleware.md) for configuration and ordering.
-
-The [getting-started walkthrough](docs/getting_started.md) includes typed input,
-expected error responses and a runnable test file. For framework internals,
-see the [architecture diagrams](docs/architecture.md).
+Register a handler on `App`, read request data through `Context`, and return a
+value. Dictionaries become JSON responses and strings become text. Use an
+explicit response for status, headers, cookies or streaming. Synchronous
+handlers run directly on the event-loop thread; use awaitable I/O in async
+handlers. See [Build your first app](docs/getting_started.md) for typed input,
+expected failures and a runnable test file.
 
 ## Routing
 
 | Pattern | Meaning |
 |---|---|
-| `/health` | Exact static route |
-| `/users/:user_id` | One dynamic path segment |
-| `/files/*filepath` | Remainder of the path |
+| `/health` | Exact route |
+| `/users/:user_id` | Dynamic path segment |
+| `/files/*filepath` | Remaining path |
 
-Static routes use direct lookup. Parameterized and wildcard routes use a radix
-tree, with matching precedence of static, parameter, then wildcard routes.
-The router also provides 404 responses for unknown paths, 405 responses with an
-`Allow` header for unsupported methods, automatic `HEAD` fallback to `GET`,
-named reverse URL generation, and URL encoding for parameter values.
-
-```python
-@app.get("/users/:user_id", name="user_detail")
-def user_detail(ctx: Context) -> dict[str, str]:
-    return {"id": ctx.path_params["user_id"]}
-
-
-url = app.url_for("user_detail", user_id="a user")
-# "/users/a%20user"
-```
-
-Groups compose prefixes and middleware:
-
-```python
-api = app.group("/api/v1", auth_middleware)
-users = api.group("/users")
-
-
-@users.get("/:user_id")
-def get_user_detail(ctx: Context) -> dict[str, str]:
-    return {"id": ctx.path_params["user_id"]}
-```
-
-See [Routing](docs/routing.md) for precedence, groups, and reverse URLs.
+Routes support groups, named URL generation, HEAD fallback, and 404/405
+responses. See [Routes and groups](docs/routing.md) for registration and
+matching rules.
 
 ## Context, binding, and state
 
-`Context` is the request-local interface exposed to HTTP handlers. Query
-parameters, headers, cookies, and the body are parsed lazily and cached:
-
-```python
-@app.post("/echo")
-async def echo(ctx: Context):
-    return {"received": await ctx.json()}
-```
-
-It also provides `ctx.path_params`, `ctx.state`, `ctx.bind(TargetType)`,
-`ctx.abort(status_code, detail)`, and `ctx.add_background_task()`.
-
-Built-in binders support `attrs` classes, standard-library dataclasses, and
-Pydantic v2 models when the optional dependency is installed. Attrs/dataclass
-fields support `str`, `int`, `float`, `bool`, and their nullable forms;
-unsupported annotations raise a configuration `TypeError`. Use Pydantic for
-nested or collection models:
-
-```python
-from attrs import define
-
-
-@define(slots=True)
-class CreateUser:
-    name: str
-    age: int = 18
-
-
-@app.post("/users")
-async def create_user(ctx: Context):
-    user = await ctx.bind(CreateUser)
-    return {"name": user.name, "age": user.age}
-```
-
-Use typed keys for request-local values shared by middleware and handlers:
-
-```python
-from lettia import StateKey
-
-CURRENT_USER = StateKey[str]("myapp.current_user")
-```
-
-Application-wide resources belong in an explicit services object passed to an
-app factory; `App` deliberately has no mutable application-state bag.
+`Context` provides lazy request parsing, typed model binding, and request-local
+state through `StateKey[T]`. Built-in binders support attrs, dataclasses and
+optional Pydantic models. JSON fields take priority over query parameters;
+the basic binders support scalar types. See [Requests and binding](docs/context_and_binding.md)
+for input rules and [the API](docs/api/context.md) for exact contracts.
 
 ## Responses and errors
 
-Handlers may return a `Response`, `str`, `bytes`, `dict`, `list`, or a tuple of
-`(body, status_code[, headers])`. Lettia normalizes these values before
-`ResponseWriter` emits ASGI response messages. Available response types include
-`TextResponse`, `JsonResponse`, and `StreamResponse`.
-
-Expected HTTP failures use `ctx.abort()` or `abort()`:
-
-```python
-def require_admin(ctx: Context) -> None:
-    if ctx.header("x-role") != "admin":
-        ctx.abort(403, "Administrator access required")
-```
-
-The default error handler renders dictionary/list details as JSON and other
-details as text. Use `@app.error_handler` to customize unexpected-error
-handling. App renders failures at each middleware boundary so outer middleware
-can add headers to error responses, and logs unexpected exceptions once.
+Return a value or construct `JsonResponse`, `TextResponse` or `StreamResponse`.
+Use `ctx.abort()` for expected HTTP failures and `@app.error_handler` for a
+custom error format. See [Responses and errors](docs/responses.md) for status
+codes, headers, cookies, streaming and a complete JSON error-handler example.
 
 ## Middleware and built-in capabilities
 
-Register global middleware with `app.use()` and middleware that must run before
-routing with `app.use_pre()`:
+Add the following to the application above:
 
 ```python
-from lettia.middleware import (
-    body_limit,
-    cors,
-    request_id,
-    request_logger,
-)
+from lettia.middleware import body_limit, cors, request_id, request_logger
 
 app.use(
+    request_id(),
     request_logger(),
     cors(allow_origins=["https://frontend.example"]),
-    request_id(),
     body_limit(max_bytes=1024 * 1024),
 )
 ```
 
-Built-in middleware includes:
+The first middleware is outermost. This order applies Request ID and logging
+before CORS can answer preflight early. Global middleware covers routing errors;
+route/group middleware runs only after matching. Use `app.use_pre()` for
+pre-routing work.
 
-| Middleware | Purpose |
-|---|---|
-| `recover()` | Log and re-raise errors in standalone middleware chains |
-| `request_logger()` | Log method, path, status, and duration |
-| `cors()` | Add CORS headers and answer preflight requests |
-| `request_id()` | Propagate or generate `X-Request-ID` |
-| `timeout()` | Enforce a handler and response-stream deadline |
-| `body_limit()` | Enforce a request body limit |
-| `rate_limit()` | In-memory sliding-window rate limiting |
-| `session()` | Signed JSON cookie sessions |
-
-Signed sessions provide integrity, not encryption. Store identifiers or
-non-sensitive preferences, not passwords or secrets. Signed issue times enforce
-`max_age` on the server; expired, future-dated, and old-format cookies load an
-empty session. Upgrading invalidates existing session cookies.
+Built-ins include CORS, Request ID, request logging, body limits, timeouts,
+process-local rate limiting, signed Cookie sessions and standalone-chain
+recovery. Custom middleware uses the same callable interface; no plugin
+registration system is required. See [Middleware](docs/middleware.md) for
+configuration, ordering and custom middleware examples.
 
 ## WebSockets and lifespan
 
-WebSocket and HTTP requests are separate ASGI branches. WebSocket handlers use
-`WebSocketContext` and do not pass through the HTTP response or middleware
-chain:
-
-```python
-from lettia import WebSocketContext, WebSocketDisconnect
-
-
-@app.websocket("/ws")
-async def echo_socket(ws: WebSocketContext) -> None:
-    await ws.accept()
-    try:
-        while True:
-            message = await ws.receive_text()
-            await ws.send_text(f"Echo: {message}")
-    except WebSocketDisconnect:
-        return
-```
-
-Application startup and shutdown are handled through lifespan hooks. Compose
-shared resources outside `App` and capture them in the lifecycle handlers:
-
-```python
-def create_app(services: Services) -> App:
-    app = App()
-
-    @app.on_event("startup")
-    async def startup() -> None:
-        await services.start()
-
-    @app.on_event("shutdown")
-    async def shutdown() -> None:
-        await services.close()
-
-    register_routes(app, services)
-    return app
-```
-
-See [WebSockets](docs/websocket.md) and [Architecture](docs/architecture.md)
-for the full protocol boundaries. See the
-[context and binding guide](docs/context_and_binding.md) for typed state usage.
+WebSocket handlers use `WebSocketContext` and bypass HTTP middleware. App also
+provides explicit startup/shutdown hooks. See [WebSockets](docs/websocket.md)
+and [Deployment](docs/deployment.md#application-factory-and-lifecycle).
 
 ## Production boundary
 
-Lettia is a framework core, not a deployment platform. Run it behind a mature
-ASGI server and let the deployment own TLS, trusted-proxy configuration,
-process management, and centralized observability. Configure CORS explicitly,
-set `https_only=True` for session cookies served over HTTPS, and install a
-body-size limit for public endpoints.
-
-The built-in rate limiter is intentionally process-local; use a gateway or a
-shared external limiter for multi-worker or multi-instance deployments.
-Post-response tasks are best-effort and must not be used for durable work.
-WebSocket handlers bypass HTTP middleware, so authenticate, authorize, and
-apply origin and connection policies in the WebSocket handler or ASGI server.
+Run Lettia with an ASGI server; the hosting environment owns TLS, proxy trust,
+worker management and centralized observability. Rate limiting is process-local,
+and post-response tasks are best-effort. Application-wide dependencies are
+passed explicitly through an app factory. See [Deployment](docs/deployment.md)
+for these boundaries and Session cookie settings.
 
 ## Extensions and static files
 
-The core intentionally keeps integrations small and replaceable:
-
-| Package | Examples |
-|---|---|
-| `lettia.protocols` | Binders, validators, and renderers |
-| `lettia.ext` | `StaticFiles` with ETag, ranges, streaming, and traversal protection |
-| `lettia.testing` | Synchronous `TestClient` over `httpx.ASGITransport` |
-
-Static files are mounted as a wildcard route:
-
-```python
-from lettia.ext import StaticFiles
-
-static = StaticFiles("public", html=True)
-app.add_route("GET", "/*filepath", static.handle)
-```
+Small Binder, Validator and Renderer protocols support replaceable adapters.
+`lettia.ext.StaticFiles` provides conditional and range requests with streaming
+and traversal checks. See [Protocols](docs/api/extensions.md) and
+[Static files](docs/static_files.md); integrations remain optional.
 
 ## Testing and quality checks
 
-For concise synchronous tests:
+After installing the testing dependencies above, save this as `test_app.py`
+beside `app.py`:
 
 ```python
 from lettia.testing import TestClient
+
+from app import app
 
 
 def test_health() -> None:
@@ -316,63 +166,32 @@ def test_health() -> None:
     assert response.json() == {"status": "ok"}
 ```
 
-For async application HTTP tests, use HTTPX with `ASGITransport`. Real socket
-disconnects and server lifespan are covered separately by Uvicorn/HTTPX smoke
-tests. The repository classifies tests by unit, integration, smoke and
-architecture, with contract IDs and a 90% statement/branch coverage gate:
-
-```bash
-uv run python -m pytest
-```
-
-See [verification commands](docs/testing.md#verification-commands) for Ruff,
-Pyright, strict Pyrefly, public API type coverage, the pinned optional ty check,
-documentation and package validation. The guide distinguishes local checks from
-the configured CI gates.
-
-The benchmark suite measures routing, context allocation, middleware chains,
-typed binding, the full ASGI pipeline, session/rate-limit primitives, and
-response normalization, plus content-ETag costs at several file sizes:
-
-```bash
-uv run python benchmarks/run_benchmark.py
-```
-
-Benchmark results are useful for local regression tracking, not a portable
-performance guarantee across machines or deployment environments.
+Run `uv run python -m pytest`. The synchronous client is intended for individual
+HTTP requests; it does not persist response cookies or run lifespan. For async
+tests and cookie flows, see [Testing your app](docs/testing.md).
+Framework contributors use the separate
+[quality checks](docs/contributing_testing.md#verification-commands).
 
 ## Documentation map
 
-- [Getting started](docs/getting_started.md) — build a JSON API from scratch.
-- [Architecture](docs/architecture.md) — runtime layers and lifecycle.
-- [Routing](docs/routing.md) — routes, groups, precedence, and reverse URLs.
-- [Context and binding](docs/context_and_binding.md) — input, state, models, and responses.
-- [Middleware](docs/middleware.md) — ordering and built-in middleware.
-- [Deployment](docs/deployment.md) — ASGI server, proxy, and operational boundaries.
-- [WebSockets](docs/websocket.md) — connection lifecycle and frame helpers.
-- [Static files](docs/static_files.md) — safe file serving and range requests.
-- [Testing](docs/testing.md) — synchronous/async tests and quality gates.
-- [API reference](docs/api_reference.md) — public signatures and entry points.
+- [Getting started](docs/getting_started.md) — build and test a JSON API.
+- [Routing](docs/routing.md) — routes, groups, methods and URL generation.
+- [Requests and binding](docs/context_and_binding.md) — input, models and typed state.
+- [Responses and errors](docs/responses.md) — output, cookies, streams and failures.
+- [Middleware](docs/middleware.md) — built-in configuration and custom behavior.
+- [Testing](docs/testing.md) — application HTTP tests and transport boundaries.
+- [Static files](docs/static_files.md) and [WebSockets](docs/websocket.md).
+- [Deployment](docs/deployment.md) — server configuration and operational boundaries.
+- [API reference](docs/api_reference.md) — public signatures and contracts.
+- [Architecture](docs/architecture.md) — framework ownership and lifecycle.
 
 ## Project structure
 
-```text
-src/lettia/
-├── app.py                 # ASGI entrypoint, routing, middleware, lifespan
-├── context.py             # Request data, state, body parsing, binding
-├── router.py              # Static and radix-tree route matching
-├── response.py            # Response types and ASGI response writer
-├── websocket.py           # WebSocket context and state transitions
-├── middleware/            # Composable built-in middleware
-├── protocols/             # Binder, validator, and renderer protocols
-├── ext/                   # Optional extensions such as StaticFiles
-└── testing.py             # HTTPX-based test client
-
-tests/                     # Behavioral and regression tests
-examples/                  # REST API and static-site examples
-benchmarks/                # Local performance benchmarks
-docs/                      # User and API documentation
-```
+The typed core lives in `src/lettia/`, with composable `middleware/`, extension
+`protocols/` and `ext/` packages. Runnable applications live in `examples/`;
+`tests/` contains the framework suite. See the
+[architecture](docs/architecture.md) and
+[contributor testing guide](docs/contributing_testing.md) for internal work.
 
 ## Design principles
 

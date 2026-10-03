@@ -39,7 +39,12 @@ objects.
 
 The helper runs an in-process ASGI transport, not a network server, and does not
 automatically run lifespan. It uses `asyncio.run()` internally, so use an async
-client when the caller already runs inside an event loop.
+client when the caller already runs inside an event loop. Each request creates
+a new HTTPX client, so response cookies are not persisted across requests.
+Pass `cookies` to `request()` explicitly or use one async client as shown in
+the [cookie workflow](../testing.md#cookie-flows-across-requests). Use
+`request("HEAD", path)` and `request("OPTIONS", path)` for methods without
+convenience helpers.
 
 ```python
 def test_health() -> None:
@@ -51,11 +56,20 @@ def test_health() -> None:
 ## Async ASGI tests
 
 Use HTTPX directly when a test already runs inside an event loop or needs
-direct protocol control:
+consecutive HTTP requests. This fragment belongs inside an async test and
+assumes an existing `app` with an `/echo` route. The cast adapts HTTPX's broad
+ASGI callable type for static checking; see the
+[complete example](../testing.md#async-asgi-tests).
 
 ```python
+from collections.abc import Awaitable, Callable
+from typing import cast
+
+import httpx
+
+transport = httpx.ASGITransport(app=cast(Callable[..., Awaitable[None]], app))
 async with httpx.AsyncClient(
-    transport=httpx.ASGITransport(app=app),
+    transport=transport,
     base_url="http://testserver",
 ) as client:
     response = await client.post("/echo", json={"message": "hello"})
@@ -63,7 +77,7 @@ async with httpx.AsyncClient(
 
 Use this style for async application HTTP behavior. ASGITransport can buffer
 streamed output; it does not verify wire-level streaming or client disconnects.
-Use [real-server smoke tests](../testing.md#real-server-smoke-tests) for those
+Use [real-server smoke tests](../contributing_testing.md#real-server-smoke-tests) for those
 boundaries. For lifespan, controlled HTTP failures and WebSocket protocol tests,
 call the ASGI application directly with controlled `receive` / `send` callables.
 HTTPX's ASGI transport does not run lifespan or provide a WebSocket client.
@@ -81,8 +95,8 @@ Tests should protect public behavior:
 | Extensions | Traversal protection, ranges, sessions, and rate limits |
 | WebSockets | State transitions and normal disconnect behavior |
 
-Use the [verification commands](../testing.md#verification-commands) for the
+Use the [verification commands](../contributing_testing.md#verification-commands) for the
 complete quality gates, checker scopes and optional ty check. Repository tests
 are classified by unit, integration, smoke and architecture directories and
-linked to contract IDs; see the [test pyramid](../testing.md#coverage-and-quality-gates).
+linked to contract IDs; see the [test pyramid](../contributing_testing.md#coverage-and-quality-gates).
 Pytest enforces a 90% combined statement/branch coverage gate.

@@ -39,6 +39,9 @@ app.add_route(
 ) -> None
 ```
 
+Synchronous HTTP handlers execute on the event-loop thread, without automatic
+thread-pool offloading; see [handler execution](../routing.md).
+
 The decorator helpers `get`, `post`, `put`, `delete`, and `patch` accept
 `(path, name=None)` and return a decorator. `websocket(path, name=None)`
 registers a WebSocket route using the special `WEBSOCKET` method internally.
@@ -64,7 +67,7 @@ global chain and runs before route matching. Both methods return the same app
 for fluent configuration.
 
 ```python
-app.use(recover(), request_logger())
+app.use(request_id(), request_logger())
 app.use_pre(normalize_path)
 ```
 
@@ -122,6 +125,9 @@ app.on_event(
 Supported event types are `startup` and `shutdown`. Handlers may be sync or
 async. Startup compiles route and middleware chains before reporting
 `lifespan.startup.complete`.
+
+The following is a composition sketch: `Services` and `register_routes` are
+application-defined, not Lettia APIs.
 
 ```python
 def create_app(services: Services) -> App:

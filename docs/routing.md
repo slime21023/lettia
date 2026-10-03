@@ -5,7 +5,10 @@ title: Routing
 # Routing
 
 Routes map an HTTP method and path pattern to a callable. A handler receives a
-`Context` and may be synchronous or asynchronous.
+`Context` and may be synchronous or asynchronous. Synchronous handlers run
+directly on the event-loop thread; Lettia does not move them into a thread pool.
+Use `async def` with awaitable I/O. For unavoidable blocking I/O, explicitly
+offload the operation (for example with `asyncio.to_thread()`).
 
 ## Route syntax
 
@@ -14,25 +17,6 @@ Routes map an HTTP method and path pattern to a callable. A handler receives a
 | `/health` | Exact static path | `/health` |
 | `/users/:user_id` | One dynamic path segment | `/users/42` |
 | `/files/*filepath` | Remainder of the path | `/files/css/app.css` |
-
-Static routes use a direct lookup. Parameterized and wildcard routes use the
-radix tree. The matching precedence is:
-
-1. Exact static route.
-
-2. Parameterized route.
-
-3. Wildcard route.
-
-HTTP and WebSocket dispatch respect the ASGI `root_path` mount prefix. For
-example, `root_path="/api"` with `path="/api/users/42"` matches a route declared
-as `/users/:user_id`. The prefix is removed once, only at a complete path-segment
-boundary; `/api` does not strip `/api2`. A path already relative to the mount is
-used as-is. HEAD fallback and 404/405 detection use the same resolved path.
-
-`ctx.path` and `ws.path` retain the path supplied in the scope. Pre-middleware
-may still rewrite `ctx.path` before dispatch, using either a complete mounted
-path or an application-relative path.
 
 ```python
 from lettia import App, Context
@@ -55,14 +39,6 @@ def get_file(ctx: Context) -> dict[str, str]:
     return {"path": ctx.path_params["filepath"]}
 ```
 
-`ctx.path_params` contains decoded route values as strings. A missing path
-returns 404. A known path with an unsupported method returns 405 and includes
-an `Allow` header. `HEAD` uses the matching `GET` route unless an explicit
-`HEAD` route is registered.
-
-Registering the same method and path, or reusing a route name, raises
-`ValueError`.
-
 ## Registering routes
 
 Use decorators for the common case:
@@ -73,18 +49,23 @@ async def create_user(ctx: Context):
     return {"created": await ctx.json()}
 ```
 
-Use `add_route()` when the handler or route metadata is assembled dynamically:
+Use `add_route()` for explicit HTTP methods or dynamically assembled routes.
+The following fragment assumes a handler named `health` has been defined:
 
 ```python
 app.add_route("GET", "/health", health, name="health")
 ```
 
 Supported application decorators are `get`, `post`, `put`, `delete`, `patch`,
-and `websocket`.
+and `websocket`. Use `app.add_route("HEAD", path, handler)` or
+`app.add_route("OPTIONS", path, handler)` for explicit HEAD or OPTIONS handlers.
+GET routes already support HEAD fallback; CORS preflight is handled by global
+CORS middleware without an OPTIONS route.
 
 ## Groups and route middleware
 
-Groups compose a prefix and route middleware. Nested groups inherit both:
+Groups compose a prefix and route middleware. This fragment assumes your
+application has defined `auth_middleware`; nested groups inherit both:
 
 ```python
 from lettia import App, Context
@@ -121,3 +102,32 @@ paths remain nested. Missing parameters raise `KeyError`; unexpected
 parameters raise `TypeError` instead of silently producing a partial URL.
 `app.url_for()` returns an application-relative path. It has no request scope;
 include the deployment's mount prefix when constructing an external URL.
+
+## Matching and mounted paths
+
+Static routes use a direct lookup. Parameterized and wildcard routes use the
+radix tree. The matching precedence is:
+
+1. Exact static route.
+
+2. Parameterized route.
+
+3. Wildcard route.
+
+HTTP and WebSocket dispatch respect the ASGI `root_path` mount prefix. For
+example, `root_path="/api"` with `path="/api/users/42"` matches a route declared
+as `/users/:user_id`. The prefix is removed once, only at a complete path-segment
+boundary; `/api` does not strip `/api2`. A path already relative to the mount is
+used as-is. HEAD fallback and 404/405 detection use the same resolved path.
+
+`ctx.path` and `ws.path` retain the path supplied in the scope. Pre-middleware
+may still rewrite `ctx.path` before dispatch, using either a complete mounted
+path or an application-relative path.
+
+`ctx.path_params` contains decoded route values as strings. A missing path
+returns 404. A known path with an unsupported method returns 405 and includes
+an `Allow` header. `HEAD` uses the matching `GET` route unless an explicit
+`HEAD` route is registered.
+
+Registering the same method and path, or reusing a route name, raises
+`ValueError`.

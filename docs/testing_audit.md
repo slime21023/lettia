@@ -17,7 +17,7 @@ passed for `10d2d32`: all six Ubuntu/Windows × Python 3.12–3.14 quality jobs 
 the package validation job succeeded. This evidence applies to that commit;
 verify a later release revision's own workflow run separately.
 
-Use the [verification commands](testing.md#verification-commands) to reproduce
+Use the [verification commands](contributing_testing.md#verification-commands) to reproduce
 checks against the current checkout. Preserve historical counts below when
 adding a new verification record.
 

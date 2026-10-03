@@ -40,6 +40,9 @@ Build long-lived dependencies in an explicit composition root. Start and close
 them through lifespan hooks, then pass the dependencies into route
 registration. Do not attach them to `App`.
 
+This sketch assumes application-defined `Services` and `register_routes`.
+It illustrates ownership, rather than a standalone runnable application.
+
 ```python
 from lettia import App
 
@@ -97,26 +100,25 @@ idle policies, message-size limits, and observability at the handler or ASGI
 server layer according to the workload. Keep each connection's mutable values
 in `ws.state`; do not use application-global mutable state.
 
-## Verification before release
+## Verification before deployment
 
-Run the canonical [verification commands](testing.md#verification-commands)
-before releasing a framework or deploying a service change. They cover the full
-test pyramid, type checkers, strict docs and package validation. Check the
-release commit's actual Linux/Windows CI results; local verification does not
-establish that the hosted matrix has passed.
+Run your application's tests, then start the actual application with its ASGI
+server configuration. Verify a health endpoint, startup/shutdown hooks, proxy
+settings, and any streaming or WebSocket behavior the application uses.
 
-The default suite includes bounded [real-server smoke tests](testing.md#real-server-smoke-tests).
-They exercise HEAD connection reuse, mid-stream disconnect cleanup and lifespan
-using a dynamically allocated loopback port.
-
-For a real local server smoke check, run the example and query it over a
-loopback socket:
+For the `app.py` created in [Getting started](getting_started.md), run:
 
 ```bash
-uv run uvicorn examples.rest_api:app --host 127.0.0.1 --port 8765
-curl --fail http://127.0.0.1:8765/api/v1/users/
+uv run uvicorn app:app --host 127.0.0.1 --port 8765
 ```
 
-Run load, failure, and server-integration tests in the target environment as
-well. Unit coverage validates Lettia's contracts; it does not replace capacity
-or infrastructure validation.
+In a second terminal, request `http://127.0.0.1:8765/health`; expect HTTP 200
+with `{"status":"ok"}`. Stop the server after the check. In-process HTTP tests
+do not run lifespan or reproduce socket disconnects automatically.
+
+Framework contributors can use the separate
+[verification commands](contributing_testing.md#verification-commands) and
+[smoke tests](contributing_testing.md#real-server-smoke-tests). Those repository
+checks are not prerequisites for deploying an application that uses Lettia.
+
+<span id="verification-before-release"></span>

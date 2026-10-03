@@ -4,9 +4,9 @@ title: Context and Binding
 
 # Context and binding
 
-Use `Context` to read request data, bind it to a model, return an error or queue
-short background work. The examples below can be added to an application with
-this setup:
+Use `Context` to read request data, bind it to a model and share request-local
+state. See [Responses and errors](responses.md) for output and error handling.
+The examples below can be added to an application with this setup:
 
 ```python
 from lettia import App, Context, JSONValue
@@ -108,6 +108,16 @@ Attrs input names follow constructor aliases: `_name: str` accepts `name`, and
 both ignore `init=False` fields. For InitVar, inherited fields and exact failure
 categories, see the [Binder reference](api/extensions.md#binder-protocol).
 
+| Model choice | Intended use | Validation |
+|---|---|---|
+| attrs or dataclass | Scalar fields and nullable scalars | Basic conversion; application-defined business rules |
+| Pydantic v2 | Nested data, collections and constraints | The model's own coercion, unknown-field and validation rules |
+
+Binding does not read path parameters or form fields. For POST, PUT and PATCH,
+it reads JSON object fields; otherwise it uses query parameters. For repeated
+query parameters, binding uses the first value. Read `ctx.query_params` directly
+when the endpoint needs all values.
+
 | Input for the example above | Result |
 |---|---|
 | `{"name": "Ada"}` | Uses the default age of 18 |
@@ -194,48 +204,11 @@ between integrations.
 
 ## Post-response tasks
 
-`ctx.add_background_task()` queues a synchronous or asynchronous callable to
-run after the response has been sent and its stream resources have been closed:
-
-```python
-import logging
-
-logger = logging.getLogger(__name__)
-
-
-def record_signup(name: str) -> None:
-    logger.info("Created user %s", name)
-
-
-@app.post("/signup")
-async def signup(ctx: Context) -> dict[str, str]:
-    user = await ctx.bind(CreateUser)
-    ctx.add_background_task(record_signup, user.name)
-    return {"status": "accepted"}
-```
-
-This example reuses the attrs `CreateUser` model above. Tasks run in the current
-application call, including after successfully delivered error responses.
-Observed disconnects and failed transmission or cleanup suppress them; task
-exceptions are logged. See [background-task reliability](deployment.md#background-tasks-and-reliability)
-before using them for work that must survive a process failure.
+See [Post-response tasks](responses.md#post-response-tasks) for an example and
+the [deployment contract](deployment.md#background-tasks-and-reliability) for
+completion and reliability limits.
 
 ## Responses, cookies, and streams
 
-Return a value directly for simple responses. Use an explicit response when
-you need headers, cookies, status codes, or streaming:
-
-```python
-from lettia import JsonResponse
-
-
-@app.post("/login")
-def login(ctx: Context) -> JsonResponse:
-    response = JsonResponse({"status": "ok"})
-    response.set_cookie("session", "signed-value", httponly=True, secure=True)
-    return response
-```
-
-Use `response.delete_cookie("session")` to expire a cookie. For large payloads
-or SSE, return a `StreamResponse` backed by an async generator. See the
-[API reference](api_reference.md) for response signatures.
+These examples now live in [Responses and errors](responses.md), including
+[cookies](responses.md#cookies) and [streaming](responses.md#streaming).

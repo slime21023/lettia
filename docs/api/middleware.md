@@ -97,7 +97,9 @@ request_logger(
 ```
 
 Logs method, path, status, and elapsed time. A custom logger callback can be
-used for structured logging integration.
+used for structured logging integration. The timer ends when the downstream
+handler returns or raises; it does not include full response transmission or
+stream consumption. A transmission failure can occur after this log entry.
 
 ### `cors()`
 

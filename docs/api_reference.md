@@ -52,7 +52,8 @@ The following conventions apply across the public API:
 - Public classes and functions are exported from `lettia`,
   `lettia.middleware`, `lettia.protocols`, `lettia.ext`, or `lettia.testing`.
 
-- HTTP handlers may be sync or async; middleware handlers are async callables.
+- HTTP handlers may be sync or async; synchronous handlers execute directly
+  on the event-loop thread. Middleware handlers are async callables.
 
 - Expected HTTP failures use `HTTPException` / `abort()` and preserve status,
   detail, and headers through the application error handler.
