@@ -4,9 +4,15 @@ title: Context and Binding
 
 # Context and binding
 
-`Context` is the object passed to every HTTP handler. It exposes request data,
-route parameters, per-request state, typed binding, and response-adjacent
-helpers without hiding the underlying ASGI request.
+Use `Context` to read request data, bind it to a model, return an error or queue
+short background work. The examples below can be added to an application with
+this setup:
+
+```python
+from lettia import App, Context, JSONValue
+
+app = App()
+```
 
 ## Request data at a glance
 
@@ -22,7 +28,7 @@ helpers without hiding the underlying ASGI request.
 
 ```python
 @app.get("/search")
-async def search(ctx: Context):
+async def search(ctx: Context) -> dict[str, JSONValue]:
     return {
         "query": ctx.query_param("q", default=""),
         "agent": ctx.header("user-agent"),
@@ -52,9 +58,9 @@ JSON nesting beyond the decoder or validation recursion limit returns 400
 through both `ctx.json()` and binding. This limit is independent of body size
 and depends on the Python runtime and current call depth.
 
-Use these managed body APIs when returning a stream: the disconnect monitor
-shares the Context cache. Raw `ctx.receive` reads bypass that coordination and
-must not compete with it. See the [body API contract](api/context.md#body-api).
+Use `body()`, `json()` and `text()` for application input, including inside a
+streaming handler. Direct `ctx.receive` reads bypass caching and body limits.
+See the [body API contract](api/context.md#body-api) for low-level channel use.
 
 ## Binding typed input
 
@@ -81,7 +87,7 @@ class CreateUser:
 
 
 @app.post("/users")
-async def create_user(ctx: Context):
+async def create_user(ctx: Context) -> dict[str, str | int]:
     user = await ctx.bind(CreateUser)
     return {"name": user.name, "age": user.age}
 ```
@@ -97,16 +103,20 @@ for these models.
 
 JSON object fields take precedence over query parameters. Unknown input fields
 are ignored by the basic binders; omitted fields keep constructor defaults.
-Only constructor fields participate: `init=False` fields are excluded, including
-their annotations. Attrs input names follow constructor aliases: `_name: str`
-accepts `name`, and `field(alias="years")` accepts `years` rather than the field
-name. Dataclasses use their constructor field names, including `InitVar[T]`
-parameters passed to `__post_init__()`. These use the same scalar and nullable
-rules as `T`; inherited parameters, keyword-only parameters, and defaults are
-preserved. Unsupported `InitVar` types are configuration errors.
-Integer-to-float overflow
-is invalid input and returns 400, while unsupported constructor annotations
-remain configuration errors.
+Attrs input names follow constructor aliases: `_name: str` accepts `name`, and
+`field(alias="years")` accepts `years`. Dataclasses use constructor field names;
+both ignore `init=False` fields. For InitVar, inherited fields and exact failure
+categories, see the [Binder reference](api/extensions.md#binder-protocol).
+
+| Input for the example above | Result |
+|---|---|
+| `{"name": "Ada"}` | Uses the default age of 18 |
+| `{"name": "Ada", "age": "21"}` | Converts age to integer 21 |
+| `{"name": "Ada", "age": "bad"}` | HTTP 400 |
+| `{"age": 21}` | HTTP 400 because name is required |
+
+An unsupported model annotation is an application configuration error, not a
+bad client value. Change the model or use Pydantic for nested data.
 
 ### Dataclass
 
@@ -185,7 +195,7 @@ between integrations.
 ## Post-response tasks
 
 `ctx.add_background_task()` queues a synchronous or asynchronous callable to
-run after response delivery and cleanup are eligible for completion work:
+run after the response has been sent and its stream resources have been closed:
 
 ```python
 import logging

@@ -8,10 +8,10 @@ Lettia is an ASGI application with a small set of explicit layers. The
 framework moves route and middleware assembly out of the hot path while
 keeping request data and response behavior visible to the handler.
 
-This page is the system overview. Read it before the component-specific
-[API reference](api_reference.md) pages: it explains where each component sits,
-which lifecycle owns it, and where the HTTP, WebSocket, and lifespan branches
-separate.
+This advanced page explains component ownership and the HTTP, WebSocket and
+lifespan branches for debugging and framework contributions. To build an
+application, start with [Getting started](getting_started.md) and the task
+guides; use the [API reference](api_reference.md) for public contracts.
 
 ## Components
 

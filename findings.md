@@ -34,3 +34,9 @@
 - Replaced the Pydantic EmailStr example (which required an undocumented additional package) with Field constraints, and changed the background example to use typed binding.
 - Browser preview caught semicolon parsing in Mermaid sequence labels despite a passing strict build. Removed the separators and simplified the layer diagram to improve readability.
 - Generated-page link audit checked 22 HTML pages and 1,746 local links/anchors, excluding the generator-owned 404 page's pre-existing missing skip target. Authored links passed. Updated attrs/Pydantic/background examples executed successfully.
+
+## Application-developer audience correction
+- Usage documentation should teach installation, public operations, executable examples, expected responses and error handling before internals.
+- Quickstart previously omitted the testing extra required by TestClient and the app import in a separate test file; both are now explicit.
+- Application test guidance no longer implies that users need Lettia's contract markers, coverage threshold, development dependencies or repository CI configuration.
+- Navigation now leads with application guides; architecture and migration evidence remain available under Internals & Contributions.

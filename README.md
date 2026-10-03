@@ -24,10 +24,10 @@ system, or background-job queue.
 uv add lettia uvicorn
 ```
 
-For development:
+To test your application:
 
 ```bash
-uv add --dev pytest pytest-asyncio pytest-cov hypothesis ruff pyright pyrefly
+uv add --dev "lettia[testing]" pytest pytest-asyncio
 ```
 
 The runtime dependency is `attrs`. Optional extras are available for Pydantic
@@ -66,72 +66,20 @@ uv run uvicorn app:app --reload
 Then open `http://127.0.0.1:8000/health` or
 `http://127.0.0.1:8000/users/42`.
 
-## Architecture at a glance
+## Working with requests
 
-App coordinates three ASGI branches. HTTP request input and response transport
-have separate owners:
+Register a route on `App`, read request data through `Context`, and return a
+value. Dictionaries become JSON responses; strings become text. Use an explicit
+`Response` when you need a status code, headers, cookies or an async stream.
 
-```mermaid
-flowchart TD
-    A["Uvicorn / ASGI server"] --> B["App"]
-    B -->|HTTP| C["Middleware / Router / Handler"]
-    C --> E["Context: request input and state"]
-    C --> R["Response: output representation"]
-    R --> F["ResponseWriter: send and cleanup"]
-    F --> G{"Completion eligible?"}
-    G -->|Yes| T["App: background tasks"]
-    G -->|No| End["End request"]
-    B -->|WebSocket| K["WebSocketContext"]
-    B -->|Lifespan| L["Startup / shutdown hooks"]
-```
+Middleware adds shared behavior around your handlers. The first middleware
+passed to `app.use()` is the outermost wrapper; global middleware also handles
+routing errors such as 404 and 405. Route/group middleware runs only for matched
+routes. See [Middleware](docs/middleware.md) for configuration and ordering.
 
-| Layer | Main components | Responsibility |
-|---|---|---|
-| ASGI core | `App`, `Router`, `Context`, `Response` | Request dispatch and protocol boundaries |
-| Composition | `Route`, `Group`, middleware | Organize routes and cross-cutting behavior |
-| Extensions | binders, validators, renderers, `StaticFiles` | Add capabilities without enlarging the core |
-| Developer tooling | `TestClient`, pytest, benchmarks, docs | Verify behavior, performance, and public contracts |
-
-The public entry points are re-exported from `lettia`, while optional or
-specialized capabilities live under `lettia.protocols`, `lettia.ext`, and
-`lettia.testing`.
-
-The [layered architecture](docs/architecture.md#responsibility-layers) explains
-how pure rules support independent components, I/O owners, request adapters
-and App coordination. These responsibilities do not require separate class
-hierarchies or a folder for each layer.
-
-## HTTP request lifecycle
-
-The order is Context creation → pre-routing middleware → global middleware →
-route matching → route/group middleware → handler. The handler result is
-normalized to a Response and returns through the middleware chain. Writer then
-applies response policies, validates headers, sends the body and closes streams.
-App runs background tasks only when the delivery result permits completion work.
-See the [sequence and ownership diagrams](docs/architecture.md#http-request-lifecycle)
-for receive/send boundaries and error replacement.
-
-`Context` is created before routing so `app.use_pre()` middleware can inspect
-or normalize `ctx.path`. Global middleware wraps dispatch and can therefore
-handle unmatched paths, 404/405 responses, and CORS preflight requests. Route
-and group middleware run only after a route is selected.
-
-The order passed to `app.use()` is the outside-in order:
-
-```python
-app.use(first, second)
-```
-
-```text
-first before
-  second before
-    route handler
-  second after
-first after
-```
-
-Routes and middleware chains are compiled before normal request execution,
-keeping registration and composition work out of the hot path.
+The [getting-started walkthrough](docs/getting_started.md) includes typed input,
+expected error responses and a runnable test file. For framework internals,
+see the [architecture diagrams](docs/architecture.md).
 
 ## Routing
 

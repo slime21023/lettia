@@ -2,34 +2,39 @@
 title: Lettia Documentation
 ---
 
-# Lettia documentation
+# Build applications with Lettia
 
-Lettia is an explicit, type-first ASGI core for Python 3.12+. This documentation is
-organized around the way an application is built: start with a working app,
-learn the request model, then add routing, middleware, integrations, and
-tests.
+Lettia is a Python 3.12+ framework for HTTP APIs and WebSocket endpoints. These
+guides help application developers install the framework, write routes,
+validate input, test behavior and deploy a service.
 
-## Start with the system model
+## Start with a working application
 
-Before reading individual APIs, choose the area relevant to your application:
+Follow [Build your first app](getting_started.md) for the files to create,
+commands to run and expected responses. You do not need to study framework
+internals before using Lettia.
 
-| Area | Components | Question it answers |
-|---|---|---|
-| ASGI runtime | `App`, `Context`, `Router`, `ResponseWriter` | How does a scope become a response? |
-| Composition | `Route`, `Group`, middleware | How are application behaviors assembled? |
-| Extensions | binders, validators, renderers, `StaticFiles` | How are integrations added without changing the core? |
-| Verification | `TestClient`, pytest, benchmarks | How are contracts and performance checked? |
+```python
+from lettia import App, Context
 
-The [Architecture](architecture.md) page explains the boundaries and request
-lifecycle. The [API reference overview](api_reference.md) then routes advanced
-readers to a component-specific reference page.
+app = App()
+
+
+@app.get("/hello/:name")
+def hello(ctx: Context) -> dict[str, str]:
+    return {"message": f"Hello, {ctx.path_params['name']}"}
+```
+
+Save this as `app.py` after installing Lettia and Uvicorn, then run
+`uv run uvicorn app:app --reload`. GET `/hello/Ada` returns HTTP 200 with
+`{"message": "Hello, Ada"}`.
 
 ## Choose your path
 
 | If you are… | Start with |
 |---|---|
 | New to Lettia | [Getting started](getting_started.md) |
-| Familiar with ASGI | [Architecture](architecture.md) |
+| Returning status codes, headers, cookies or streams | [Responses](context_and_binding.md#responses-cookies-and-streams) |
 | Building an HTTP API | [Routing](routing.md), then [Context and binding](context_and_binding.md) |
 | Adding authentication, CORS, or limits | [Middleware](middleware.md) |
 | Deploying an application | [Deployment](deployment.md) |
@@ -37,46 +42,27 @@ readers to a component-specific reference page.
 | Serving local assets | [Static files](static_files.md) |
 | Maintaining a test suite | [Testing](testing.md) |
 | Looking for a signature | [API reference](api_reference.md) |
+| Upgrading an existing application | [Release notes](migrations/v1-rc2.md) |
 
-## The core mental model
+## The application model
 
-An incoming HTTP request moves through five stages:
+Register a handler on `App`. Lettia passes it a `Context` containing request
+data and converts the handler's return value into an HTTP response.
 
-1. `App` receives an ASGI scope, `receive`, and `send` callable.
+Return a dictionary for JSON, a string for text, or an explicit `Response` when
+you need status, headers or cookies. Use `ctx.bind()` for typed input and
+`ctx.abort()` for expected HTTP errors. Middleware adds behavior shared by
+multiple routes.
 
-2. App creates `Context`; pre-routing and then global middleware run before
-   route matching. They can return early, including for CORS preflight.
+Keep request-specific values in `ctx.state`; pass long-lived services into route
+setup through an application factory. Your application chooses its database,
+configuration and durable job queue. The ASGI server and hosting platform
+provide TLS, proxy trust and worker management.
 
-3. The router populates `ctx.path_params` and enters route/group middleware
-   around the selected handler, or produces a 404/405 error.
+## Advanced reading and framework contributions
 
-4. The handler result becomes a `Response`, which returns through the
-   middleware chain. Writer applies deferred policies and validates it.
-
-5. `ResponseWriter` sends the response and cleans up its resources. App runs
-   queued background tasks only when Writer reports completion eligibility.
-
-See [Architecture](architecture.md) for the complete HTTP, WebSocket, and
-lifespan flow.
-
-## What belongs in the core
-
-- `App`: ASGI entrypoint, routes, middleware, lifespan hooks, and errors.
-- `Router`: static, parameterized, wildcard, named, and method-aware routes.
-- `Context`: lazy request data, state, binding, aborts, and post-response tasks.
-- `Response`: text, JSON, bytes, streams, headers, and cookies.
-- `WebSocketContext`: explicit accept, receive, send, and close transitions.
-
-Extensions such as binders, validators, renderers, static files, and
-`TestClient` remain small and composable. Start with
-[Getting started](getting_started.md), then use the topic guides as your
-application grows.
-
-## Operating model
-
-Lettia owns typed ASGI dispatch, HTTP request state, response emission, and
-WebSocket state transitions. Your composition root owns application services;
-your ASGI server and platform own TLS, proxy trust, worker lifecycle, and
-distributed infrastructure. This separation is intentional: `App` has no
-global mutable state container, and `Context.state` / `WebSocketContext.state`
-are scoped to one request or one connection respectively.
+The [architecture diagrams](architecture.md) explain internal responsibility
+and lifecycle boundaries for deeper debugging and framework contributions.
+The [repository quality gates](testing.md#coverage-and-quality-gates) and
+[migration audit](testing_audit.md) describe Lettia maintenance; they are not
+setup requirements for an application using Lettia.

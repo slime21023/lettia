@@ -4,6 +4,10 @@ title: Testing
 
 # Testing
 
+This page starts with tests for your application. You can test routes without
+starting a server or adopting Lettia's own repository configuration. Framework
+contributors can jump to [repository quality gates](#coverage-and-quality-gates).
+
 Choose a test transport according to the behavior being checked:
 
 - `TestClient` for concise synchronous tests.
@@ -16,10 +20,10 @@ Choose a test transport according to the behavior being checked:
 - A real Uvicorn server and HTTPX client for socket disconnects, connection
   reuse and server startup/shutdown; see [smoke tests](#real-server-smoke-tests).
 
-Install the development tools:
+In your application project, install the testing extra and pytest:
 
 ```bash
-uv sync --locked --all-extras
+uv add --dev "lettia[testing]" pytest pytest-asyncio
 ```
 
 ## Synchronous route tests
@@ -50,12 +54,23 @@ def test_get_user() -> None:
 
 `TestClient` is synchronous and uses `asyncio.run()` internally. Use the async
 style below when the test itself already runs inside an event loop.
+Save the example as `test_users.py` and run `uv run python -m pytest`. In an
+existing application, import its `app` or call its application factory instead
+of defining routes inside the test file.
 
 ## Async ASGI tests
 
 ```python
 import httpx
 import pytest
+from lettia import App, Context, JSONValue
+
+app = App()
+
+
+@app.post("/echo")
+async def echo(ctx: Context) -> dict[str, JSONValue]:
+    return {"received": await ctx.json()}
 
 
 @pytest.mark.asyncio
@@ -67,6 +82,7 @@ async def test_echo() -> None:
         response = await client.post("/echo", json={"message": "hello"})
 
     assert response.status_code == 200
+    assert response.json() == {"received": {"message": "hello"}}
 ```
 
 Use this style for application HTTP behavior. In-process transports can buffer
@@ -91,13 +107,18 @@ Organize tests around public behavior rather than private implementation:
 - Static file traversal, range requests, cookies, and WebSocket disconnects
   are covered as boundary cases.
 
-- The suite enforces combined statement and branch coverage, so conditional
-  error paths remain part of the quality gate.
+- Cover both successful requests and error paths; select a coverage policy
+  appropriate to your application.
 
 Name tests as `test_<unit>_<scenario>_<expected_result>()` so failures explain
 the contract they protect.
 
 ## Property-based core tests
+
+The following sections describe Lettia's framework repository. Its contract
+markers, support fixtures, coverage threshold and CI matrix are contributor
+requirements, not requirements for your application tests. To follow them,
+clone the repository and run `uv sync --locked --all-extras` there.
 
 The core suite uses Hypothesis to generate inputs and shrink failures. Shared
 bounded strategies in `tests/support/strategies.py` produce JSON, Unicode text, path

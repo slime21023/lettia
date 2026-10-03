@@ -4,6 +4,13 @@ title: Middleware
 
 # Middleware
 
+Use middleware for behavior shared by multiple endpoints: CORS, request IDs,
+logging, sessions and limits. Start with the
+[built-in baseline](#recommended-baseline); write custom middleware only when
+you need additional behavior. Examples assume an `app = App()` instance.
+
+## Writing custom middleware
+
 Lettia middleware is a callable that receives the next handler and returns a
 handler with the same shape:
 
@@ -158,19 +165,15 @@ Users must sign in again after upgrading.
 
 ### Response finalization
 
-Within `App`, built-in CORS, Request ID, and Session middleware register response
-policies. The writer applies them after the complete middleware chain returns,
-before validating headers or attempting response start. Outer middleware can
-therefore update Session state before it is signed. Error handlers can also
-update or clear it, including when the original response fails validation.
+When using App, CORS, Request ID and Session headers are applied just before
+the response is sent. You can update Session state after `await next_handler(ctx)`
+or in an error handler; the outgoing cookie uses that latest state.
 Unchanged sessions do not issue a cookie; clearing an existing session issues a
 deletion cookie, while clearing a newly created session leaves it unsaved.
 
-Normal responses, middleware errors, writer validation errors, and fallback
-responses use the same finalization path. Each attempt uses a separate header
-copy, so reusing a response does not accumulate policy cookies or mutate its
-original headers. Existing application cookies retain their order. Request
-handlers and middleware request-side work are not executed again.
+These policies also apply to error responses when their middleware ran. Reusing
+a response does not accumulate policy cookies or mutate its original headers.
+Request handlers are not rerun when the framework replaces an invalid response.
 
 Outer middleware inspecting a returned response sees its application headers;
 the registered built-in policy headers are added at the send boundary. Calling
@@ -178,11 +181,11 @@ middleware directly without `App` still returns a decorated response. A policy
 that raises during finalization is omitted from this request's error response;
 other registered policies still apply, and stream resources are closed.
 
-Policy registration is a framework internal. Custom middleware continues to
-return a `Response` through the public middleware interface. The
-[ownership and request diagrams](architecture.md#http-request-lifecycle) show
-where the finalizer runs; the [middleware reference](api/middleware.md#request-work-and-deferred-response-policies)
-defines ordering and failure handling.
+Custom middleware continues to return a `Response` through the public interface.
+Private policy registration is not an application extension point. The
+[middleware reference](api/middleware.md#request-work-and-deferred-response-policies)
+and [architecture diagrams](architecture.md#http-request-lifecycle) explain
+internal ordering and failure handling.
 
 ## WebSocket boundary
 

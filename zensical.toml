@@ -6,26 +6,19 @@ use_directory_urls = false
 
 nav = [
     { "Overview" = "index.md" },
-    { "Release Notes" = "migrations/v1-rc2.md" },
     { "Getting Started" = [
         { "Build Your First App" = "getting_started.md" }
     ] },
-    { "Core Architecture" = [
-        { "System Specs" = "architecture.md" },
-        { "Request Pipeline" = [
-            { "Routing Engine" = "routing.md" },
-            { "Context & Binding" = "context_and_binding.md" }
-        ] }
+    { "Application Guides" = [
+        { "Routes & Groups" = "routing.md" },
+        { "Requests & Binding" = "context_and_binding.md" },
+        { "Middleware" = "middleware.md" },
+        { "Static Files" = "static_files.md" },
+        { "WebSockets" = "websocket.md" },
+        { "Testing Your App" = "testing.md" },
+        { "Deployment" = "deployment.md" }
     ] },
-    { "Application Features" = [
-        { "Middleware Chain" = "middleware.md" },
-        { "Deployment" = "deployment.md" },
-        { "WebSocket Protocol" = "websocket.md" },
-        { "Static Files" = "static_files.md" }
-    ] },
-    { "Reference & Testing" = [
-        { "Testing Guide" = "testing.md" },
-        { "Contract Migration Audit" = "testing_audit.md" },
+    { "Reference" = [
         { "API Reference" = [
             { "Overview" = "api_reference.md" },
             { "App" = "api/app.md" },
@@ -36,7 +29,12 @@ nav = [
             { "WebSocket" = "api/websocket.md" },
             { "Protocols & Extensions" = "api/extensions.md" },
             { "Testing" = "api/testing.md" }
-        ] }
+        ] },
+        { "Release Notes" = "migrations/v1-rc2.md" }
+    ] },
+    { "Internals & Contributions" = [
+        { "Architecture" = "architecture.md" },
+        { "Contract Migration Audit" = "testing_audit.md" }
     ] }
 ]
 

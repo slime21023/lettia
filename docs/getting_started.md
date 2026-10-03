@@ -12,9 +12,9 @@ Python 3.12 or newer and a working `uv` installation.
 ```bash
 mkdir lettia-demo
 cd lettia-demo
-uv init
+uv init --bare --python 3.12
 uv add lettia uvicorn
-uv add --dev pytest pytest-asyncio
+uv add --dev "lettia[testing]" pytest pytest-asyncio
 ```
 
 Create `app.py`:
@@ -53,12 +53,15 @@ curl http://127.0.0.1:8000/users/42
 
 ## 2. Add a JSON request
 
-`Context.json()` reads and caches the ASGI request body. Invalid JSON is
-reported as HTTP 400 by the framework.
+Append this route to `app.py`. `ctx.json()` returns the decoded request data;
+invalid JSON produces HTTP 400.
 
 ```python
+from lettia import JSONValue
+
+
 @app.post("/echo")
-async def echo(ctx: Context):
+async def echo(ctx: Context) -> dict[str, JSONValue]:
     return {"received": await ctx.json()}
 ```
 
@@ -68,19 +71,25 @@ curl -X POST http://127.0.0.1:8000/echo \
   -d '{"message":"hello"}'
 ```
 
+The response is HTTP 200 with `{"received": {"message": "hello"}}`.
+The multi-line command above uses POSIX shell syntax. In PowerShell, use:
+
+```powershell
+Invoke-RestMethod -Uri http://127.0.0.1:8000/echo -Method Post -ContentType application/json -Body '{"message":"hello"}'
+```
+
 ## 3. Add middleware
 
 Register global middleware with `app.use()`. Register a middleware that must
 run before route matching with `app.use_pre()`.
 
 ```python
-from lettia.middleware import cors, recover, request_id, request_logger
+from lettia.middleware import cors, request_id, request_logger
 
 app.use(
-    recover(),
+    request_id(),
     request_logger(),
     cors(allow_origins=["http://localhost:3000"]),
-    request_id(),
 )
 ```
 
@@ -90,8 +99,9 @@ middleware becoming the outermost wrapper. See the
 
 ## 4. Add a typed payload
 
-For an `attrs` class or dataclass, `ctx.bind()` combines JSON fields and query
-parameters, then performs basic type coercion.
+Add the model and route below to `app.py`. For POST, PUT and PATCH,
+`ctx.bind()` combines JSON object fields with query parameters; JSON wins when
+both supply the same field. Other methods use query parameters.
 
 ```python
 from attrs import define
@@ -104,7 +114,7 @@ class CreateUser:
 
 
 @app.post("/users")
-async def create_user(ctx: Context):
+async def create_user(ctx: Context) -> dict[str, str | int]:
     user = await ctx.bind(CreateUser)
     return {"name": user.name, "age": user.age}
 ```
@@ -112,12 +122,24 @@ async def create_user(ctx: Context):
 Use the [context and binding guide](context_and_binding.md) for Pydantic,
 dataclass, validation, response cookies, and streaming.
 
+| POST `/users` JSON body | Expected result |
+|---|---|
+| `{"name": "Ada"}` | 200, `{"name": "Ada", "age": 18}` |
+| `{"name": "Ada", "age": "21"}` | 200, with integer `age: 21` |
+| `{"age": 21}` | 400 because `name` is required |
+| `{"name": "Ada", "age": "invalid"}` | 400 because `age` cannot be converted |
+
+Basic binding converts scalar types; it does not impose business rules such as
+a minimum age. Use Pydantic constraints or explicit validation for those rules.
+
 ## 5. Test the application
 
-For synchronous tests, use `TestClient`:
+Create `test_app.py` alongside `app.py`. The `lettia[testing]` extra installed
+above provides the HTTPX dependency used by `TestClient`; no server is needed.
 
 ```python
 from lettia.testing import TestClient
+from app import app
 
 
 def test_health() -> None:
@@ -127,16 +149,25 @@ def test_health() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_create_user_rejects_invalid_age() -> None:
+    response = TestClient(app).post("/users", json={"name": "Ada", "age": "bad"})
+    assert response.status_code == 400
 ```
 
 Run the suite:
 
 ```bash
-uv run pytest
+uv run python -m pytest
 ```
 
 Continue with [testing](testing.md) for async tests, regression tests, and
 coverage.
+
+Expected result: both tests pass. If importing the test client reports that
+HTTPX is missing, install `lettia[testing]` in the environment running pytest.
+If a route returns 404, check that its module is imported before serving `app`.
 
 ## Next steps
 

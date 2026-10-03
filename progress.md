@@ -53,3 +53,9 @@
 - Corrected body-limit, Pydantic and background examples. Executed the three revised examples against the local framework successfully.
 - Strict docs build and all 19 architecture cases passed. Browser preview caught and fixed sequence diagram separators; local link audit passed for 22 pages / 1,746 links, excluding the default generated 404 skip target.
 - Visually checked all three architecture diagrams after simplification; sequence and flowchart labels render. Final strict build, authored link/anchor audit, revised examples and documentation-policy rerun pass. Only Markdown and planning records changed; source, dependencies, CI and test implementations remain unchanged.
+
+## Developer-facing usage revision
+- Reworked overview, README and navigation around application tasks. Kept internal ownership and contributor evidence in advanced/reference sections.
+- Made quickstart setup and testing self-contained, documented expected valid/invalid binding outcomes, and added PowerShell request syntax.
+- Executed copied quickstart, synchronous and asynchronous examples in standalone files outside the repository test configuration: four tests passed. Documentation policy: two passed. Strict build passed; 22 generated pages / 1,781 authored local links and anchors passed with the known generated 404 skip-target exclusion.
+- Current audience revision changes docs, navigation and planning records only; not yet committed or pushed.

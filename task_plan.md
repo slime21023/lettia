@@ -65,3 +65,19 @@ Keep the existing documentation language and navigation. Update zensical.toml
 only if a new page is actually needed. Do not change source behavior or claim
 hosted CI success as part of this documentation task. Preserve the recorded
 intermittent Hypothesis failure as an open verification observation.
+
+## Developer-facing guide revision
+
+User clarification: usage documentation primarily serves developers building
+applications with Lettia. Internal ownership analysis supports advanced reading
+instead of preceding the first working application.
+
+- [x] Lead the homepage and README with setup, tasks and public APIs.
+- [x] Group application guides before API reference and internals in navigation.
+- [x] Make the quickstart reproducible: testing extra, explicit filenames and imports, typed input, expected responses and Windows request syntax.
+- [x] Distinguish application tests from contributor-only contracts and CI gates.
+- [x] Verify copied quickstart and sync/async test files, strict docs build, documentation policies and local links.
+
+This audience correction intentionally revises the earlier navigation-preserving
+plan. No new documentation page or runtime change was required. The revision is
+not yet committed or pushed.
