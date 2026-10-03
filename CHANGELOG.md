@@ -6,6 +6,9 @@ All notable changes to Lettia are documented here.
 
 ### Changed
 
+- Document component ownership, response replacement and completion boundaries
+  with architecture diagrams. Consolidate verification commands and distinguish
+  in-process HTTP tests from real-server disconnect and lifespan coverage.
 - Preserve generic Binder result types and binary file-open overloads across
   Pyrefly and ty; document a reproducible ty check without adding dependencies.
 - Separate JSON validation, header/cookie encoding, conditional-request rules,

@@ -39,3 +39,17 @@
 - Restored the dataclass cast removed during the preceding cleanup: it is required for ty compatibility. No dependencies or lockfile changes.
 - Both checkers now report zero diagnostics (warnings included); Pyright, Ruff, 100% public API type coverage and strict docs pass.
 - Full pytest initially had a Hypothesis FlakyFailure in the legacy-session property; focused rerun passed without test changes. Final full run: 622 passed, 1 skipped, 95.09%, 24.16 seconds. Intermittent failure cause remains unestablished.
+
+## Commit and documentation scheduling
+- Reviewed staged scope and whitespace checks; no blocking severe issue identified. Existing full tests and type verification remain the acceptance evidence; no source edits followed those checks.
+- Created local commit 10d2d32, "Stabilize component contracts and reorganize layered tests". Confirmed a clean working tree before starting the next planning changes. No push performed.
+- Planned four documentation passes in task_plan.md: architecture diagrams, component contracts, user guides, then verification/release documentation. Defined file scope and acceptance checks for each.
+- Documentation content changes are pending; only the planning records have changed since the commit.
+
+## Documentation update and refactor
+- Pushed baseline 10d2d32 to origin/main before editing docs. Read hosted run 37116113235: six Ubuntu/Windows × Python 3.12–3.14 quality jobs and package validation all succeeded.
+- Updated architecture diagrams, ownership/error/completion contracts and overview order. Reconciled App, Context, Writer, middleware and Binder reference boundaries.
+- Consolidated verification commands in docs/testing.md, distinguished optional local ty checks from CI gates and preserved historical audit results.
+- Corrected body-limit, Pydantic and background examples. Executed the three revised examples against the local framework successfully.
+- Strict docs build and all 19 architecture cases passed. Browser preview caught and fixed sequence diagram separators; local link audit passed for 22 pages / 1,746 links, excluding the default generated 404 skip target.
+- Visually checked all three architecture diagrams after simplification; sequence and flowchart labels render. Final strict build, authored link/anchor audit, revised examples and documentation-policy rerun pass. Only Markdown and planning records changed; source, dependencies, CI and test implementations remain unchanged.

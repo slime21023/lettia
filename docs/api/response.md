@@ -192,13 +192,13 @@ does not access the writer's transport-state flags.
 
 The writer:
 
-- emits `http.response.start` once;
+- attempts `http.response.start` at most once;
 - adds a default `content-type` when one is not supplied;
 - adds `content-length` for non-streaming bodies, except 204 and 304;
 - validates explicit Content-Length as nonempty ASCII digits for both regular
   and streaming responses before attempting response start;
 - emits multiple `set-cookie` header lines;
-- streams async body chunks with `more_body=True`; and
+- streams async body chunks with `more_body=True`;
 - suppresses body bytes for `HEAD` while retaining representation headers; and
 - suppresses body bytes and Content-Length for 204/304, including explicit headers.
 
@@ -218,3 +218,15 @@ errors, and cancellation. A source error terminates the body once and propagates
 a send failure propagates without attempting another write. A framework deadline
 uses event-loop time; unrelated upstream `TimeoutError` is never converted into
 a framework timeout.
+
+| Boundary | Writer responsibility | App responsibility |
+|---|---|---|
+| Before start is attempted | Apply the supplied finalizer, validate headers, close an acquired iterator on failure | Select an error response and, if needed, a basic fallback |
+| Start has been attempted | Preserve the attempt state even when send fails or is cancelled | Do not construct a replacement response |
+| Body and cleanup finish | Report eligibility through the private delivery interface | Run queued completion work only when eligible |
+
+`write()` remains the public direct-send API; it returns `None`, not App's
+completion result. Public headers remain `dict[str, str]`. Shared private header
+rules support both Response mutation and final transport validation; callers do
+not need to import those helpers. See the
+[replacement diagram](../architecture.md#error-replacement-boundary).

@@ -4,14 +4,17 @@ title: Testing
 
 # Testing
 
-Lettia supports three useful testing styles:
+Choose a test transport according to the behavior being checked:
 
 - `TestClient` for concise synchronous tests.
 
 - `httpx.AsyncClient` with `ASGITransport` for async HTTP tests.
 
 - Direct `app(scope, receive, send)` calls for lifespan and WebSocket protocol
-  tests.
+  tests, or controlled HTTP send/receive failures.
+
+- A real Uvicorn server and HTTPX client for socket disconnects, connection
+  reuse and server startup/shutdown; see [smoke tests](#real-server-smoke-tests).
 
 Install the development tools:
 
@@ -68,8 +71,8 @@ async def test_echo() -> None:
 
 Use this style for application HTTP behavior. In-process transports can buffer
 streams and cannot verify real client disconnects; use the socket smoke suite
-for those boundaries. HTTPX ASGITransport does not run lifespan automatically. Test lifespan and
-WebSocket protocol messages by calling the ASGI application with controlled
+for those boundaries. HTTPX ASGITransport does not run lifespan automatically.
+Test lifespan and WebSocket protocol messages by calling the ASGI application with controlled
 `scope`, `receive`, and `send` callables; HTTPX's ASGI transport is an HTTP
 transport, not a WebSocket client.
 
@@ -143,8 +146,10 @@ per-example deadline for filesystem variability; pure properties keep the
 default deadline and health checks. Linux must run symlink containment tests;
 Windows skips them only if symlink privileges are unavailable.
 
-CI already runs the suite on Ubuntu and Windows with Python 3.12, 3.13, and
-3.14. The same 90% statement/branch coverage gate applies after migration.
+CI is configured to run the suite on Ubuntu and Windows with Python 3.12, 3.13,
+and 3.14. Configuration is distinct from a completed run: verify the commit's
+actual CI status before release. The same 90% statement/branch coverage gate
+applies on each matrix entry.
 
 ## Coverage and quality gates
 
@@ -216,10 +221,19 @@ source cleanup, then verifies background work was skipped. Lifespan tests check
 both ordered startup/shutdown and cleanup after startup or client failures.
 These tests do not rely on ASGITransport or assume HTTPX runs lifespan.
 
-Run the complete development loop:
+### Verification commands
+
+This is the canonical command list for repository development. Install the
+locked development environment and optional packages first:
 
 ```bash
-uv run pytest
+uv sync --locked --all-extras
+```
+
+Run the quality gates:
+
+```bash
+uv run python -m pytest
 uv run ruff format --check .
 uv run ruff check .
 uv run pyright
@@ -239,6 +253,26 @@ uv run pyrefly check --min-severity warn
 The ty command uses the project's installed packages. Pyrefly uses the strict
 project configuration; the second command also displays warning diagnostics.
 
+| Check | Scope | Where enforced |
+|---|---|---|
+| Pytest and Ruff | Full test pyramid; project formatting and lint | CI quality matrix |
+| Pyright | `src`, strict, Python 3.12 target | CI quality matrix |
+| Pyrefly | `src`, `tests`, `examples`, strict, Python 3.12 target | CI quality matrix |
+| Public API type coverage | `src/lettia`, strict public-only, 100% | CI quality matrix |
+| ty 0.0.84 | `src`, `tests`, `examples`, Python 3.12 target, warnings fail | Additional local check; not installed or enforced by current CI |
+| Strict documentation build | Pages and configured navigation | CI quality matrix |
+
+Type-checker target versions describe static analysis; runtime tests use the
+selected matrix interpreter. Package validation follows the quality jobs:
+
+```bash
+uv build
+uvx --from twine twine check dist/*
+```
+
+Before release, verify the intended version's wheel and source distribution.
+Older files in a local `dist` directory are not evidence for the current build.
+
 Pytest is configured to print missing lines and fail below 90% source coverage.
 For focused feedback without the whole-project coverage gate:
 
@@ -251,7 +285,15 @@ observable behavior and edge conditions over tests written only to execute a
 line.
 
 
-## Migration validation snapshot
+## Validation records
+
+The [contract audit](testing_audit.md#verification-status) records the most
+recent local verification, tool versions and outstanding checks. Test counts
+are snapshots, not targets; use pytest's collection summary for the current
+checkout. Historical results below do not establish that a later commit passed
+the same platforms.
+
+### Historical property-test migration
 
 On 2026-10-02, the Windows Python 3.12.14 suite increased from 98 passing
 tests and 90.16% coverage to 114 passing tests and 92.21% coverage, with one

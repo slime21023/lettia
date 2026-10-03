@@ -143,9 +143,17 @@ ctx.add_background_task(
 ) -> None
 ```
 
-Tasks are queued on the context and executed after response messages are sent.
-Both sync and async callables are accepted. They are suitable for short
-best-effort work; durable or long-running work belongs in an external queue.
+Context stores the tasks; App executes them in registration order after Writer
+reports completion eligibility and finishes iterator cleanup. Successful error
+and fallback responses follow the same completion path. Observed disconnects,
+cancellation, transport failures, propagated source errors and cleanup failures
+suppress the tasks. Individual task exceptions are logged; later queued tasks
+can still run.
+
+Both sync and async callables are accepted and run in the current application
+call, not a separate worker. They are suitable for short best-effort work; durable
+or long-running work belongs in an external queue. See
+[deployment reliability](../deployment.md#background-tasks-and-reliability).
 
 ## Aborting a request
 

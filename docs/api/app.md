@@ -7,6 +7,12 @@ title: App API
 `App` is Lettia's ASGI entrypoint. It owns routing, middleware registrations,
 error handling, and lifespan hooks; application dependencies remain outside it.
 
+App coordinates HTTP work through component results: Context owns request
+reception and Writer owns response transmission and cleanup. The
+[ownership diagram](../architecture.md#resource-and-state-ownership) describes
+these internal boundaries; private delivery and policy methods are not extension
+APIs.
+
 ## Construction
 
 ```python
@@ -143,9 +149,14 @@ def create_app(services: Services) -> App:
 | `websocket` | WebSocket route and `WebSocketContext` |
 | `lifespan` | Startup and shutdown hooks |
 
-HTTP handlers may be synchronous or asynchronous. Their return values are
-normalized after middleware completes. WebSocket routes intentionally bypass
+HTTP handlers may be synchronous or asynchronous. The endpoint adapter
+normalizes their return values before returning through route middleware; App
+also normalizes the final chain result before delivery. WebSocket routes bypass
 the HTTP middleware and response pipeline.
+
+App runs Context's queued background work only after Writer reports completion
+eligibility, including successful error or fallback responses. See
+[background tasks](context.md#background-tasks) for failure and durability limits.
 
 ## Composition contract
 
@@ -159,5 +170,8 @@ pre-routing middleware
         handler
 ```
 
-The chain is compiled by `build_chain()` so middleware wrapper construction is
-not repeated for every request.
+App compiles the chain with an error-rendering boundary around the handler and
+each middleware layer, so wrapper construction is not repeated for every
+request. The public standalone [build_chain()](middleware.md#build_chain)
+preserves nesting order but propagates exceptions rather than invoking App's
+error renderer.

@@ -11,10 +11,9 @@ tests.
 
 ## Start with the system model
 
-Before reading individual APIs, understand the four layers that make up an
-application:
+Before reading individual APIs, choose the area relevant to your application:
 
-| Layer | Components | Question it answers |
+| Area | Components | Question it answers |
 |---|---|---|
 | ASGI runtime | `App`, `Context`, `Router`, `ResponseWriter` | How does a scope become a response? |
 | Composition | `Route`, `Group`, middleware | How are application behaviors assembled? |
@@ -41,20 +40,21 @@ readers to a component-specific reference page.
 
 ## The core mental model
 
-An incoming ASGI request moves through five stages:
+An incoming HTTP request moves through five stages:
 
 1. `App` receives an ASGI scope, `receive`, and `send` callable.
 
-2. Pre-routing middleware can inspect or normalize the `Context` before the
-   router runs.
+2. App creates `Context`; pre-routing and then global middleware run before
+   route matching. They can return early, including for CORS preflight.
 
-3. The router selects a handler and populates `ctx.path_params`.
+3. The router populates `ctx.path_params` and enters route/group middleware
+   around the selected handler, or produces a 404/405 error.
 
-4. Global and route middleware wrap the handler; the handler returns a value
-   that is normalized into a `Response`.
+4. The handler result becomes a `Response`, which returns through the
+   middleware chain. Writer applies deferred policies and validates it.
 
-5. `ResponseWriter` emits ASGI response messages, then queued post-response
-   tasks are executed.
+5. `ResponseWriter` sends the response and cleans up its resources. App runs
+   queued background tasks only when Writer reports completion eligibility.
 
 See [Architecture](architecture.md) for the complete HTTP, WebSocket, and
 lifespan flow.

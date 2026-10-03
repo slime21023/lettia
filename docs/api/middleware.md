@@ -62,6 +62,20 @@ Pre-routing middleware can rewrite `ctx.path`. Global middleware is the right
 scope for cross-cutting behavior such as recovery, CORS, request IDs, logging,
 and limits.
 
+### Request work and deferred response policies
+
+Within App, CORS, Request ID and Session register response callbacks on Context.
+Writer invokes the Context finalizer on a new header copy before validation and
+the first send attempt. Callbacks run in registration order; a failing callback
+is removed for subsequent replacement attempts, while remaining callbacks run
+before its error is reported. Session therefore sees the latest request state.
+
+Standalone middleware applies its response changes immediately. Application
+middleware should keep using the public `Middleware` interface; the private
+policy registry is framework coordination, not a plugin API. See
+[response finalization](../middleware.md#response-finalization) for examples of
+replacement responses, cookie ordering and what outer middleware can inspect.
+
 ## Built-in factories
 
 ### `recover()`

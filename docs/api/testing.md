@@ -37,6 +37,10 @@ client.patch(url, *, headers=None, json=None)
 The convenience methods call `request()` and return normal `httpx.Response`
 objects.
 
+The helper runs an in-process ASGI transport, not a network server, and does not
+automatically run lifespan. It uses `asyncio.run()` internally, so use an async
+client when the caller already runs inside an event loop.
+
 ```python
 def test_health() -> None:
     response = TestClient(app).get("/health")
@@ -57,10 +61,12 @@ async with httpx.AsyncClient(
     response = await client.post("/echo", json={"message": "hello"})
 ```
 
-This style is preferred for streaming and async HTTP tests. For lifespan,
-custom `receive` / `send`, and WebSocket protocol tests, call the ASGI
-application directly with controlled ASGI callables; HTTPX's ASGI transport
-does not provide a WebSocket client.
+Use this style for async application HTTP behavior. ASGITransport can buffer
+streamed output; it does not verify wire-level streaming or client disconnects.
+Use [real-server smoke tests](../testing.md#real-server-smoke-tests) for those
+boundaries. For lifespan, controlled HTTP failures and WebSocket protocol tests,
+call the ASGI application directly with controlled `receive` / `send` callables.
+HTTPX's ASGI transport does not run lifespan or provide a WebSocket client.
 
 ## Testing contracts
 
@@ -75,14 +81,8 @@ Tests should protect public behavior:
 | Extensions | Traversal protection, ranges, sessions, and rate limits |
 | WebSockets | State transitions and normal disconnect behavior |
 
-The repository quality commands are:
-
-```bash
-uv run pytest
-uv run ruff check .
-uv run pyright
-uv run pyrefly check
-```
-
-Pytest is configured with a 90% source-coverage gate. Coverage should support
-behavioral confidence rather than become a line-count target.
+Use the [verification commands](../testing.md#verification-commands) for the
+complete quality gates, checker scopes and optional ty check. Repository tests
+are classified by unit, integration, smoke and architecture directories and
+linked to contract IDs; see the [test pyramid](../testing.md#coverage-and-quality-gates).
+Pytest enforces a 90% combined statement/branch coverage gate.

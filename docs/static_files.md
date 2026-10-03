@@ -64,6 +64,22 @@ tag. Malformed conditions are ignored. If-Range requires an exact strong ETag
 match; date conditions fall back to a full response because this extension
 does not publish a Last-Modified validator.
 
+The decision order for a canonical file URL is:
+
+1. Resolve the path and enforce containment, including the selected index file.
+2. Read file metadata and compute the content ETag.
+3. Evaluate If-None-Match; a match returns 304 before considering Range.
+4. For GET, evaluate If-Range and then a single Range. HEAD skips this step.
+5. Return the full or partial representation, or 416 with the file size.
+
+For example, a matching If-None-Match plus an unsatisfiable Range returns 304;
+a mismatching If-Range plus that Range returns a full 200. The pure conditional
+rules decide these outcomes; StaticFiles owns filesystem safety and creates
+the response. Writer consumes and closes its file stream, including on
+cancellation. HEAD and 304 suppress body transmission, but still incur the ETag
+hash read. See the [StaticFiles API](api/extensions.md#staticfiles) and
+[Writer lifecycle](architecture.md#resource-and-state-ownership).
+
 ## Security notes
 
 - Resolve the directory once at startup and keep it separate from uploaded

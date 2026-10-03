@@ -99,16 +99,15 @@ in `ws.state`; do not use application-global mutable state.
 
 ## Verification before release
 
-Run the project quality gates before releasing a framework or deploying a
-service change:
+Run the canonical [verification commands](testing.md#verification-commands)
+before releasing a framework or deploying a service change. They cover the full
+test pyramid, type checkers, strict docs and package validation. Check the
+release commit's actual Linux/Windows CI results; local verification does not
+establish that the hosted matrix has passed.
 
-```bash
-uv run pytest
-uv run ruff check .
-uv run pyright
-uv run pyrefly check
-uv run zensical build --strict
-```
+The default suite includes bounded [real-server smoke tests](testing.md#real-server-smoke-tests).
+They exercise HEAD connection reuse, mid-stream disconnect cleanup and lifespan
+using a dynamically allocated loopback port.
 
 For a real local server smoke check, run the example and query it over a
 loopback socket:

@@ -43,17 +43,23 @@ plain_text = await ctx.text()
 ```
 
 The body is read once and cached. A body that exceeds `max_bytes` raises HTTP
-413, including when a previous middleware has already cached it. Every call
-checks its own limit; a client disconnect or malformed JSON/text body raises HTTP 400. The
+413, including when a previous middleware has already cached it. The strictest
+limit supplied so far remains active for later reads, and a rejected body stays
+rejected. A client disconnect or malformed JSON/text body raises HTTP 400. The
 `body_limit()` middleware is useful when every route needs the same limit.
 JSON numbers exceeding Python's integer-decoding length limit also return 400.
 JSON nesting beyond the decoder or validation recursion limit returns 400
 through both `ctx.json()` and binding. This limit is independent of body size
 and depends on the Python runtime and current call depth.
 
+Use these managed body APIs when returning a stream: the disconnect monitor
+shares the Context cache. Raw `ctx.receive` reads bypass that coordination and
+must not compete with it. See the [body API contract](api/context.md#body-api).
+
 ## Binding typed input
 
-`ctx.bind(TargetClass)` combines JSON object fields with query parameters and
+`ctx.bind(TargetClass)` reads JSON object fields for POST, PUT and PATCH, fills
+missing keys from query parameters, and
 constructs one of the supported target types:
 
 - An `attrs` class.
@@ -125,12 +131,12 @@ uv add "lettia[pydantic]"
 ```
 
 ```python
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, Field
 
 
 class CreateUserSchema(BaseModel):
-    name: str
-    email: EmailStr
+    name: str = Field(min_length=1)
+    age: int = Field(ge=0)
 
 
 @app.post("/validated-users")
@@ -138,6 +144,13 @@ async def create_validated_user(ctx: Context):
     user = await ctx.bind(CreateUserSchema)
     return {"data": user.model_dump()}
 ```
+
+An empty name or negative age produces HTTP 400 through Pydantic validation.
+Programming errors in a validator, such as `TypeError` or `ImportError`, retain
+their original exception and normally produce HTTP 500 through App. They do
+not select a different binder. See the
+[Binder error table](api/extensions.md#binder-protocol) for the distinction
+between input errors, model configuration and direct binder calls.
 
 ## State and aborts
 
@@ -172,22 +185,30 @@ between integrations.
 ## Post-response tasks
 
 `ctx.add_background_task()` queues a synchronous or asynchronous callable to
-run after the response messages have been sent:
+run after response delivery and cleanup are eligible for completion work:
 
 ```python
-def record_signup(email: str) -> None:
-    audit_log.write(email)
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def record_signup(name: str) -> None:
+    logger.info("Created user %s", name)
 
 
 @app.post("/signup")
 async def signup(ctx: Context) -> dict[str, str]:
-    payload = await ctx.json()
-    ctx.add_background_task(record_signup, payload["email"])
+    user = await ctx.bind(CreateUser)
+    ctx.add_background_task(record_signup, user.name)
     return {"status": "accepted"}
 ```
 
-These tasks are part of the current application call and are logged if they
-fail. Use a real queue or worker for durable, long-running work.
+This example reuses the attrs `CreateUser` model above. Tasks run in the current
+application call, including after successfully delivered error responses.
+Observed disconnects and failed transmission or cleanup suppress them; task
+exceptions are logged. See [background-task reliability](deployment.md#background-tasks-and-reliability)
+before using them for work that must survive a process failure.
 
 ## Responses, cookies, and streams
 

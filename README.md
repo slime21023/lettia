@@ -68,21 +68,21 @@ Then open `http://127.0.0.1:8000/health` or
 
 ## Architecture at a glance
 
-Lettia is organized around a small set of explicit layers:
+App coordinates three ASGI branches. HTTP request input and response transport
+have separate owners:
 
 ```mermaid
 flowchart TD
     A["Uvicorn / ASGI server"] --> B["App"]
-    B --> C["Router"]
-    B --> D["Middleware chains"]
-    B --> E["Context"]
-    B --> F["ResponseWriter"]
-    C --> G["Route and Group"]
-    D --> H["Recover, CORS, session, limits"]
-    E --> I["Binders and validators"]
-    F --> J["Text, JSON, stream responses"]
-    B --> K["WebSocketContext"]
-    B --> L["Lifespan hooks"]
+    B -->|HTTP| C["Middleware / Router / Handler"]
+    C --> E["Context: request input and state"]
+    C --> R["Response: output representation"]
+    R --> F["ResponseWriter: send and cleanup"]
+    F --> G{"Completion eligible?"}
+    G -->|Yes| T["App: background tasks"]
+    G -->|No| End["End request"]
+    B -->|WebSocket| K["WebSocketContext"]
+    B -->|Lifespan| L["Startup / shutdown hooks"]
 ```
 
 | Layer | Main components | Responsibility |
@@ -96,22 +96,20 @@ The public entry points are re-exported from `lettia`, while optional or
 specialized capabilities live under `lettia.protocols`, `lettia.ext`, and
 `lettia.testing`.
 
+The [layered architecture](docs/architecture.md#responsibility-layers) explains
+how pure rules support independent components, I/O owners, request adapters
+and App coordination. These responsibilities do not require separate class
+hierarchies or a folder for each layer.
+
 ## HTTP request lifecycle
 
-An HTTP request follows this pipeline:
-
-```mermaid
-flowchart LR
-    A["ASGI scope"] --> B["Create Context"]
-    B --> C["Pre-routing middleware"]
-    C --> D["Global middleware"]
-    D --> E["Router.match"]
-    E --> F["Route / group middleware"]
-    F --> G["Sync or async handler"]
-    G --> H["normalize_response"]
-    H --> I["ResponseWriter"]
-    I --> J["Queued background tasks"]
-```
+The order is Context creation → pre-routing middleware → global middleware →
+route matching → route/group middleware → handler. The handler result is
+normalized to a Response and returns through the middleware chain. Writer then
+applies response policies, validates headers, sends the body and closes streams.
+App runs background tasks only when the delivery result permits completion work.
+See the [sequence and ownership diagrams](docs/architecture.md#http-request-lifecycle)
+for receive/send boundaries and error replacement.
 
 `Context` is created before routing so `app.use_pre()` middleware can inspect
 or normalize `ctx.path`. Global middleware wraps dispatch and can therefore
@@ -370,17 +368,19 @@ def test_health() -> None:
     assert response.json() == {"status": "ok"}
 ```
 
-For async tests, use HTTPX directly with `ASGITransport`. The repository uses
-Hypothesis property-based tests with pytest and a 90% statement/branch coverage
-gate, Ruff for linting, and Pyright for
-static type checking:
+For async application HTTP tests, use HTTPX with `ASGITransport`. Real socket
+disconnects and server lifespan are covered separately by Uvicorn/HTTPX smoke
+tests. The repository classifies tests by unit, integration, smoke and
+architecture, with contract IDs and a 90% statement/branch coverage gate:
 
 ```bash
-uv run pytest
-uv run ruff check .
-uv run pyright
-uv run pyrefly check
+uv run python -m pytest
 ```
+
+See [verification commands](docs/testing.md#verification-commands) for Ruff,
+Pyright, strict Pyrefly, public API type coverage, the pinned optional ty check,
+documentation and package validation. The guide distinguishes local checks from
+the configured CI gates.
 
 The benchmark suite measures routing, context allocation, middleware chains,
 typed binding, the full ASGI pipeline, session/rate-limit primitives, and

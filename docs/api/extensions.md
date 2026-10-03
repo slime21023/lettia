@@ -39,6 +39,24 @@ binder calls and `ctx.bind()`.
 Pydantic is imported lazily; applications that use it must install the
 `pydantic` extra.
 
+The request adapter reads a JSON object only for POST, PUT and PATCH, then fills
+missing keys from the first value of each query parameter. Pure model analysis
+and scalar conversion live below that adapter, without request I/O. Binding does
+not include path parameters or form fields.
+
+| Failure | Observable result |
+|---|---|
+| Unsupported attrs/dataclass constructor annotation | Configuration `TypeError` before body binding |
+| Attrs/dataclass scalar conversion or constructor `TypeError` / `ValueError` | HTTP 400 |
+| Pydantic `ValidationError` | HTTP 400 with Pydantic error details |
+| Pydantic validator `TypeError` / `ImportError` | Original exception propagates; App normally renders HTTP 500 |
+| Direct PydanticBinder call without Pydantic installed | Configuration `RuntimeError` |
+
+Direct `PydanticBinder` also supports types via Pydantic's TypeAdapter;
+`ctx.bind()` automatically selects Pydantic only for BaseModel subclasses.
+Unknown-field handling and coercion for Pydantic targets follow that model's
+configuration, not the attrs/dataclass scalar rules.
+
 ```python
 from lettia.protocols import AttrsBinder
 

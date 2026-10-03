@@ -1,5 +1,26 @@
 # Bottom-up migration audit
 
+## Verification status
+
+The sections below are dated verification snapshots, not a claim that every
+later revision passed the same matrix. The implementation verified in
+[Pyrefly and ty verification](#pyrefly-and-ty-verification) was committed as
+`10d2d32` and pushed to `origin/main`. Its latest local Windows / Python 3.12
+suite passed 622 cases with one symlink privilege skip and 95.09% coverage;
+Pyrefly and ty reported zero diagnostics. The optional ty check is not a CI gate.
+
+That run also records an intermittent Hypothesis failure whose focused and full
+reruns passed without changing the test. Its cause remains unestablished.
+Earlier local Windows 3.13/3.14 results belong to the preceding refactor snapshot.
+After push, [CI run 37116113235](https://github.com/slime21023/lettia/actions/runs/37116113235)
+passed for `10d2d32`: all six Ubuntu/Windows × Python 3.12–3.14 quality jobs and
+the package validation job succeeded. This evidence applies to that commit;
+verify a later release revision's own workflow run separately.
+
+Use the [verification commands](testing.md#verification-commands) to reproduce
+checks against the current checkout. Preserve historical counts below when
+adding a new verification record.
+
 ## Baseline and lossless classification
 
 On 2026-10-03, local Windows / Python 3.12.12 validation collected 544 cases

@@ -178,6 +178,12 @@ middleware directly without `App` still returns a decorated response. A policy
 that raises during finalization is omitted from this request's error response;
 other registered policies still apply, and stream resources are closed.
 
+Policy registration is a framework internal. Custom middleware continues to
+return a `Response` through the public middleware interface. The
+[ownership and request diagrams](architecture.md#http-request-lifecycle) show
+where the finalizer runs; the [middleware reference](api/middleware.md#request-work-and-deferred-response-policies)
+defines ordering and failure handling.
+
 ## WebSocket boundary
 
 HTTP middleware is not applied to WebSocket scopes. Authenticate and authorize

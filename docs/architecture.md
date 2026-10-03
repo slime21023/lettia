@@ -43,6 +43,20 @@ or directories. Context spans request adaptation and body ownership; StaticFiles
 keeps path security, metadata, content hashing and file delivery together.
 Router and WebSocket behavior remain in their existing components.
 
+The arrows show the bottom-up responsibility model, not an import graph or a
+requirement to call every intermediate layer. The table above maps each owner
+to its responsibilities.
+
+```mermaid
+flowchart BT
+    Rules["L0 · Pure rules<br/>JSON / headers / conditions / binding"]
+    Components["L1 · Independent components<br/>Response / Router / state / rate window"]
+    IO["L2 · I/O and lifetime<br/>Body reader / Writer / file stream"]
+    Adapters["L3 · Request adaptation<br/>Context / Binder / Middleware / StaticFiles"]
+    App["L4 · App coordination<br/>Dispatch / errors / completion / lifespan"]
+    Rules --> Components --> IO --> Adapters --> App
+```
+
 Response and WebSocket JSON validation share `_json`; neither imports Context
 for that rule. `lettia.context.validate_json_value` remains a compatibility
 entry point. Response mutations and final Writer encoding share `_headers`.
@@ -76,17 +90,40 @@ test mapping and validation evidence.
 ## HTTP request lifecycle
 
 ```mermaid
-flowchart TD
-    A[ASGI scope] --> B[Create Context]
-    B --> C[Pre-routing middleware]
-    C --> D[Global middleware]
-    D --> E[Router match]
-    E --> F[Route middleware]
-    F --> G[Sync or async handler]
-    G --> H[Normalize return value]
-    H --> I[ResponseWriter]
-    I --> J[Queued post-response tasks]
+sequenceDiagram
+    participant Server as ASGI server
+    participant App
+    participant Chain as Route pipeline
+    participant Context
+    participant Writer as ResponseWriter
+    Server->>App: scope, receive, send
+    App->>Context: Create context
+    App->>Chain: Enter middleware
+    Chain->>Chain: Route and invoke handler
+    opt Endpoint reads input
+        Chain->>Context: body / json / bind
+        Context->>Server: receive()
+        Context-->>Chain: Data or model
+    end
+    Chain-->>App: Response
+    App->>Writer: Deliver response
+    Writer->>Context: Finalize policies
+    Writer->>Writer: Validate
+    Writer->>Server: Start then body
+    Writer->>Writer: Clean up
+    Writer-->>App: Completion result
+    opt Eligible for completion work
+        App->>App: Background tasks
+    end
 ```
+
+This diagram shows the normal HTTP path. Routing failures and short-circuiting
+middleware can return a response without invoking an endpoint. Streamed bodies
+are consumed by Writer after the middleware chain has returned.
+The route pipeline comprises pre-routing middleware, global middleware, route
+matching, route/group middleware and the endpoint. Endpoint results are
+normalized before returning through the chain. App passes Writer the response,
+deadline and policy/disconnect callbacks; finalization uses a fresh header copy.
 
 The `Context` exists before pre-routing middleware so a middleware can inspect
 or normalize `ctx.path`. Global middleware wraps dispatch and therefore can
@@ -113,6 +150,50 @@ first after
 
 `app.use_pre()` follows the same nesting rule but surrounds the global chain
 and runs before route matching.
+
+### Resource and state ownership
+
+| Owner | Owns | Collaborates through |
+|---|---|---|
+| Context | Request receive channel, partial/complete body cache, limits, rejection and request state | Managed body APIs; a disconnect callback supplied to Writer |
+| Response | Status, header dictionary, bytes or async body source | Response mutation methods and normalization |
+| Writer | Send attempts, commitment, serialized writes, body completion, iterator cleanup and disconnect coordination | Public `write()`; a private delivery result and read-only replacement query for App |
+| App | Dispatch, error response selection, completion work and lifespan hooks | Component results and methods, never Writer state assignments |
+
+Public `ctx.receive` and `ctx.send` are raw ASGI callables. Application code using
+managed responses should let Context read the request and Writer send the
+response; direct channel use bypasses those lifecycle guarantees. See the
+[Context body contract](api/context.md#body-api) and
+[Writer API](api/response.md#responsewriter).
+
+### Error replacement boundary
+
+```mermaid
+flowchart TD
+    Prepare["Prepare Response and apply policies"] --> Validate{"Pre-send validation succeeds?"}
+    Validate -->|No| Replace["App selects error or fallback response"]
+    Replace --> Prepare
+    Validate -->|Yes| Attempt["Writer records start attempted before calling send"]
+    Attempt --> Send{"Start send returns successfully?"}
+    Send -->|No| Failure["Propagate failure and clean up; never retry start"]
+    Send -->|Yes| Body["Mark committed; send body and clean up"]
+    Body --> Complete{"Eligible for completion work?"}
+    Complete -->|Yes| Tasks["App runs background tasks"]
+    Complete -->|No| End["End request without background tasks"]
+```
+
+Replacement is bounded: App tries the error response and then a basic fallback;
+failure of the fallback propagates. A failing policy is removed before the
+replacement attempt. Once response start is attempted, App cannot replace the
+response even when `send()` fails before returning. `committed` specifically
+means that the start send returned successfully, not merely that it was tried.
+
+Successful normal, error and fallback responses can run background work after
+cleanup. Observed disconnects, cancellation, transport failures, propagated
+source errors and cleanup failures prevent it. Framework stream deadlines may
+finish an already-started response cleanly; unrelated upstream `TimeoutError`
+continues to propagate. See [response deadlines](api/response.md#responsewriter)
+and the [completion regression coverage](testing_audit.md).
 
 ## Return values and errors
 
