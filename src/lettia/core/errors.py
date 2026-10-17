@@ -41,15 +41,19 @@ class HTTPError(Exception):
 class Unauthorized(HTTPError):
     """Raised by a guard when the caller is not authenticated (401)."""
 
-    def __init__(self, detail: str | None = None) -> None:
-        super().__init__(401, "Unauthorized", detail)
+    def __init__(
+        self, detail: str | None = None, *, headers: Mapping[str, str] | None = None
+    ) -> None:
+        super().__init__(401, "Unauthorized", detail, headers=headers)
 
 
 class Forbidden(HTTPError):
     """Raised by a guard when the caller is authenticated but not allowed (403)."""
 
-    def __init__(self, detail: str | None = None) -> None:
-        super().__init__(403, "Forbidden", detail)
+    def __init__(
+        self, detail: str | None = None, *, headers: Mapping[str, str] | None = None
+    ) -> None:
+        super().__init__(403, "Forbidden", detail, headers=headers)
 
 
 class ClientDisconnect(Exception):

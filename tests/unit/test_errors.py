@@ -79,3 +79,13 @@ def test_http_error_carries_problem_extension_members() -> None:
 def test_http_error_extensions_cannot_replace_standard_members(member: str) -> None:
     with pytest.raises(ValueError, match=member):
         HTTPError(400, "x", extensions={member: "nope"})
+
+
+@pytest.mark.parametrize("cls", [Unauthorized, Forbidden])
+def test_guard_errors_accept_response_headers(
+    cls: type[Unauthorized] | type[Forbidden],
+) -> None:
+    err = cls("nope", headers={"www-authenticate": "Bearer"})
+
+    assert err.detail == "nope"
+    assert err.headers == {"www-authenticate": "Bearer"}
