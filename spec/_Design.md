@@ -99,7 +99,7 @@ app.group("/static").get("/*", serve_file)
 - `*` may appear only at the end of a Core route; it matches the rest of the path and its value is stored in `c.path_params["*"]`. Contract routes may not use `*`, because OpenAPI cannot describe it.
 - Matching priority is static > parameter > wildcard, implemented as a radix tree.
 - Paths are matched strictly; trailing slashes are not handled automatically.
-- Matching works on the ASGI `raw_path`: it is split into segments first, and only parameter values are percent-decoded afterwards, so an encoded `%2F` never becomes a segment boundary. When the server omits `raw_path`, the router falls back to the decoded `path`.
+- Matching works on the ASGI `raw_path`: it is split into segments first, and only parameter values are percent-decoded afterwards, so an encoded `%2F` never becomes a segment boundary. When the server omits `raw_path`, the router falls back to the decoded `path`, percent-encoded again so that it is not decoded twice; such a server cannot distinguish an encoded `%2F` from a real `/`.
 - An unknown path returns 404; a known path with the wrong method returns 405 with an `Allow` header; GET routes answer HEAD automatically.
 
 ### Request
@@ -142,7 +142,9 @@ app.group("/static").get("/*", serve_file)
 
 ### Lifecycle
 
-- Through ASGI lifespan: `app.on_startup(fn)` and `app.on_shutdown(fn)`.
+- Through ASGI lifespan: `app.lifespan(context)` for resources that must be released, plus `app.on_startup(fn)` and `app.on_shutdown(fn)` for one-off steps.
+- `context` returns an async context manager (for example a function decorated with `contextlib.asynccontextmanager`). Contexts are entered in registration order before the startup hooks and left in reverse after the shutdown hooks, so shutdown hooks can still use them. When startup fails at any point, only the contexts already entered are left, so a resource that opened is always closed; separate startup and shutdown hooks cannot give that guarantee, because the framework cannot tell which shutdown hook belongs to a startup hook that ran.
+- Shutdown hooks run last registered first, and all of them run even when one fails; the failures are reported together.
 - Startup runs the startup checks first; if any fails, startup is aborted.
 
 ## Contract
