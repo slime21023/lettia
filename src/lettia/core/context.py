@@ -1,5 +1,56 @@
-"""Request context shared by every handler (skeleton: signatures only)."""
+"""Per-request state handed to every handler, with the response helpers."""
+
+from collections.abc import AsyncIterator
+
+import msgspec
+
+from lettia.core.headers import MutableHeaders
+from lettia.core.request import Request
+from lettia.core.response import Response
+
+_encode_json = msgspec.json.Encoder().encode
+
+
+def _typed(status: int, body: bytes | None, media_type: str | None) -> Response:
+    headers = MutableHeaders()
+    if media_type is not None:
+        headers.set("content-type", media_type)
+    return Response(status, body, headers)
 
 
 class Context:
-    """Per-request state. Extended with a principal by :class:`lettia.Context`."""
+    """Request, path parameters and response helpers for one request.
+
+    Extended with a principal by :class:`lettia.Context`.
+    """
+
+    __slots__ = ("path_params", "request")
+
+    def __init__(
+        self, request: Request, path_params: dict[str, str] | None = None
+    ) -> None:
+        self.request = request
+        self.path_params: dict[str, str] = {} if path_params is None else path_params
+
+    def text(self, status: int, text: str) -> Response:
+        return _typed(status, text.encode(), "text/plain; charset=utf-8")
+
+    def json(self, status: int, data: object) -> Response:
+        return _typed(status, _encode_json(data), "application/json")
+
+    def no_content(self) -> Response:
+        return Response(204)
+
+    def stream(
+        self, status: int, chunks: AsyncIterator[bytes], media_type: str
+    ) -> Response:
+        response = _typed(status, None, media_type)
+        response.body = chunks
+        return response
+
+    # Defined last: inside the class body, a method named ``bytes`` would shadow
+    # the builtin type in every annotation that follows it.
+    def bytes(
+        self, status: int, data: bytes, media_type: str = "application/octet-stream"
+    ) -> Response:
+        return _typed(status, data, media_type)
