@@ -1,5 +1,6 @@
 """lettia: a contract-first ASGI framework."""
 
+from lettia.app import App, Group
 from lettia.contract import (
     ApiKeyHeader,
     Body,
@@ -23,11 +24,13 @@ from lettia.contract import (
 from lettia.core import Key, RequestHead
 
 __all__ = [
+    "App",
     "ApiKeyHeader",
     "Body",
     "Context",
     "Cookie",
     "Created",
+    "Group",
     "GuardSpec",
     "Header",
     "HeaderName",
