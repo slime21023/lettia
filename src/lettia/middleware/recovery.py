@@ -35,7 +35,7 @@ def recover(*, debug: bool = False) -> Middleware:
                     logger.error(
                         "unhandled exception on %s %s",
                         c.request.method,
-                        c.request.path,
+                        c.request.loggable_path,
                         exc_info=exc,
                     )
                 return await handle(c, exc)

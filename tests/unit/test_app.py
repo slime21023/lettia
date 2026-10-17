@@ -771,3 +771,21 @@ def test_startup_checks_cannot_be_added_after_the_build() -> None:
 
     with pytest.raises(RuntimeError, match="built"):
         app.add_startup_check(lambda: [])
+
+
+async def test_error_log_uses_the_raw_path_so_encoded_newlines_cannot_forge_lines(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def boom(c: Context) -> Response:
+        raise ValueError("x")
+
+    app = App()
+    app.get("/{x}", boom)
+
+    with caplog.at_level(logging.ERROR, logger="lettia"):
+        async with client(app) as http:
+            await http.get("/%0Aforged ERROR line")
+
+    [record] = [r for r in caplog.records if r.name == "lettia"]
+    assert "\n" not in record.getMessage()
+    assert "/%0Aforged" in record.getMessage()

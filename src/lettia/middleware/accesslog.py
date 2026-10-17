@@ -44,7 +44,7 @@ def _log(logger: logging.Logger, c: Context, status: int, start: float) -> None:
     if not logger.isEnabledFor(logging.INFO):
         return
     request = c.request
-    path = request.raw_path.decode("latin-1")
+    path = request.loggable_path
     duration_ms = (perf_counter() - start) * 1000
     try:
         rid: str | None = RequestId.get(c)

@@ -153,3 +153,16 @@ async def test_recover_does_not_swallow_a_client_disconnect() -> None:
 
     with pytest.raises(ClientDisconnect):
         await recover()(handler)(c)
+
+
+async def test_recover_logs_the_raw_path(caplog: pytest.LogCaptureFixture) -> None:
+    app = App()
+    app.use(recover(), raises(RuntimeError("bug")))
+    app.get("/{x}", ok)
+
+    with caplog.at_level(logging.ERROR, logger="lettia"):
+        async with client(app) as http:
+            await http.get("/%0Aforged")
+
+    assert caplog.records
+    assert all("\n" not in r.getMessage() for r in caplog.records)

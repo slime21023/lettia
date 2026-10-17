@@ -289,7 +289,7 @@ class App(_Routes):
             logger.error(
                 "unhandled exception on %s %s",
                 c.request.method,
-                c.request.path,
+                c.request.loggable_path,
                 exc_info=exc,
             )
         try:

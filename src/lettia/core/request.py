@@ -51,6 +51,12 @@ class RequestHead:
         self._cookies: dict[str, str] | None = None
 
     @property
+    def loggable_path(self) -> str:
+        """The path as it is safe to log: still percent-encoded, so an encoded
+        newline cannot start a forged log line."""
+        return self.raw_path.decode("latin-1")
+
+    @property
     def headers(self) -> Headers:
         if self._headers is None:
             self._headers = Headers(self._raw_headers)
