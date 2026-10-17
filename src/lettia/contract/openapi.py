@@ -170,7 +170,8 @@ class _Builder:
         if body is not None:
             result["requestBody"] = self._request_body(body)
         result["responses"] = self._responses(operation)
-        security = self._security(operation.spec.guard)
+        self._register_schemes(operation.spec.guard)
+        security = _security(operation.spec.guard)
         if security is not None:
             result["security"] = security
 
@@ -253,13 +254,9 @@ class _Builder:
 
     # --- security ---------------------------------------------------------
 
-    def _security(self, guard: GuardSpec[Any]) -> list[dict[str, list[str]]] | None:
+    def _register_schemes(self, guard: GuardSpec[Any]) -> None:
         for leaf in guard.leaves():
             self._register_scheme(leaf)
-        if guard is public:
-            return []
-        alternatives = _alternatives(guard)
-        return None if alternatives == [{}] else alternatives
 
     def _register_scheme(self, leaf: GuardSpec[Any]) -> None:
         if leaf.scheme is None or leaf is public:
@@ -325,6 +322,13 @@ def _can_refuse(guard: GuardSpec[Any]) -> bool:
         return guard is not public
     refusals = [_can_refuse(part) for part in guard.parts]
     return any(refusals) if guard.kind == "and" else all(refusals)
+
+
+def _security(guard: GuardSpec[Any]) -> list[dict[str, list[str]]] | None:
+    if guard is public:
+        return []
+    alternatives = _alternatives(guard)
+    return None if alternatives == [{}] else alternatives
 
 
 def _alternatives(guard: GuardSpec[Any]) -> list[dict[str, list[str]]]:
