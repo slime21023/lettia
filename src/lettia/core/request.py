@@ -1,6 +1,7 @@
 """The HTTP request: a lazily parsed head plus a single-use body."""
 
 from collections.abc import AsyncIterator, Mapping
+from urllib.parse import quote
 
 from lettia.core.cookies import parse_cookies
 from lettia.core.errors import HTTPError
@@ -8,6 +9,19 @@ from lettia.core.headers import Headers, RawHeaders
 from lettia.core.query import QueryParams
 
 DEFAULT_MAX_BODY_SIZE = 5 * 1024 * 1024
+
+# Characters a path segment may contain unencoded (RFC 3986 pchar), plus "/".
+_PATH_SAFE = "/:@!$&'()*+,;=-._~"
+
+
+def _encoded(path: str) -> bytes:
+    """Rebuild a raw path from a decoded one, for servers that send no raw_path.
+
+    The router splits the raw path and then percent-decodes each segment, so the
+    decoded path must be encoded again; an encoded slash that the server already
+    decoded cannot be told apart from a real one.
+    """
+    return quote(path, safe=_PATH_SAFE).encode("ascii")
 
 
 class RequestHead:
@@ -42,7 +56,7 @@ class RequestHead:
     ) -> None:
         self.method = method
         self.path = path
-        self.raw_path = path.encode() if raw_path is None else raw_path
+        self.raw_path = _encoded(path) if raw_path is None else raw_path
         self.client = client
         self._query_string = query_string
         self._raw_headers: RawHeaders = [] if headers is None else headers

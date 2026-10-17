@@ -228,3 +228,18 @@ async def test_request_stream_propagates_client_disconnect() -> None:
 
     with pytest.raises(ClientDisconnect):
         [part async for part in request.stream()]
+
+
+@pytest.mark.parametrize(
+    ("path", "raw"),
+    [
+        ("/items/%41", b"/items/%2541"),
+        ("/items/é", b"/items/%C3%A9"),
+        ("/a b", b"/a%20b"),
+        ("/keep/:@!$&'()*+,;=-._~", b"/keep/:@!$&'()*+,;=-._~"),
+    ],
+)
+def test_request_head_without_raw_path_percent_encodes_the_decoded_path(
+    path: str, raw: bytes
+) -> None:
+    assert RequestHead(method="GET", path=path).raw_path == raw

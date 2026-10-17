@@ -3,6 +3,7 @@ from collections.abc import Awaitable, Callable, MutableMapping
 from typing import Any
 
 import httpx
+import msgspec
 import pytest
 
 from lettia.core import (
@@ -789,3 +790,34 @@ async def test_error_log_uses_the_raw_path_so_encoded_newlines_cannot_forge_line
     [record] = [r for r in caplog.records if r.name == "lettia"]
     assert "\n" not in record.getMessage()
     assert "/%0Aforged" in record.getMessage()
+
+
+@pytest.mark.parametrize(
+    ("path", "expected"), [("/items/%41", "%41"), ("/items/é", "é")]
+)
+async def test_path_parameters_are_decoded_once_when_the_server_sends_no_raw_path(
+    path: str, expected: str
+) -> None:
+    async def echo(c: Context) -> Response:
+        return c.json(200, c.path_params["x"])
+
+    app = App()
+    app.get("/items/{x}", echo)
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    scope: dict[str, Any] = {
+        "type": "http",
+        "method": "GET",
+        "path": path,
+        "query_string": b"",
+        "headers": [],
+    }
+    await app(scope, receive, send)
+
+    assert msgspec.json.decode(sent[1]["body"]) == expected
