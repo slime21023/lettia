@@ -19,33 +19,11 @@ classifiers = [
     "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
 ]
 requires-python = ">=3.12"
-dependencies = [
-    "attrs>=26.1.0",
-]
-
-[project.optional-dependencies]
-pydantic = ["pydantic>=2.0.0"]
-testing = ["httpx>=0.28.1"]
-all = ["pydantic>=2.0.0", "httpx>=0.28.1"]
+dependencies = []
 
 [build-system]
 requires = ["uv_build>=0.9.13,<0.10.0"]
 build-backend = "uv_build"
-
-[dependency-groups]
-dev = [
-    "httpx>=0.28.1",
-    "hypothesis>=6.0.0",
-    "pydantic>=2.0.0",
-    "pyrefly>=1.0.0",
-    "pyright>=1.1.411",
-    "pytest>=9.1.1",
-    "pytest-asyncio>=1.4.0",
-    "pytest-cov>=7.1.0",
-    "ruff>=0.16.0",
-    "uvicorn>=0.52.0",
-    "zensical>=0.0.43",
-]
 
 [tool.ruff]
 line-length = 88
