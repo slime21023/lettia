@@ -4,7 +4,7 @@ from typing import assert_type
 
 import msgspec
 
-from lettia import ApiKeyHeader, GuardSpec, RequestHead, public
+from lettia import ApiKeyHeader, App, GuardSpec, RequestHead, public
 
 
 class User(msgspec.Struct): ...
@@ -30,3 +30,9 @@ async def verify(head: RequestHead) -> User:
 
 
 impl = bearer.use(verify)
+
+
+optional = bearer | public
+assert_type(optional, GuardSpec[User | None])
+
+app = App(guards=[impl])

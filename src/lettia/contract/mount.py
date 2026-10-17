@@ -6,19 +6,25 @@ part in request handling beyond running those closures.
 """
 
 import inspect
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Protocol, cast
 
 from lettia.contract.codec import Codec, MsgspecCodec
+from lettia.contract.context import Context as PrincipalContext
 from lettia.contract.decode import compile_request
 from lettia.contract.encode import compile_responses
-from lettia.contract.guards import public
+from lettia.contract.guard_runtime import compile_guard, missing_implementations
+from lettia.contract.guards import GuardImpl, GuardSpec
 from lettia.contract.introspect import Operation, inspect_contract
 from lettia.contract.op import operation_spec
 from lettia.contract.responses import Reply
 from lettia.core import Context, Handler, Response
 
 _OPERATION_IDS_KEY = "lettia.operation_ids"
+GUARDS_KEY = "lettia.guards"
+"""``App.state`` key under which the guard implementations are stored."""
+
+type GuardRegistry = Mapping[GuardSpec[Any], GuardImpl[Any]]
 
 
 class MountTarget(Protocol):
@@ -51,17 +57,18 @@ def mount(
         return
 
     operation_ids = _operation_ids(target)
+    guards = cast(GuardRegistry, target.state.get(GUARDS_KEY, {}))
     for contract in contracts:
         operations, problems = inspect_contract(contract)
         for problem in problems:
             target.add_startup_problem(problem)
         for operation in operations:
-            problems = _check(operation, implementation, operation_ids)
+            problems = _check(operation, implementation, operation_ids, guards)
             if problems:
                 for problem in problems:
                     target.add_startup_problem(problem)
                 continue
-            handler = _compile(operation, implementation, codec)
+            handler = _compile(operation, implementation, codec, guards)
             target.route(operation.spec.method, operation.spec.path, handler)
 
 
@@ -79,18 +86,20 @@ def _operation_ids(target: MountTarget) -> dict[str, str]:
 
 
 def _check(
-    operation: Operation, implementation: object, operation_ids: dict[str, str]
+    operation: Operation,
+    implementation: object,
+    operation_ids: dict[str, str],
+    guards: GuardRegistry,
 ) -> list[str]:
-    """Startup checks 4 (for now only ``public``), 5 and 6 for one operation."""
+    """Startup checks 4, 5 and 6 for one operation."""
     implementation_type = type(implementation)
     contract_name = f"{operation.contract.__qualname__}.{operation.name}"
     problems: list[str] = []
 
-    guard = operation.spec.guard
-    if guard is not public:
+    for missing in missing_implementations(operation.spec.guard, guards):
         problems.append(
-            f"{contract_name}: guard {guard.name!r} cannot be used yet; "
-            "only the public guard is supported so far"
+            f"{contract_name}: guard {missing.name!r} has no implementation; "
+            "bind one with guard.use(fn) and pass it to App(guards=[...])"
         )
 
     owner = next(c for c in implementation_type.__mro__ if operation.name in vars(c))
@@ -115,7 +124,14 @@ def _check(
     return problems
 
 
-def _compile(operation: Operation, implementation: object, codec: Codec) -> Handler:
+def _compile(
+    operation: Operation,
+    implementation: object,
+    codec: Codec,
+    guards: GuardRegistry,
+) -> Handler:
+    """Chain guard, decode, call and encode into one Core handler."""
+    run_guard = compile_guard(operation.spec.guard, guards)
     decode = compile_request(operation, codec)
     encode = compile_responses(operation, codec)
     call = cast(
@@ -123,14 +139,12 @@ def _compile(operation: Operation, implementation: object, codec: Codec) -> Hand
         getattr(implementation, operation.name),
     )
 
-    if decode is None:
-
-        async def handle_without_request(c: Context) -> Response:
-            return encode(await call(c, None))
-
-        return handle_without_request
-
     async def handle(c: Context) -> Response:
-        return encode(await call(c, await decode(c)))
+        if run_guard is not None:
+            # Guards read only the head, so they run before anything is decoded.
+            with_principal: PrincipalContext[Any] = c  # type: ignore[assignment]
+            with_principal.principal = await run_guard(c.request)
+        request = None if decode is None else await decode(c)
+        return encode(await call(c, request))
 
     return handle

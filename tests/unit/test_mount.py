@@ -172,7 +172,7 @@ def test_mount_reports_malformed_contracts_with_their_location() -> None:
     assert "item_id" in problem
 
 
-def test_mount_reports_guards_other_than_public_until_they_are_supported() -> None:
+def test_mount_reports_a_guard_nobody_implemented() -> None:
     class Admin: ...
 
     class Guarded(Protocol):
@@ -188,8 +188,9 @@ def test_mount_reports_guards_other_than_public_until_they_are_supported() -> No
 
     [problem] = problems_of(app)
 
-    assert "admin" in problem
-    assert "guard" in problem
+    assert "Guarded.admin_only" in problem
+    assert "'admin'" in problem
+    assert "App(guards=" in problem
 
 
 def test_mount_after_the_app_is_built_is_rejected() -> None:
