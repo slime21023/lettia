@@ -61,7 +61,7 @@ venvPath = "."
 venv = ".venv"
 
 [tool.pyrefly]
-project-includes = ["src", "tests"]
+project-includes = ["src", "tests", "benchmarks"]
 project-excludes = [".venv", "build", "dist", "tests/typing/negative"]
 python-version = "3.12"
 preset = "strict"

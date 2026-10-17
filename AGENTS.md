@@ -26,9 +26,10 @@ Use Python 3.12+ and `uv`:
 uv sync --all-extras
 uv run pytest                              # unit, integration and typing tests
 uv run pytest tests/typing -q              # typing tests only
-uv run ruff check src tests && uv run ruff format --check src tests
+uv run ruff check src tests benchmarks && uv run ruff format --check src tests benchmarks
 uv run pyrefly check                       # primary type checker
 uv run pyright && uv run mypy              # compatibility targets
+uv run python benchmarks/run_benchmark.py  # in-process S1 micro-benchmark
 ```
 
 Run `ruff` only on `src`, `tests` and `benchmarks`: ruff also formats code blocks in
