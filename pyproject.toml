@@ -91,3 +91,4 @@ addopts = ["--strict-config", "--strict-markers"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "S105", "S106"]
 "tests/typing/negative/*.py" = ["F401", "I001", "E501"]
+"src/lettia/docs.py" = ["E501"]  # HTML templates
