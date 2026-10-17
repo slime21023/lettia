@@ -13,7 +13,7 @@ unless asked; propose changes instead.
 - `src/lettia/__init__.py`: public entry point re-exporting the common names.
 - `src/lettia/testing/`, `src/lettia/cli/`: test client and `lettia openapi export`.
 - `tests/typing/` (positive and negative fixtures plus snapshots), `tests/unit/`,
-  `tests/integration/`; `benchmarks/` for S1/S2/S3.
+  `tests/integration/`, `tests/architecture/` (layer dependency rules); `benchmarks/` for S1/S2/S3.
 
 Layers depend only downward. Do all parsing of annotations at registration or
 mount time; request-time code only looks things up and calls.
