@@ -1,8 +1,10 @@
 """Typed request-scoped storage."""
 
-from typing import cast
+from typing import Any, cast, overload
 
 from lettia.core.context import Context
+
+_UNSET = object()
 
 
 class Key[T]:
@@ -20,9 +22,15 @@ class Key[T]:
     def set(self, c: Context, value: T) -> None:
         c.state[self] = value
 
-    def get(self, c: Context) -> T:
-        """Return the stored value; raise ``LookupError`` when unset."""
-        try:
-            return cast(T, c.state[self])
-        except KeyError:
-            raise LookupError(f"request value {self.name!r} is not set") from None
+    @overload
+    def get(self, c: Context, /) -> T: ...
+    @overload
+    def get[D](self, c: Context, default: D, /) -> T | D: ...
+    def get(self, c: Context, default: Any = _UNSET, /) -> Any:
+        """Return the stored value or ``default``; raise ``LookupError`` when unset."""
+        value = c.state.get(self, _UNSET)
+        if value is not _UNSET:
+            return cast(T, value)
+        if default is not _UNSET:
+            return default
+        raise LookupError(f"request value {self.name!r} is not set")

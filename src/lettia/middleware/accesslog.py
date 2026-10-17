@@ -46,10 +46,7 @@ def _log(logger: logging.Logger, c: Context, status: int, start: float) -> None:
     request = c.request
     path = request.loggable_path
     duration_ms = (perf_counter() - start) * 1000
-    try:
-        rid: str | None = RequestId.get(c)
-    except LookupError:
-        rid = None
+    rid = RequestId.get(c, None)
     message = f"{request.method} {path} {status} {duration_ms:.2f}ms"
     if rid is not None:
         message += f" request_id={rid}"

@@ -28,6 +28,23 @@ def test_key_get_before_set_raises_lookup_error_naming_the_key() -> None:
         Key[str]("request_id").get(make_context())
 
 
+def test_key_get_with_default_returns_default_when_unset() -> None:
+    key = Key[str]("request_id")
+    c = make_context()
+
+    assert key.get(c, None) is None
+    assert key.get(c, "fallback") == "fallback"
+
+
+def test_key_get_with_default_returns_stored_value_even_when_none() -> None:
+    key = Key[str | None]("maybe")
+    c = make_context()
+
+    key.set(c, None)
+
+    assert key.get(c, "fallback") is None
+
+
 def test_key_set_again_replaces_the_value() -> None:
     key = Key[str]("name")
     c = make_context()

@@ -123,7 +123,7 @@ app.group("/static").get("/*", serve_file)
 ### Context
 
 - Request data: `c.request` is the `Request` described above; the raw path-parameter strings are in `c.path_params`.
-- Request-scoped shared data uses `Key[T]`: `RequestId.set(c, v)` and `RequestId.get(c) -> T`, which raises `LookupError` if unset. The accessors live on the key so that `T` is fixed by the instance.
+- Request-scoped shared data uses `Key[T]`: `RequestId.set(c, v)` and `RequestId.get(c) -> T` (or `RequestId.get(c, default) -> T | D`), which raises `LookupError` if unset and no default is given. The accessors live on the key so that `T` is fixed by the instance.
 - Extension point: `App(context_class=...)`. `lettia.App` uses it to inject `Context[G]`, a subclass of the Core `Context` with an extra `principal: G`, so middleware and `Key[T]` work for both kinds of handler.
 
 ### Middleware
