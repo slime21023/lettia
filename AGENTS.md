@@ -13,7 +13,8 @@ unless asked; propose changes instead.
 - `src/lettia/__init__.py`: public entry point re-exporting the common names.
 - `src/lettia/testing/`, `src/lettia/cli/`: test client and `lettia openapi export`.
 - `tests/typing/` (positive and negative fixtures plus snapshots), `tests/unit/`,
-  `tests/integration/`, `tests/architecture/` (layer dependency rules); `benchmarks/` for S1/S2/S3.
+  `tests/integration/`, `tests/architecture/` (layer dependency rules);
+  `examples/` holds a runnable app and its committed `openapi.json` snapshot; `benchmarks/` for S1/S2/S3.
 
 Layers depend only downward. Do all parsing of annotations at registration or
 mount time; request-time code only looks things up and calls.
@@ -26,13 +27,14 @@ Use Python 3.12+ and `uv`:
 uv sync --all-extras
 uv run pytest                              # unit, integration and typing tests
 uv run pytest tests/typing -q              # typing tests only
-uv run ruff check src tests benchmarks && uv run ruff format --check src tests benchmarks
+uv run ruff check src tests benchmarks examples && uv run ruff format --check src tests benchmarks examples
 uv run pyrefly check                       # primary type checker
 uv run pyright && uv run mypy              # compatibility targets
-uv run python benchmarks/run_benchmark.py  # in-process S1 micro-benchmark
+uv run python benchmarks/run_benchmark.py  # in-process S1/S2/S3 micro-benchmark
+uv run lettia openapi export examples.users_api:app --output examples/openapi.json
 ```
 
-Run `ruff` only on `src`, `tests` and `benchmarks`: ruff also formats code blocks in
+Run `ruff` only on `src`, `tests`, `benchmarks` and `examples`: ruff also formats code blocks in
 Markdown, which rewrites `spec/`.
 
 ## Coding Style & Naming Conventions

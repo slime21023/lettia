@@ -2,6 +2,7 @@ import json
 from typing import Annotated, Any, Protocol
 
 import msgspec
+from openapi_spec_validator import validate
 
 from lettia import (
     ApiKeyHeader,
@@ -588,3 +589,11 @@ def test_the_document_is_plain_json_data() -> None:
     doc = document()
 
     assert json.loads(json.dumps(doc)) == doc
+
+
+def test_the_document_is_valid_openapi_3_1() -> None:
+    validate(document(prefix="/v1"))
+
+
+def test_a_document_with_only_public_operations_is_valid_openapi_3_1() -> None:
+    validate(document(_public_contract()))

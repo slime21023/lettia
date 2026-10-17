@@ -33,8 +33,8 @@ jobs:
 
       - name: Check formatting and lint
         run: |
-          uv run ruff format --check src tests benchmarks
-          uv run ruff check src tests benchmarks
+          uv run ruff format --check src tests benchmarks examples
+          uv run ruff check src tests benchmarks examples
 
       - name: Type check (pyrefly, primary)
         run: uv run pyrefly check
@@ -47,6 +47,11 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+      - name: OpenAPI snapshot is up to date
+        run: |
+          uv run lettia openapi export examples.users_api:app --output examples/openapi.json
+          git diff --exit-code examples/openapi.json
 
   package:
     name: Package validation
