@@ -294,3 +294,32 @@ async def test_asgi_non_http_scope_is_rejected() -> None:
 
     with pytest.raises(NotImplementedError, match="websocket"):
         await asgi_app(ok)({"type": "websocket"}, receive, send)
+
+
+async def test_asgi_builds_contexts_with_the_given_context_class() -> None:
+    class CustomContext(Context):
+        pass
+
+    seen: list[type[Context]] = []
+
+    async def handler(c: Context) -> Response:
+        seen.append(type(c))
+        return Response(204)
+
+    scope: Mapping[str, Any] = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "query_string": b"",
+        "headers": [],
+    }
+
+    async def receive() -> Message:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: Message) -> None:
+        return None
+
+    await asgi_app(handler, context_class=CustomContext)(scope, receive, send)
+
+    assert seen == [CustomContext]

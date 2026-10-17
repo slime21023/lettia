@@ -45,3 +45,21 @@ def test_guard_error_accepts_a_detail() -> None:
 def test_client_disconnect_is_not_an_http_error() -> None:
     assert not issubclass(ClientDisconnect, HTTPError)
     assert issubclass(ClientDisconnect, Exception)
+
+
+def test_http_error_headers_default_to_empty() -> None:
+    assert HTTPError(404, "Not Found").headers == {}
+
+
+def test_http_error_carries_response_headers() -> None:
+    err = HTTPError(405, "Method Not Allowed", headers={"allow": "GET, HEAD"})
+
+    assert err.headers == {"allow": "GET, HEAD"}
+
+
+def test_http_error_headers_are_not_shared_between_instances() -> None:
+    first, second = HTTPError(400, "a"), HTTPError(400, "b")
+
+    first.headers["x"] = "1"
+
+    assert second.headers == {}

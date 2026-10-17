@@ -17,7 +17,10 @@ type ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 
 
 def asgi_app(
-    handler: Handler, *, max_body_size: int | None = DEFAULT_MAX_BODY_SIZE
+    handler: Handler,
+    *,
+    max_body_size: int | None = DEFAULT_MAX_BODY_SIZE,
+    context_class: type[Context] = Context,
 ) -> ASGIApp:
     """Wrap ``handler`` as an ASGI application for HTTP requests.
 
@@ -39,7 +42,7 @@ def asgi_app(
             body=_body_chunks(receive),
             max_body_size=max_body_size,
         )
-        response = await handler(Context(request))
+        response = await handler(context_class(request))
         await _send_response(response, request.method == "HEAD", send)
 
     return app
