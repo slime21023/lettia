@@ -70,34 +70,59 @@ def _compose(middleware: Sequence[Middleware], handler: Handler) -> Handler:
     return handler
 
 
+class _Registry:
+    """What an app and all of its groups share while routes are being registered."""
+
+    def __init__(self) -> None:
+        self.routes: list[_RouteSpec] = []
+        self.problems: list[str] = []
+        self.state: dict[str, object] = {}
+        self.built = False
+
+    def ensure_open(self) -> None:
+        if self.built:
+            raise RuntimeError("the app is already built; register before it starts")
+
+    def register(self, spec: _RouteSpec) -> None:
+        self.ensure_open()
+        self.routes.append(spec)
+
+    def add_problem(self, message: str) -> None:
+        self.ensure_open()
+        self.problems.append(message)
+
+
 class Group(_Routes):
     """Routes under a common prefix, with middleware that applies only to them."""
 
     def __init__(
-        self,
-        register: Callable[[_RouteSpec], None],
-        ensure_open: Callable[[], None],
-        prefix: str,
-        middleware: tuple[Middleware, ...],
+        self, registry: _Registry, prefix: str, middleware: tuple[Middleware, ...]
     ) -> None:
-        self._register = register
-        self._ensure_open = ensure_open
+        self._registry = registry
         self._prefix = prefix
         self._middleware = middleware
 
     def route(self, method: str, path: str, handler: Handler) -> None:
-        self._register(
+        self._registry.register(
             _RouteSpec(method, self._prefix + path, handler, self._middleware)
         )
 
     def group(self, prefix: str, *middleware: Middleware) -> "Group":
-        self._ensure_open()
-        return Group(
-            self._register,
-            self._ensure_open,
+        self._registry.ensure_open()
+        return type(self)(
+            self._registry,
             self._prefix + _check_prefix(prefix),
             (*self._middleware, *middleware),
         )
+
+    @property
+    def state(self) -> dict[str, object]:
+        """Storage shared with the app, for extensions built on top of Core."""
+        return self._registry.state
+
+    def add_startup_problem(self, message: str) -> None:
+        """Record a problem that makes startup fail; ``build`` lists them all."""
+        self._registry.add_problem(message)
 
 
 class App(_Routes):
@@ -108,6 +133,8 @@ class App(_Routes):
     one). Request handling then only looks up a route and calls its prebuilt
     chain: app middleware, group middleware, error conversion, handler.
     """
+
+    _group_class: type[Group] = Group
 
     def __init__(
         self,
@@ -120,7 +147,7 @@ class App(_Routes):
         self._error_handler = error_handler or default_error_handler(debug=debug)
         self._context_class = context_class
         self._max_body_size = max_body_size
-        self._routes: list[_RouteSpec] = []
+        self._registry = _Registry()
         self._middleware: list[Middleware] = []
         self._startup: list[Hook] = []
         self._shutdown: list[Hook] = []
@@ -130,34 +157,33 @@ class App(_Routes):
     # --- registration ---------------------------------------------------
 
     def route(self, method: str, path: str, handler: Handler) -> None:
-        self._register(_RouteSpec(method, path, handler, ()))
+        self._registry.register(_RouteSpec(method, path, handler, ()))
 
     def group(self, prefix: str, *middleware: Middleware) -> Group:
-        self._ensure_open()
-        return Group(
-            self._register, self._ensure_open, _check_prefix(prefix), middleware
-        )
+        self._registry.ensure_open()
+        return self._group_class(self._registry, _check_prefix(prefix), middleware)
+
+    @property
+    def state(self) -> dict[str, object]:
+        """Storage for extensions built on top of Core, shared with all groups."""
+        return self._registry.state
+
+    def add_startup_problem(self, message: str) -> None:
+        """Record a problem that makes startup fail; ``build`` lists them all."""
+        self._registry.add_problem(message)
 
     def use(self, *middleware: Middleware) -> None:
         """Add global middleware; the first one given is the outermost."""
-        self._ensure_open()
+        self._registry.ensure_open()
         self._middleware.extend(middleware)
 
     def on_startup(self, hook: Hook) -> None:
-        self._ensure_open()
+        self._registry.ensure_open()
         self._startup.append(hook)
 
     def on_shutdown(self, hook: Hook) -> None:
-        self._ensure_open()
+        self._registry.ensure_open()
         self._shutdown.append(hook)
-
-    def _register(self, spec: _RouteSpec) -> None:
-        self._ensure_open()
-        self._routes.append(spec)
-
-    def _ensure_open(self) -> None:
-        if self._http is not None:
-            raise RuntimeError("the app is already built; register before it starts")
 
     # --- assembly -------------------------------------------------------
 
@@ -168,12 +194,13 @@ class App(_Routes):
     def _built_http(self) -> ASGIApp:
         if self._http is None:
             self._http = self._assemble()
+            self._registry.built = True
         return self._http
 
     def _assemble(self) -> ASGIApp:
-        problems: list[str] = []
+        problems = list(self._registry.problems)
         router = Router()
-        for spec in self._routes:
+        for spec in self._registry.routes:
             chain = self._chain(spec.middleware, spec.handler)
             try:
                 router.add(spec.method, spec.path, chain)

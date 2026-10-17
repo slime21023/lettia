@@ -19,10 +19,12 @@ def problem_response(
     title: str,
     detail: str | None = None,
     headers: Mapping[str, str] | None = None,
+    extensions: Mapping[str, object] | None = None,
 ) -> Response:
     body: dict[str, object] = {"type": "about:blank", "title": title, "status": status}
     if detail is not None:
         body["detail"] = detail
+    body.update(extensions or {})
     response_headers = MutableHeaders()
     response_headers.set("content-type", "application/problem+json")
     for name, value in (headers or {}).items():
@@ -38,7 +40,9 @@ def default_error_handler(*, debug: bool) -> ErrorHandler:
 
     async def handle(c: Context, exc: Exception) -> Response:
         if isinstance(exc, HTTPError):
-            return problem_response(exc.status, exc.title, exc.detail, exc.headers)
+            return problem_response(
+                exc.status, exc.title, exc.detail, exc.headers, exc.extensions
+            )
         detail = f"{type(exc).__name__}: {exc}" if debug else None
         return problem_response(500, "Internal Server Error", detail)
 

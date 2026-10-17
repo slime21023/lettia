@@ -669,3 +669,56 @@ async def test_non_http_non_lifespan_scope_is_rejected() -> None:
 
     with pytest.raises(NotImplementedError, match="websocket"):
         await app({"type": "websocket"}, receive, send)
+
+
+# --- extension points ---------------------------------------------------
+
+
+async def test_problem_response_includes_extension_members() -> None:
+    async def handler(c: Context) -> Response:
+        raise HTTPError(
+            422, "Unprocessable Entity", "bad", extensions={"errors": [{"path": "$.a"}]}
+        )
+
+    app = App()
+    app.get("/x", handler)
+
+    async with client(app) as http:
+        res = await http.get("/x")
+
+    assert res.json()["errors"] == [{"path": "$.a"}]
+    assert res.json()["status"] == 422
+
+
+def test_startup_problems_reported_by_extensions_are_listed_with_route_problems() -> (
+    None
+):
+    app = App()
+    app.get("no-slash", text("a"))
+    app.add_startup_problem("contract A is broken")
+    app.group("/g").add_startup_problem("contract B is broken")
+
+    with pytest.raises(StartupError) as caught:
+        app.build()
+
+    problems = caught.value.problems
+    assert len(problems) == 3
+    assert "contract A is broken" in problems
+    assert "contract B is broken" in problems
+
+
+def test_startup_problems_cannot_be_added_after_the_app_is_built() -> None:
+    app = App()
+    app.build()
+
+    with pytest.raises(RuntimeError, match="built"):
+        app.add_startup_problem("too late")
+
+
+def test_app_state_is_shared_with_its_groups() -> None:
+    app = App()
+
+    app.state["answer"] = 42
+
+    assert app.group("/g").state is app.state
+    assert app.group("/g").group("/h").state["answer"] == 42

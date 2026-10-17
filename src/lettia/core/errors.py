@@ -3,6 +3,8 @@
 from collections.abc import Mapping
 from typing import override
 
+_STANDARD_MEMBERS = frozenset({"type", "title", "status", "detail"})
+
 
 class HTTPError(Exception):
     """An error with an HTTP status; rendered as RFC 9457 problem+json."""
@@ -14,14 +16,22 @@ class HTTPError(Exception):
         detail: str | None = None,
         *,
         headers: Mapping[str, str] | None = None,
+        extensions: Mapping[str, object] | None = None,
     ) -> None:
         if not 400 <= status <= 599:
             raise ValueError(f"status must be in 400..599, got {status}")
+        for member in _STANDARD_MEMBERS.intersection(extensions or ()):
+            raise ValueError(
+                f"extensions cannot replace the standard member {member!r}"
+            )
         super().__init__(status, title, detail)
         self.status = status
         self.title = title
         self.detail = detail
         self.headers: dict[str, str] = {} if headers is None else dict(headers)
+        self.extensions: dict[str, object] = (
+            {} if extensions is None else dict(extensions)
+        )
 
     @override
     def __str__(self) -> str:

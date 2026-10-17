@@ -63,3 +63,19 @@ def test_http_error_headers_are_not_shared_between_instances() -> None:
     first.headers["x"] = "1"
 
     assert second.headers == {}
+
+
+def test_http_error_extensions_default_to_empty() -> None:
+    assert HTTPError(422, "Unprocessable Entity").extensions == {}
+
+
+def test_http_error_carries_problem_extension_members() -> None:
+    err = HTTPError(422, "x", extensions={"errors": [{"path": "$.a"}]})
+
+    assert err.extensions == {"errors": [{"path": "$.a"}]}
+
+
+@pytest.mark.parametrize("member", ["type", "title", "status", "detail"])
+def test_http_error_extensions_cannot_replace_standard_members(member: str) -> None:
+    with pytest.raises(ValueError, match=member):
+        HTTPError(400, "x", extensions={member: "nope"})
