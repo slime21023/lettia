@@ -143,7 +143,7 @@ class CreateUserReq(msgspec.Struct):
     body: Body[NewUser]
 
 class UserCreated(Created[UserOut], kw_only=True):
-    location: Annotated[str, Header("Location")]
+    location: Annotated[str, HeaderName("Location")]
 
 class UserApi(Protocol):
     @op.get("/users/{user_id}", guard=bearer, tags=["users"])
@@ -190,11 +190,11 @@ app.group("/v1").mount(UserService(repo))
 | `op` | `guard` is required; public endpoints write `guard=public` (`GuardSpec[None]`). The guard's `G` binds `Context[G]`, and a mismatch is an error |
 | Request | A msgspec `Struct`; every field must be marked with its source via `Path[T]`, `Query[T]`, `Header[T]`, `Cookie[T]` or `Body[T]`, with no inference; at most one `Body`; write `None` when there are no parameters |
 | Response | Generic status classes such as `Ok[T]`, `Created[T]`, `NoContent`, `NotFound[T]`, all msgspec `Struct`s; `body` can be passed positionally; 401 / 403 and 422 are added automatically |
-| Response headers and content type | A subclass adds `Annotated[str, Header("...")]` fields with `kw_only=True`, and omitting one is a type error; the content type is set with the subclass's `media_type: ClassVar[str]` |
+| Response headers and content type | A subclass adds `Annotated[str, HeaderName("...")]` fields with `kw_only=True`, and omitting one is a type error; the content type is set with the subclass's `media_type: ClassVar[str]` |
 | Mounting | The implementation class inherits the contract; `mount(impl)` walks the MRO to find the contract and reads annotations from it; one implementation may implement several contracts |
 | Implementation annotations | Implementation methods must be fully annotated; pyrefly does not infer parameter types from the base class |
 
-Sources are always marked explicitly rather than inferred. If they were inferred from the path template, renaming `{user_id}` would silently turn that field into a query parameter, changing the contract without any error. `Path[T]` and the other markers are type aliases of the form `type Path[T] = Annotated[T, ...]`; checkers treat them as `T`, and the framework recognizes the source with `get_origin(hint) is Path`. For a custom header name, use the long form `Annotated[str, Header("X-Custom")]`.
+Sources are always marked explicitly rather than inferred. If they were inferred from the path template, renaming `{user_id}` would silently turn that field into a query parameter, changing the contract without any error. `Path[T]` and the other markers are type aliases of the form `type Path[T] = Annotated[T, ...]`; checkers treat them as `T`, and the framework recognizes the source with `get_origin(hint) is Path`. For a custom header name, use the long form `Annotated[str, HeaderName("X-Custom")]`. The name is `HeaderName`, not `Header`, because a `type` alias cannot be called: `Header("X-Custom")` is rejected at runtime and by all three checkers, so `Header` is reserved for the alias `Header[T]`.
 
 ## Guard
 
@@ -219,6 +219,8 @@ app = App(guards=[
 | `bearer \| apikey` | `GuardSpec[User \| ApiKey]` | Tried in order; the first success wins | `[{bearer: []}, {apikey: []}]` |
 | `bearer & admin` | `GuardSpec[tuple[User, Admin]]` | Run in order; any failure aborts | `[{bearer: []}]`; guards without a scheme are omitted |
 | `public` | `GuardSpec[None]` | Not run | `[]` |
+
+- **Chained `&`**: `&` is left-associative, so `a & b & c` is `GuardSpec[tuple[tuple[A, B], C]]` and the context principal is nested the same way. Group guards explicitly (`a & (b & c)`) when a flat shape is wanted.
 
 - **Implementation type**: `fn` is a `Callable[[RequestHead], Awaitable[G]]`, with `G` fixed by the spec instance; a mismatched return type is reported.
 - **Failure**: raise `Unauthorized` (401) or `Forbidden` (403). When every branch of `|` fails, the response is 403 if any of them raised `Forbidden`.
@@ -260,7 +262,7 @@ Validation happens in two places only: at startup, the contract structure is che
 If any check fails, startup is refused and all problems are listed.
 
 1. Each `{name}` in a path template corresponds one-to-one to a `Path` field, and contract routes contain no `*`.
-2. Every request field has a source marker and there is at most one `Body`; GET, HEAD and DELETE may not have a body.
+2. The request type is a `Struct` or `None`, every request field has a source marker and there is at most one `Body`; GET, HEAD and DELETE may not have a body.
 3. Status codes in a response union are unique.
 4. Every `GuardSpec` used by a contract has an implementation.
 5. The implementation class overrides every method of the contract.
@@ -336,6 +338,12 @@ Tested on 2026-10-17 with pyrefly 1.4.0, pyright 1.1.414, mypy 2.3.1 (strict) an
 | Generic function `set[T](key: Key[T], value: T)` given a wrong type | Depends on declaration style | Missed | Missed | Not tested |
 | Generic function `provide[G](spec, fn)` given a wrong implementation | Missed | Missed | Error | Not tested |
 | Methods on the instance: `key.set(c, v)`, `spec.use(fn)` | Error | Error | Error | Not tested |
+| Contract method returns a type that is not a response class | Error | Error | Error | Not tested |
+| Request type is not a `Struct` or `None` (`req: int`) | Missed | Error | Error | Not tested |
+| Omitting a `kw_only` response header field | Error | Error | Error | Not tested |
+| Calling a `type` alias such as `Header("X")` | Error | Error | Error | Not tested |
+
+The last four rows were added in M0 with pyrefly 1.4.0, pyright 1.1.414 and mypy 2.4.0 (strict), and are reproduced by the fixtures in `tests/typing/`, which also run on Python 3.12–3.14. The `req: int` case is not caught by pyrefly, which does not check TypeVar bounds in callable parameter position; startup check 2 covers it at startup.
 
 ## Technology choices
 
