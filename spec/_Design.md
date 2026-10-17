@@ -271,7 +271,7 @@ Validation happens in two places only: at startup, the contract structure is che
 - **Decoding**: decoders are compiled from the request `Struct` at mount time. Path, query, header and cookie values arrive as strings and are converted in one lenient msgspec call (`"42"` to `42`, `"true"` to `True`); the JSON body is decoded strictly, so `"5"` is not accepted for an `int`. A scalar field takes the first value of a repeated query parameter or header, a list-like field takes all of them. In 0.1, query supports only `style: form, explode: true`.
 - **Failures**: an invalid value returns 422 problem+json whose `errors` member lists where it went wrong, for example `{"in": "body", "path": "$.body.name", "message": "..."}`; `path` is prefixed with the source (`$.path.user_id`, `$.query.expand`, `$.header.x-token`). A body that is not valid JSON is also a 422. Decoding stops at the first error.
 - **Request body**: it is read only when the request type has a `Body` field. A body whose `Content-Type` is not `application/json` (or `+json`) is a 415; a missing `Content-Type` is accepted. An empty body uses the field's default, or `None` when the type allows it, and is otherwise a 422. Size limits are described under Request.
-- **Encoding**: pre-built msgspec encoders are chosen by the response class's `status` and body type. With `App(debug=True)`, the returned value is additionally checked against the declared union.
+- **Encoding**: pre-built msgspec encoders are chosen by the response class's `status` and body type. A response class the contract does not declare is a `RuntimeError` (a 500) in every mode. With `App(debug=True)`, the JSON body the client would receive is also decoded strictly against the declared body type, so a handler that returns the right class with the wrong content fails loudly; a body that merely has the same JSON shape passes.
 - **Codec extension point**: the internal `Codec` protocol has only three operations (build a decoder, build an encoder, produce a JSON Schema); 0.1 implements only msgspec.
 
 ### Startup checks
@@ -301,8 +301,15 @@ The OpenAPI 3.1 document is derived entirely from the mounted contracts. The out
 | `security` | The guard composition |
 | `components.schemas` | `msgspec.json.schema_components` |
 
-- **Determinism**: paths, methods and schemas are all sorted in a fixed order; the same name for different types is an error at startup.
-- **Export**: `lettia openapi export app:app --format yaml` exports the document only. CI compares the snapshot with `git diff --exit-code`, so any contract change necessarily appears in the PR.
+- **Application options**: `lettia.App(title=..., version=..., description=...)` fills `info`; `openapi_url` (default `/openapi.json`, `None` to turn it off) is where the document is served, and `app.openapi()` returns a copy of it.
+- **When it is derived**: once, as a startup check, so its problems are listed with all the others. The group prefix is part of every path, and the endpoint itself is not documented.
+- **Parameters**: ordered by location (path, query, header, cookie) and then by name; header parameters use their wire name. An optional parameter carries its default in its schema.
+- **Request body**: `required` is false when the field has a default or its type allows `None`.
+- **Automatic responses**: 401 and 403 are added when the guard can refuse (not for `public`, and not for `bearer | public`), and 422 when the request has any field to decode; all three use `application/problem+json` (`ProblemDetails`, and `ValidationProblem` for 422). A status the operation already declares is never replaced. The schema names `ProblemDetails`, `ValidationProblem` and `ValidationIssue` are therefore taken.
+- **Status wording**: the response `description` comes from a table in lettia, not from the standard library, whose wording differs between Python versions and would make exports differ.
+- **Security**: `a | b` lists alternatives, `a & b` requires all of its schemes in one requirement object, `public` is `[]`, and `a | public` adds an empty requirement `{}` (anonymous callers allowed). Guards without a scheme are left out; an operation whose guards have no scheme at all declares no `security`. Two guards that share a name but have different schemes are a startup problem.
+- **Determinism**: paths, methods, parameters, responses and schemas are all emitted in a fixed order that does not depend on the order in which contracts were mounted; the same name for different types is an error at startup.
+- **Export**: `lettia openapi export module:attribute [--format json|yaml] [--output FILE]` (also `python -m lettia`) writes the document only: indented JSON by default, YAML with the optional `lettia[yaml]` extra (PyYAML), always with Unix line endings. It exits 1 and lists the problems when the application cannot start, and 2 for a bad reference. CI compares the snapshot with `git diff --exit-code`, so any contract change necessarily appears in the PR; `examples/openapi.json` is that snapshot for the shipped example.
 - **Docs UI**: the core serves only `/openapi.json`; `lettia[docs]` loads Scalar or Swagger UI from a CDN.
 - **Escape hatch**: `op(..., openapi_extra={...})` shallow-merges arbitrary fields, and may not override `parameters`, `requestBody` or `responses`.
 
