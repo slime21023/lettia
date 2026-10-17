@@ -2,7 +2,7 @@
 
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass
 
 from lettia.core.asgi import ASGIApp, Message, Receive, Scope, Send, asgi_app
@@ -15,6 +15,7 @@ from lettia.core.response import Response
 from lettia.core.router import Matched, MethodNotAllowed, Router
 
 type Hook = Callable[[], Awaitable[None]]
+type StartupCheck = Callable[[], Iterable[str]]
 
 logger = logging.getLogger("lettia")
 
@@ -73,9 +74,11 @@ def _compose(middleware: Sequence[Middleware], handler: Handler) -> Handler:
 class _Registry:
     """What an app and all of its groups share while routes are being registered."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, debug: bool) -> None:
+        self.debug = debug
         self.routes: list[_RouteSpec] = []
         self.problems: list[str] = []
+        self.checks: list[StartupCheck] = []
         self.state: dict[str, object] = {}
         self.built = False
 
@@ -90,6 +93,10 @@ class _Registry:
     def add_problem(self, message: str) -> None:
         self.ensure_open()
         self.problems.append(message)
+
+    def add_check(self, check: StartupCheck) -> None:
+        self.ensure_open()
+        self.checks.append(check)
 
 
 class Group(_Routes):
@@ -116,6 +123,15 @@ class Group(_Routes):
         )
 
     @property
+    def prefix(self) -> str:
+        """The path prefix every route of this group is registered under."""
+        return self._prefix
+
+    @property
+    def debug(self) -> bool:
+        return self._registry.debug
+
+    @property
     def state(self) -> dict[str, object]:
         """Storage shared with the app, for extensions built on top of Core."""
         return self._registry.state
@@ -123,6 +139,10 @@ class Group(_Routes):
     def add_startup_problem(self, message: str) -> None:
         """Record a problem that makes startup fail; ``build`` lists them all."""
         self._registry.add_problem(message)
+
+    def add_startup_check(self, check: StartupCheck) -> None:
+        """Run ``check`` when the app is built; it returns the problems it finds."""
+        self._registry.add_check(check)
 
 
 class App(_Routes):
@@ -147,7 +167,7 @@ class App(_Routes):
         self._error_handler = error_handler or default_error_handler(debug=debug)
         self._context_class = context_class
         self._max_body_size = max_body_size
-        self._registry = _Registry()
+        self._registry = _Registry(debug=debug)
         self._middleware: list[Middleware] = []
         self._startup: list[Hook] = []
         self._shutdown: list[Hook] = []
@@ -164,6 +184,14 @@ class App(_Routes):
         return self._group_class(self._registry, _check_prefix(prefix), middleware)
 
     @property
+    def prefix(self) -> str:
+        return ""
+
+    @property
+    def debug(self) -> bool:
+        return self._registry.debug
+
+    @property
     def state(self) -> dict[str, object]:
         """Storage for extensions built on top of Core, shared with all groups."""
         return self._registry.state
@@ -171,6 +199,10 @@ class App(_Routes):
     def add_startup_problem(self, message: str) -> None:
         """Record a problem that makes startup fail; ``build`` lists them all."""
         self._registry.add_problem(message)
+
+    def add_startup_check(self, check: StartupCheck) -> None:
+        """Run ``check`` when the app is built; it returns the problems it finds."""
+        self._registry.add_check(check)
 
     def use(self, *middleware: Middleware) -> None:
         """Add global middleware; the first one given is the outermost."""
@@ -199,6 +231,8 @@ class App(_Routes):
 
     def _assemble(self) -> ASGIApp:
         problems = list(self._registry.problems)
+        for check in self._registry.checks:
+            problems.extend(check())
         router = Router()
         for spec in self._registry.routes:
             chain = self._chain(spec.middleware, spec.handler)

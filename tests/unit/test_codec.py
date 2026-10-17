@@ -117,11 +117,24 @@ def test_encoder_produces_compact_json_bytes() -> None:
 
 
 def test_json_schema_returns_one_schema_per_type_and_shared_components() -> None:
-    schemas, components = codec.json_schema([NewUser, list[NewUser]])
+    schemas, components = codec.json_schema(
+        [NewUser, list[NewUser]], ref_template="#/components/schemas/{name}"
+    )
 
-    assert schemas[0] == {"$ref": "#/$defs/NewUser"}
-    assert schemas[1] == {"type": "array", "items": {"$ref": "#/$defs/NewUser"}}
+    assert schemas[0] == {"$ref": "#/components/schemas/NewUser"}
+    assert schemas[1] == {
+        "type": "array",
+        "items": {"$ref": "#/components/schemas/NewUser"},
+    }
     assert components["NewUser"]["required"] == ["name"]
+
+
+def test_json_schema_reports_two_types_with_the_same_name_as_a_codec_error() -> None:
+    first = msgspec.defstruct("Clash", [("id", int)])
+    second = msgspec.defstruct("Clash", [("id", str)])
+
+    with pytest.raises(CodecError, match="Clash"):
+        codec.json_schema([first, second], ref_template="#/components/schemas/{name}")
 
 
 def test_codec_error_str_includes_path_and_message() -> None:

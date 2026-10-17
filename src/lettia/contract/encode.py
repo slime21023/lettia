@@ -30,8 +30,8 @@ def _plan(shape: ResponseShape) -> _Plan:
         json_body=media == "application/json" or media.endswith("+json"),
         content_type=(b"content-type", shape.media_type.encode("latin-1")),
         header_fields=tuple(
-            (attribute, MutableHeaders.validated_name(wire))
-            for attribute, wire in shape.headers
+            (header.attribute, MutableHeaders.validated_name(header.wire_name))
+            for header in shape.headers
         ),
     )
 

@@ -36,9 +36,13 @@ class Codec(Protocol):
         ...
 
     def json_schema(
-        self, types: Sequence[Any]
+        self, types: Sequence[Any], *, ref_template: str
     ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
-        """One schema (usually a ``$ref``) per type, and the shared components."""
+        """One schema (usually a ``$ref``) per type, and the shared components.
+
+        ``ref_template`` formats a component name into its ``$ref``; raises
+        :class:`CodecError` when two different types would share a name.
+        """
         ...
 
 
@@ -81,7 +85,17 @@ class MsgspecCodec:
         return msgspec.json.Encoder().encode
 
     def json_schema(
-        self, types: Sequence[Any]
+        self, types: Sequence[Any], *, ref_template: str
     ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
-        schemas, components = msgspec.json.schema_components(types)
+        try:
+            schemas, components = msgspec.json.schema_components(
+                types, ref_template=ref_template
+            )
+        except KeyError as exc:
+            clashing = exc.args[0] if exc.args else None
+            name = getattr(clashing, "__name__", repr(clashing))
+            raise CodecError(
+                f"another schema is also named {name!r}; rename one of the types",
+                "$",
+            ) from None
         return list(schemas), components

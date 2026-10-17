@@ -114,6 +114,54 @@ def test_inspect_keeps_the_spec_and_the_docstring() -> None:
     assert get_user.contract is UserApi
 
 
+def test_inspect_response_headers_know_their_type_and_whether_they_may_be_absent() -> (
+    None
+):
+    class WithOptional(Ok[int]):
+        etag: Annotated[str | None, HeaderName("ETag")] = None
+        retries: Annotated[int, HeaderName("X-Retries")] = 0
+
+    api = protocol(
+        optional=op.get("/o", guard=public)(annotated_returning(WithOptional))
+    )
+
+    [operation], problems = inspect_contract(api)
+
+    assert problems == []
+    etag, retries = operation.responses[0].headers
+    assert (etag.wire_name, etag.type, etag.required) == ("ETag", str, False)
+    assert (retries.wire_name, retries.type, retries.required) == (
+        "X-Retries",
+        int,
+        True,
+    )
+
+
+def test_inspect_request_fields_know_their_default_and_nullability() -> None:
+    fields = {
+        f.name: f for f in by_name(inspect_contract(UserApi)[0])["get_user"].fields
+    }
+    body = by_name(inspect_contract(UserApi)[0])["create_user"].fields[0]
+
+    assert fields["user_id"].default is msgspec.NODEFAULT
+    assert fields["expand"].default is False
+    assert fields["tags"].default is msgspec.NODEFAULT  # a factory, not a value
+    assert not fields["expand"].nullable
+    assert not body.nullable
+
+
+def test_inspect_marks_a_none_accepting_field_as_nullable() -> None:
+    class Optional(msgspec.Struct):
+        body: Body[NewUser | None] = None
+
+    api = protocol(optional=op.post("/o", guard=public)(annotated(Optional, Ok[int])))
+
+    [operation], problems = inspect_contract(api)
+
+    assert problems == []
+    assert operation.fields[0].nullable
+
+
 def test_inspect_describes_request_fields_by_source() -> None:
     fields = {
         f.name: f for f in by_name(inspect_contract(UserApi)[0])["get_user"].fields
@@ -123,7 +171,7 @@ def test_inspect_describes_request_fields_by_source() -> None:
         "user_id", "path", int, "user_id", True, False
     )
     assert fields["expand"] == RequestField(
-        "expand", "query", bool, "expand", False, False
+        "expand", "query", bool, "expand", False, False, default=False
     )
     assert fields["tags"] == RequestField(
         "tags", "query", list[int], "tags", False, True
@@ -181,7 +229,9 @@ def test_inspect_response_subclass_with_headers_and_a_resolved_body_type() -> No
     assert response.cls is UserCreated
     assert response.status == 201
     assert response.body_type is UserOut
-    assert response.headers == (("location", "Location"),)
+    assert [
+        (h.attribute, h.wire_name, h.type, h.required) for h in response.headers
+    ] == [("location", "Location", str, True)]
 
 
 def test_inspect_response_media_type_comes_from_the_class() -> None:
@@ -370,6 +420,10 @@ def test_inspect_keeps_valid_operations_when_a_sibling_is_malformed() -> None:
     assert [o.name for o in operations] == ["good"]
     assert len(problems) == 1
     assert problems[0].startswith("Api.bad:")
+
+
+def annotated_returning(response: object) -> Callable[..., Any]:
+    return annotated(None, response)
 
 
 def ok_handler_annotated() -> Callable[..., Any]:

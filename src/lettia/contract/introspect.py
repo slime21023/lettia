@@ -51,6 +51,18 @@ class RequestField:
     wire_name: str
     required: bool
     multi: bool
+    default: Any = msgspec.NODEFAULT
+    nullable: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ResponseHeader:
+    """A response header taken from an ``Annotated[..., HeaderName(...)]`` field."""
+
+    attribute: str
+    wire_name: str
+    type: Any
+    required: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +73,7 @@ class ResponseShape:
     status: int
     media_type: str
     body_type: Any | None
-    headers: tuple[tuple[str, str], ...]
+    headers: tuple[ResponseHeader, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,13 +188,23 @@ def _fields(
             inner, wire_name = _header_name(inner, info.name)
         try:
             multi = _is_multi_valued(inner)
+            nullable = _is_nullable(inner)
         except TypeError as exc:
             problems.append(
                 f"field {info.name!r} has a type msgspec cannot handle: {exc}"
             )
             continue
         fields.append(
-            RequestField(info.name, source, inner, wire_name, info.required, multi)
+            RequestField(
+                info.name,
+                source,
+                inner,
+                wire_name,
+                info.required,
+                multi,
+                default=info.default,
+                nullable=nullable,
+            )
         )
     return fields
 
@@ -220,6 +242,15 @@ def _is_multi_valued(tp: Any) -> bool:
         return False
 
     return check(mi.type_info(tp))
+
+
+def _is_nullable(tp: Any) -> bool:
+    info = mi.type_info(tp)
+    if isinstance(info, mi.NoneType):
+        return True
+    return isinstance(info, mi.UnionType) and any(
+        isinstance(member, mi.NoneType) for member in info.types
+    )
 
 
 def _check_path_fields(
@@ -287,7 +318,7 @@ def _shape(member: Any, problems: list[str]) -> ResponseShape | None:
         return None
 
     body_type: Any | None = None
-    headers: list[tuple[str, str]] = []
+    headers: list[ResponseHeader] = []
     ok = True
     for info in msgspec.structs.fields(member):
         if info.name == "body":
@@ -298,24 +329,37 @@ def _shape(member: Any, problems: list[str]) -> ResponseShape | None:
                 )
                 ok = False
             continue
-        wire = _response_header_name(info.type)
-        if wire is None:
+        header = _response_header(info.name, info.type)
+        if header is None:
             problems.append(
                 f"response field {info.name!r} of {base.__name__} must be 'body' "
                 "or an Annotated[str, HeaderName(...)] header"
             )
             ok = False
         else:
-            headers.append((info.name, wire))
+            headers.append(header)
     if not ok:
         return None
     return ResponseShape(base, base.status, base.media_type, body_type, tuple(headers))
 
 
-def _response_header_name(hint: Any) -> str | None:
+def _response_header(attribute: str, hint: Any) -> ResponseHeader | None:
     if get_origin(hint) is not Annotated:
         return None
-    for item in get_args(hint)[1:]:
+    base, *metadata = get_args(hint)
+    for item in metadata:
         if isinstance(item, HeaderName):
-            return item.name
+            required = not _is_nullable(base)
+            return ResponseHeader(attribute, item.name, _without_none(base), required)
     return None
+
+
+def _without_none(tp: Any) -> Any:
+    """``str | None`` becomes ``str``; any other type is returned as is."""
+    if get_origin(tp) not in (Union, types.UnionType):
+        return tp
+    rest = tuple(member for member in get_args(tp) if member is not type(None))
+    joined = rest[0]
+    for member in rest[1:]:
+        joined = joined | member
+    return joined

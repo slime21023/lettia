@@ -722,3 +722,52 @@ def test_app_state_is_shared_with_its_groups() -> None:
 
     assert app.group("/g").state is app.state
     assert app.group("/g").group("/h").state["answer"] == 42
+
+
+# --- information for extensions ----------------------------------------
+
+
+def test_app_and_groups_expose_their_path_prefix() -> None:
+    app = App()
+
+    assert app.prefix == ""
+    assert app.group("/v1").prefix == "/v1"
+    assert app.group("/v1").group("/admin").prefix == "/v1/admin"
+
+
+def test_app_and_groups_expose_the_debug_flag() -> None:
+    assert App().debug is False
+    assert App(debug=True).debug is True
+    assert App(debug=True).group("/g").debug is True
+
+
+def test_startup_checks_run_at_build_and_their_problems_are_listed() -> None:
+    runs: list[str] = []
+    app = App()
+    app.add_startup_check(lambda: runs.append("a") or ["problem from a"])
+    app.group("/g").add_startup_check(lambda: runs.append("b") or [])
+    app.get("no-slash", text("x"))
+
+    with pytest.raises(StartupError) as caught:
+        app.build()
+
+    assert runs == ["a", "b"]
+    assert "problem from a" in caught.value.problems
+    assert len(caught.value.problems) == 2
+
+
+def test_startup_checks_see_everything_registered_before_the_build() -> None:
+    app = App()
+    seen: list[str] = []
+    app.add_startup_check(lambda: [] if seen == ["late"] else ["not yet"])
+    seen.append("late")  # after the check was added, before the build
+
+    app.build()
+
+
+def test_startup_checks_cannot_be_added_after_the_build() -> None:
+    app = App()
+    app.build()
+
+    with pytest.raises(RuntimeError, match="built"):
+        app.add_startup_check(lambda: [])

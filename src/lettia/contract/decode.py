@@ -11,7 +11,6 @@ from functools import lru_cache
 from typing import Any
 
 import msgspec
-import msgspec.inspect as mi
 
 from lettia.contract.codec import Codec, CodecError
 from lettia.contract.introspect import Operation, RequestField
@@ -121,14 +120,13 @@ def _body_reader(
     body: RequestField, codec: Codec
 ) -> Callable[[Context], Awaitable[object]]:
     decode_json = codec.build_decoder(body.type, json=True)
-    allows_none = _allows_none(body.type)
 
     async def read(c: Context) -> object:
         data = await c.request.body()
         if not data:
             if not body.required:
                 return _ABSENT  # the request type's default applies
-            if allows_none:
+            if body.nullable:
                 return None
             raise _invalid("body", CodecError("the request body is required", "$"))
         content_type = c.request.headers.get("content-type")
@@ -144,15 +142,6 @@ def _body_reader(
             raise _invalid("body", exc) from None
 
     return read
-
-
-def _allows_none(tp: Any) -> bool:
-    info = mi.type_info(tp)
-    if isinstance(info, mi.NoneType):
-        return True
-    return isinstance(info, mi.UnionType) and any(
-        isinstance(member, mi.NoneType) for member in info.types
-    )
 
 
 @lru_cache(maxsize=64)
