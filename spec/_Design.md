@@ -1,0 +1,359 @@
+# lettia: Contract-first ASGI Framework Design Document
+
+Oct 17, 2026 · @Kevin Chueh
+
+lettia is a lightweight ASGI framework built on the skeleton of Go's Echo. The API contract is written as a Python `Protocol` and is the single source of truth; implementation classes inherit the contract; OpenAPI 3.1 is derived from it; and pyrefly reports any deviation at edit time. There is no codegen anywhere. This document is the final design for version 0.1.
+
+## Background and positioning
+
+Echo has no OpenAPI support of its own, and each fix in the Go ecosystem has a cost: [oapi-codegen](https://github.com/oapi-codegen/oapi-codegen) depends on codegen; [swag](https://github.com/swaggo/swag) describes types in string comments, which drift from the code; [huma](https://github.com/danielgtaylor/huma) is code-first, binding the contract and the implementation into a single registration call. The root cause is that Go lacks method-level metadata and union types.
+
+Python has `Protocol`, decorators, `X | Y` and `Annotated`, so the language itself can deliver "contract separate from implementation, plus type guarantees". This combination has no counterpart in Go or in existing Python frameworks: FastAPI and Litestar are code-first, and connexion is spec-first but gives handlers no type guarantees.
+
+## Goals
+
+The three goals are listed in priority order; when they conflict, the earlier one wins.
+
+1. **Contract-first**: the contract is a standalone interface that can be reviewed before any implementation exists; deviations are reported at edit time.
+2. **Guard**: authorization belongs to the contract. A guard determines the handler's `Context[G]` and is emitted as OpenAPI `security`.
+3. **Validation**: validate only at the boundary, when decoding; leave everything else to types and startup checks.
+
+The shared constraint is **lightweight**: the only runtime dependency is msgspec, and the Core layer can be used without the contract layer.
+
+| Goal | Success criterion |
+| --- | --- |
+| Contract-first | A missing implementation, a signature mismatch, a guard / `Context` mismatch, and a return of an undeclared response are all reported by pyrefly at edit time |
+| Contract-first | Two exports of the same contract produce byte-identical `openapi.json` |
+| Guard | The types of `\|` and `&` compositions are inferred correctly; startup is refused when a guard implementation is missing |
+| Validation | No annotation introspection at request time |
+| Lightweight | Core-layer tests do not import the contract module |
+| Performance | S1 and S2 throughput is at least that of Starlette; S3 overhead is ≤ 25% against an equivalent hand-written Core handler |
+
+Performance scenarios: S1 is a static route returning plain text; S2 is a path parameter with a JSON response; S3 is the full contract path (guard, body decoding, JSON response). All are measured on a single uvicorn worker, using relative targets to factor out hardware differences.
+
+## Non-goals (0.1)
+
+| Item | Reason |
+| --- | --- |
+| Any form of codegen or external spec import | The single source of truth is the Python contract |
+| OpenAPI 3.0, Swagger 2.0 | Aligned with JSON Schema 2020-12 only |
+| pydantic | A Codec extension point is kept; not implemented in 0.1 |
+| trio / anyio, sync handlers | asyncio and `async def` only |
+| DI container, `Depends`-style mechanisms | Dependencies belong to the implementation, not the contract; provided by the extension lettia-di |
+| Content negotiation on the same status code (by `Accept`) | Each status code maps to exactly one response class |
+| Typed SSE | Added in 0.2 as the response type `EventStream[T]`; in 0.1 use Core's `c.stream()` |
+| WebSocket | Bidirectional messages do not fit the "request → response union" contract shape and OpenAPI cannot describe them; to be designed separately |
+| Client SDK generation, templates, ORM, sessions | Not the business of a low-level framework |
+
+## Design principles
+
+The order is the priority; use it to settle design disputes.
+
+1. **The earlier the error, the better**: edit time beats startup, and startup beats request time.
+2. **Lower layers do not know upper layers**: every layer can be tested and used on its own.
+3. **Do all the work at registration time**: at request time, only look things up and call.
+4. **Types are the contract**: anywhere a type is expressed as a string, it will drift, so escape hatches are kept to a minimum.
+5. **Explicit over magic**: the handler signature is fixed; nothing is injected by name or by type.
+6. **Use only forms every checker understands**: the public API uses only forms that pyrefly, pyright and mypy all check correctly.
+
+## Architecture
+
+The three layers depend only downward: Core does not know the contract. The contract layer reads the `Protocol` only at `mount` time and compiles it into closures handed to Core; it is not involved at request time.
+
+&#91;embedded content: three layers · dependencies point only downward\]
+
+Request-time flow: Router match → middleware chain → guard → decode and validate → handler → encode. Routes registered directly on Core skip the segment from guard to encode.
+
+| Module | Layer | Contents |
+| --- | --- | --- |
+| `lettia.core` | L0, L1 | ASGI adapter, `App`, `Group`, Router, `Context`, `Key[T]`, `HTTPError` |
+| `lettia.middleware` | L1 | Built-in middleware |
+| `lettia.contract` | L2 | `op`, source markers, response classes, `GuardSpec`, `mount`, Codec, OpenAPI derivation |
+| `lettia` | L2 | Public entry point: an `App` extending `core.App`, `Context[G]`, and re-exports of common names |
+| `lettia.testing` | Tooling | `TestClient`, `make_context` |
+| `lettia.cli` | Tooling | `lettia openapi export` |
+
+## Core layer
+
+The Core layer corresponds to Echo itself: `App`, `Group`, routing, middleware, `Context` and error handling. It does not depend on the contract layer, and can be used on its own for endpoints that do not belong in a contract, such as health checks, webhooks and static files.
+
+```python
+from lettia.core import App, Context, Response
+from lettia.middleware import recover, request_id
+
+app = App()
+app.use(recover(), request_id())
+
+async def healthz(c: Context) -> Response:
+    return c.text(200, "ok")
+
+app.get("/healthz", healthz)
+app.group("/static").get("/*", serve_file)
+```
+
+### Routing
+
+- Path parameters are written `{name}`, as in OpenAPI, and match one path segment.
+- `*` may appear only at the end of a Core route; it matches the rest of the path and its value is stored in `c.path_params["*"]`. Contract routes may not use `*`, because OpenAPI cannot describe it.
+- Matching priority is static > parameter > wildcard, implemented as a radix tree.
+- Paths are matched strictly; trailing slashes are not handled automatically.
+- An unknown path returns 404; a known path with the wrong method returns 405 with an `Allow` header; GET routes answer HEAD automatically.
+
+### Handler and Response
+
+- `type Handler = Callable[[Context], Awaitable[Response]]`.
+- `Context` provides response helpers: `c.json(status, data)` (msgspec encoding), `c.text(status, s)`, `c.bytes(status, data, media_type)`, `c.no_content()`, `c.stream(status, chunks, media_type)`.
+- A contract handler does not return a `Response` directly; it returns a response class, which the contract layer converts.
+
+### Context
+
+- Request data: `c.request` provides `method`, `path`, `headers` (case-insensitive, multi-valued), `query` (multi-valued), `cookies`, `client`, `await body()` and `stream()`; the raw path-parameter strings are in `c.path_params`.
+- Request-scoped shared data uses `Key[T]`: `RequestId.set(c, v)` and `RequestId.get(c) -> T`, which raises `LookupError` if unset. The accessors live on the key so that `T` is fixed by the instance.
+- Extension point: `App(context_class=...)`. `lettia.App` uses it to inject `Context[G]`, a subclass of the Core `Context` with an extra `principal: G`, so middleware and `Key[T]` work for both kinds of handler.
+
+### Middleware
+
+- `type Middleware = Callable[[Handler], Handler]`, the same `next`-wrapping style as Echo.
+- Attach globally with `app.use(...)`, or to a group with `app.group(prefix, *middleware)`; the call chain for each route is assembled at registration time.
+- Middleware runs before guards, so it cannot read `principal`.
+- 0.1 ships `recover` (turns uncaught exceptions into 500), `request_id`, `access_log` and `cors`.
+
+### Error handling
+
+- An `HTTPError(status, title, detail=None)` raised at any layer is converted centrally by `App(error_handler=...)`; the default output is RFC 9457 problem+json.
+- The `Unauthorized` and `Forbidden` used by guards are subclasses of `HTTPError`.
+- Any other exception becomes a 500; with `App(debug=True)`, an exception summary is added to `detail`.
+
+### Lifecycle
+
+- Through ASGI lifespan: `app.on_startup(fn)` and `app.on_shutdown(fn)`.
+- Startup runs the startup checks first; if any fails, startup is aborted.
+
+## Contract
+
+A contract is a `Protocol` containing declarations only. Each method uses `op` to declare its path, method and guard, and has the fixed signature `(self, c: Context[G], req: Req) -> union of response classes`.
+
+```python
+# contracts/users.py
+class GetUserReq(msgspec.Struct):
+    user_id: Path[int]
+    expand: Query[bool] = False
+
+class CreateUserReq(msgspec.Struct):
+    body: Body[NewUser]
+
+class UserCreated(Created[UserOut], kw_only=True):
+    location: Annotated[str, Header("Location")]
+
+class UserApi(Protocol):
+    @op.get("/users/{user_id}", guard=bearer, tags=["users"])
+    async def get_user(
+        self, c: Context[User], req: GetUserReq
+    ) -> Ok[UserOut] | NotFound[Problem]:
+        """Get a single user."""
+        ...
+
+    @op.post("/users", guard=bearer & admin)
+    async def create_user(
+        self, c: Context[tuple[User, Admin]], req: CreateUserReq
+    ) -> UserCreated: ...
+
+    @op.get("/healthz", guard=public)
+    async def health(self, c: Context[None], req: None) -> NoContent: ...
+```
+
+```python
+# services/users.py
+@dataclass(frozen=True, slots=True)
+class UserService(UserApi):
+    repo: UserRepo
+
+    async def get_user(
+        self, c: Context[User], req: GetUserReq
+    ) -> Ok[UserOut] | NotFound[Problem]:
+        user = await self.repo.find(req.user_id)
+        if user is None:
+            return NotFound(Problem(title="user not found"))
+        return Ok(UserOut.of(user))
+
+    async def create_user(
+        self, c: Context[tuple[User, Admin]], req: CreateUserReq
+    ) -> UserCreated:
+        out = await self.repo.create(req.body)
+        return UserCreated(out, location=f"/users/{out.id}")
+
+app.group("/v1").mount(UserService(repo))
+```
+
+| Element | Rule |
+| --- | --- |
+| `op` | `guard` is required; public endpoints write `guard=public` (`GuardSpec[None]`). The guard's `G` binds `Context[G]`, and a mismatch is an error |
+| Request | A msgspec `Struct`; every field must be marked with its source via `Path[T]`, `Query[T]`, `Header[T]`, `Cookie[T]` or `Body[T]`, with no inference; at most one `Body`; write `None` when there are no parameters |
+| Response | Generic status classes such as `Ok[T]`, `Created[T]`, `NoContent`, `NotFound[T]`, all msgspec `Struct`s; `body` can be passed positionally; 401 / 403 and 422 are added automatically |
+| Response headers and content type | A subclass adds `Annotated[str, Header("...")]` fields with `kw_only=True`, and omitting one is a type error; the content type is set with the subclass's `media_type: ClassVar[str]` |
+| Mounting | The implementation class inherits the contract; `mount(impl)` walks the MRO to find the contract and reads annotations from it; one implementation may implement several contracts |
+| Implementation annotations | Implementation methods must be fully annotated; pyrefly does not infer parameter types from the base class |
+
+Sources are always marked explicitly rather than inferred. If they were inferred from the path template, renaming `{user_id}` would silently turn that field into a query parameter, changing the contract without any error. `Path[T]` and the other markers are type aliases of the form `type Path[T] = Annotated[T, ...]`; checkers treat them as `T`, and the framework recognizes the source with `get_origin(hint) is Path`. For a custom header name, use the long form `Annotated[str, Header("X-Custom")]`.
+
+## Guard
+
+A guard is split into declaration and implementation. `GuardSpec[G]` is written on the contract side; it determines `Context[G]` and is emitted as `security`. The implementation is supplied at assembly time with `spec.use(fn)`, because it needs runtime dependencies such as keys and databases.
+
+```python
+# contracts/auth.py
+bearer = GuardSpec[User]("bearer", scheme=HttpBearer(format="JWT"))
+apikey = GuardSpec[ApiKey]("apikey", scheme=ApiKeyHeader("X-API-Key"))
+admin  = GuardSpec[Admin]("admin", scheme=None)  # authorization only, no security scheme
+
+# app.py
+app = App(guards=[
+    bearer.use(JwtVerifier(keys).verify),  # must return User
+    apikey.use(ApiKeyStore(db).lookup),    # must return ApiKey
+    admin.use(require_admin),
+])
+```
+
+| Form | Inferred type | Runtime semantics | OpenAPI `security` |
+| --- | --- | --- | --- |
+| `bearer \| apikey` | `GuardSpec[User \| ApiKey]` | Tried in order; the first success wins | `[{bearer: []}, {apikey: []}]` |
+| `bearer & admin` | `GuardSpec[tuple[User, Admin]]` | Run in order; any failure aborts | `[{bearer: []}]`; guards without a scheme are omitted |
+| `public` | `GuardSpec[None]` | Not run | `[]` |
+
+- **Implementation type**: `fn` is a `Callable[[RequestHead], Awaitable[G]]`, with `G` fixed by the spec instance; a mismatched return type is reported.
+- **Failure**: raise `Unauthorized` (401) or `Forbidden` (403). When every branch of `|` fails, the response is 403 if any of them raised `Forbidden`.
+- **Reads only the request head**: guards run before decoding, so an unauthenticated request never sees 422 field details. Resource-level authorization (for example, "may only edit your own posts") therefore belongs in the handler.
+- **Versus middleware**: middleware acts on a group, does not change the `Context` type, and is not part of the contract; a guard acts on a single operation, determines `Context[G]`, and is part of the contract.
+
+## Dependency injection
+
+**Formal stance: dependencies belong to the implementation, not to the contract.** The core has no built-in DI container and no signature-level injection.
+
+- A contract is the API interface for reviewers and clients. A database session or a cache client is an implementation choice; writing it into the signature would make the contract change with the implementation.
+- The handler signature is fixed at `(self, c, req)`, so the framework never has to guess which parameters are request data and which are dependencies.
+- The implementation class is constructed by the developer and `mount(impl)` receives only an instance, so any DI approach can be applied at the composition root.
+
+The core's default style is to declare dependency fields with `@dataclass(frozen=True, slots=True)`. The implementation instance is shared by all concurrent requests, and storing request state on `self` would let requests overwrite each other's data; `frozen` makes that style fail immediately at runtime.
+
+The core guarantees the following public extension points. A DI library can build only on these interfaces, and the core does not know it exists:
+
+| Extension point | What a DI library uses it for |
+| --- | --- |
+| `mount(impl)`: receives an already-constructed instance and finds the contract along the MRO | Build the implementation from a container; use a subclass of the implementation as a proxy (for example, one instance per request) |
+| `spec.use(fn)` | Assemble guard implementations |
+| `Middleware` and `Key[T]` | Open and close the request scope, carry request data |
+| `on_startup`, `on_shutdown` | Dependency completeness checks; initialize and release app-scoped resources |
+| `App(context_class=...)` | Extend `Context` |
+
+The design of the official DI extension `lettia-di` is in lettia-di: Dependency Injection Extension Design Document (English).
+
+## Validation and startup checks
+
+Validation happens in two places only: at startup, the contract structure is checked; at request time, msgspec decodes and validates in a single step. Responses are guaranteed by types, so production does no runtime response validation.
+
+- **Decoding**: decoders are compiled from the request `Struct` at mount time. A failure returns 422 problem+json with msgspec's field path (such as `$.body.name`). In 0.1, query supports only `style: form, explode: true`.
+- **Encoding**: pre-built msgspec encoders are chosen by the response class's `status` and body type. With `App(debug=True)`, the returned value is additionally checked against the declared union.
+- **Codec extension point**: the internal `Codec` protocol has only three operations (build a decoder, build an encoder, produce a JSON Schema); 0.1 implements only msgspec.
+
+### Startup checks
+
+If any check fails, startup is refused and all problems are listed.
+
+1. Each `{name}` in a path template corresponds one-to-one to a `Path` field, and contract routes contain no `*`.
+2. Every request field has a source marker and there is at most one `Body`; GET, HEAD and DELETE may not have a body.
+3. Status codes in a response union are unique.
+4. Every `GuardSpec` used by a contract has an implementation.
+5. The implementation class overrides every method of the contract.
+6. operationIds are unique.
+7. There are no duplicate or indistinguishable routes.
+
+## OpenAPI
+
+The OpenAPI 3.1 document is derived entirely from the mounted contracts. The output is deterministic, so it can be committed to the repo and compared as a snapshot in CI.
+
+| OpenAPI field | Source |
+| --- | --- |
+| `paths` | The `op` path plus the group prefix |
+| `operationId` | The contract method name as-is (such as `get_user`), so API names and code can be searched for each other directly; override with `op(..., operation_id=...)` |
+| `summary`, `description` | The method docstring |
+| `tags` | `op(..., tags=[...])` |
+| `parameters`, `requestBody` | The source markers of the request fields |
+| `responses` | The response union (including headers and `media_type` declared by subclasses), plus the automatic 401, 403 and 422 |
+| `security` | The guard composition |
+| `components.schemas` | `msgspec.json.schema_components` |
+
+- **Determinism**: paths, methods and schemas are all sorted in a fixed order; the same name for different types is an error at startup.
+- **Export**: `lettia openapi export app:app --format yaml` exports the document only. CI compares the snapshot with `git diff --exit-code`, so any contract change necessarily appears in the PR.
+- **Docs UI**: the core serves only `/openapi.json`; `lettia[docs]` loads Scalar or Swagger UI from a CDN.
+- **Escape hatch**: `op(..., openapi_extra={...})` shallow-merges arbitrary fields, and may not override `parameters`, `requestBody` or `responses`.
+
+## Testing
+
+Tests come in three layers, each responsible for one kind of error:
+
+| Layer | Tool | What it verifies |
+| --- | --- | --- |
+| Typing | Positive and negative tests in `tests/typing/` | The type guarantees of the framework's public API |
+| Unit | Call the implementation methods directly | Business logic, without HTTP |
+| Integration | `lettia.testing.TestClient` | Routing, guards, encoding / decoding, startup checks |
+
+```python
+# Unit: a handler is an ordinary method, so call it directly
+c = make_context(principal=User(uid=1))
+res = await UserService(fake_repo).get_user(c, GetUserReq(user_id=1))
+assert isinstance(res, Ok)
+
+# Integration: runs the full ASGI flow and lifespan
+async with TestClient(app) as client:
+    r = await client.get("/v1/users/1", headers={"Authorization": "Bearer ..."})
+    assert r.status_code == 200
+```
+
+- `make_context(principal=...)` builds a `Context[G]` without ASGI.
+- `TestClient` wraps httpx `ASGITransport`; entering `async with` triggers the lifespan, so startup checks run too.
+- Typing tests: `positive/` holds valid forms with `assert_type`, and all three checkers must report zero errors; `negative/` has one file per class of error, and CI compares each checker's snapshot by "line number + error code". Checker versions are pinned in the lock file; when an upgrade changes a snapshot, the PR must explain why.
+
+## Type-checking strategy
+
+pyrefly is the primary checker, and the framework's type guarantees are defined by it; pyright and mypy are compatibility targets, and a failing type test on any of the three blocks a merge. ty is not in CI for now and will be re-evaluated after its 1.0 release.
+
+Projects using lettia must add `[tool.pyrefly]` to `pyproject.toml`. Without it, pyrefly applies the lenient `basic` preset, which does not even report `def f() -> int: return "x"`.
+
+### Measured results
+
+Tested on 2026-10-17 with pyrefly 1.4.0, pyright 1.1.414, mypy 2.3.1 (strict) and ty 0.0.89 on Python 3.13. The last five rows are the basis for the current API forms of Core, Contract and Guard.
+
+| Check | pyrefly | pyright | mypy | ty |
+| --- | --- | --- | --- | --- |
+| Guard in a contract does not match `Context[G]` | Error | Error | Error | Error |
+| Returning a type the contract does not list | Error | Error | Error | Error |
+| Inherits the contract but omits a method | Error | Error | Error | Missed |
+| Inherits the contract but the signature differs | Error | Error | Error | Error |
+| `op` without `guard` | Error | Error | Error | Not tested |
+| Type inference for `\|` and `&` compositions | Correct | Correct | Correct | Correct |
+| Passing a contract as a `type[Protocol]` parameter | Works | Works | Rejected | False positive on a valid implementation |
+| Parameter types of an unannotated overriding method | Unknown | Inferred from base | Check skipped | Not tested |
+| Generic function `set[T](key: Key[T], value: T)` given a wrong type | Depends on declaration style | Missed | Missed | Not tested |
+| Generic function `provide[G](spec, fn)` given a wrong implementation | Missed | Missed | Error | Not tested |
+| Methods on the instance: `key.set(c, v)`, `spec.use(fn)` | Error | Error | Error | Not tested |
+
+## Technology choices
+
+| Item | Choice | Reason |
+| --- | --- | --- |
+| Python | 3.12 or later; CI covers 3.12–3.15 | Needs PEP 695 generic syntax |
+| Annotation reading | Wrapped in one internal function; uses `annotationlib` from 3.14 | Annotations are lazily evaluated from 3.14 |
+| Type checkers | pyrefly primary; pyright and mypy compatible | See type-checking strategy |
+| Models and codec | [msgspec](https://github.com/msgspec/msgspec) 0.22 or later, the only runtime dependency | Decoding is validation, built-in JSON Schema, 3.15 wheels available |
+| Async environment | asyncio | Avoids the indirection layer of anyio |
+| ASGI server | uvicorn as the reference; granian and hypercorn in compatibility tests | The framework is not tied to a server |
+| Test client | httpx `ASGITransport`, shipped in `lettia[test]` | Not a runtime dependency |
+| Dev tooling | uv, ruff, pytest | Mainstream and fast |
+
+## Milestones
+
+M0 locks down the public API forms with type tests first; the rest is then implemented in the order of the goal priorities. Dates are not yet scheduled.
+
+&#91;embedded content: milestones · 6 phases, each with its exit criteria\]
+
+M2 includes only the minimal decoding needed for the contract to work; the response check in `debug` mode is completed after M4.
