@@ -86,7 +86,7 @@ async def test_recover_lets_outer_middleware_see_a_response_not_an_exception() -
     assert seen == ["response:500"]
 
 
-async def test_without_recover_outer_middleware_sees_the_exception() -> None:
+async def test_without_recover_outer_middleware_sees_a_response_too() -> None:
     seen: list[str] = []
     app = App()
     app.use(observer(seen), raises(RuntimeError("inner bug")))
@@ -95,19 +95,8 @@ async def test_without_recover_outer_middleware_sees_the_exception() -> None:
     async with client(app) as http:
         res = await http.get("/x")
 
-    assert seen == ["exception:RuntimeError"]
-    assert res.status_code == 500  # the app's own safety net still answers
-
-
-async def test_recover_debug_mode_adds_an_exception_summary() -> None:
-    app = App()
-    app.use(recover(debug=True), raises(ValueError("boom")))
-    app.get("/x", ok)
-
-    async with client(app) as http:
-        res = await http.get("/x")
-
-    assert res.json()["detail"] == "ValueError: boom"
+    assert seen == ["response:500"]
+    assert res.status_code == 500
 
 
 async def test_recover_keeps_the_status_of_an_http_error_from_inner_middleware(

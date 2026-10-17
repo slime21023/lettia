@@ -131,7 +131,7 @@ async def test_access_log_covers_not_found_and_error_responses(
     assert statuses == [404, 500]
 
 
-async def test_access_log_logs_a_500_and_reraises_when_inner_middleware_fails(
+async def test_access_log_logs_a_500_when_inner_middleware_fails(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     def broken(next_: Handler) -> Handler:

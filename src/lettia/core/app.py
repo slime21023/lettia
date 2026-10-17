@@ -65,12 +65,6 @@ def _check_prefix(prefix: str) -> str:
     return prefix
 
 
-def _compose(middleware: Sequence[Middleware], handler: Handler) -> Handler:
-    for wrap in reversed(middleware):
-        handler = wrap(handler)
-    return handler
-
-
 class _Registry:
     """What an app and all of its groups share while routes are being registered."""
 
@@ -275,8 +269,13 @@ class App(_Routes):
     def _chain(
         self, group_middleware: Sequence[Middleware], handler: Handler
     ) -> Handler:
-        guarded = self._convert_errors(handler)
-        return _compose([*self._middleware, *group_middleware], guarded)
+        # Convert errors around the handler and around every middleware, so a
+        # middleware that raises (an auth check, say) still yields a response
+        # that the middleware outside it can decorate and log.
+        chain = self._convert_errors(handler)
+        for wrap in reversed([*self._middleware, *group_middleware]):
+            chain = self._convert_errors(wrap(chain))
+        return chain
 
     def _convert_errors(self, handler: Handler) -> Handler:
         """Turn exceptions into responses so middleware only ever sees responses."""

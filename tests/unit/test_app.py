@@ -841,3 +841,56 @@ async def test_group_root_path_is_still_the_prefix_with_a_slash() -> None:
 
     async with client(app) as http:
         assert (await http.get("/api/")).text == "root"
+
+
+async def test_a_middleware_error_still_passes_through_outer_middleware() -> None:
+    from lettia.middleware import cors, request_id
+
+    statuses: list[int] = []
+
+    def observe(next_: Handler) -> Handler:
+        async def run(c: Context) -> Response:
+            response = await next_(c)
+            statuses.append(response.status)
+            return response
+
+        return run
+
+    def deny(next_: Handler) -> Handler:
+        async def run(c: Context) -> Response:
+            raise Unauthorized("token required")
+
+        return run
+
+    app = App()
+    app.use(observe, request_id(), cors(allow_origins=["*"]), deny)
+    app.get("/x", text("ok"))
+
+    async with client(app) as http:
+        res = await http.get("/x", headers={"origin": "https://app.example"})
+
+    assert res.status_code == 401
+    assert res.json()["detail"] == "token required"
+    assert "x-request-id" in res.headers
+    assert res.headers["access-control-allow-origin"] == "*"
+    assert statuses == [401]
+
+
+async def test_an_error_raised_by_middleware_uses_the_app_error_handler() -> None:
+    async def handle(c: Context, exc: Exception) -> Response:
+        return c.text(418, f"custom {type(exc).__name__}")
+
+    def broken(next_: Handler) -> Handler:
+        async def run(c: Context) -> Response:
+            raise RuntimeError("bug")
+
+        return run
+
+    app = App(error_handler=handle)
+    app.use(broken)
+    app.get("/x", text("ok"))
+
+    async with client(app) as http:
+        res = await http.get("/x")
+
+    assert (res.status_code, res.text) == (418, "custom RuntimeError")
