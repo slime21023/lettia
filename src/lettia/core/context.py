@@ -24,13 +24,21 @@ class Context:
     Extended with a principal by :class:`lettia.Context`.
     """
 
-    __slots__ = ("path_params", "request")
+    __slots__ = ("_state", "path_params", "request")
 
     def __init__(
         self, request: Request, path_params: dict[str, str] | None = None
     ) -> None:
         self.request = request
         self.path_params: dict[str, str] = {} if path_params is None else path_params
+        self._state: dict[object, object] | None = None
+
+    @property
+    def state(self) -> dict[object, object]:
+        """Storage behind :class:`~lettia.core.Key`; use a key instead of this."""
+        if self._state is None:
+            self._state = {}
+        return self._state
 
     def text(self, status: int, text: str) -> Response:
         return _typed(status, text.encode(), "text/plain; charset=utf-8")

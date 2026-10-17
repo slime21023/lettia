@@ -11,6 +11,12 @@
       "reportArgumentType"
     ]
   ],
+  "tests/typing/negative/neg_key_wrong_type.py": [
+    [
+      8,
+      "reportArgumentType"
+    ]
+  ],
   "tests/typing/negative/neg_missing_method.py": [
     [
       38,
