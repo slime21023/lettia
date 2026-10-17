@@ -159,12 +159,12 @@ class Request(RequestHead):
             raise self._too_large()
 
     async def _chunks(self) -> AsyncIterator[bytes]:
-        received = 0
+        received_bytes = 0
         async for chunk in self._source:
             if not chunk:
                 continue
-            received += len(chunk)
-            if self._max_body_size is not None and received > self._max_body_size:
+            received_bytes += len(chunk)
+            if self._max_body_size is not None and received_bytes > self._max_body_size:
                 raise self._too_large()
             yield chunk
 
