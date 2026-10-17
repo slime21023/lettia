@@ -1,8 +1,9 @@
-"""In-process ASGI micro-benchmark for the S1 scenario (static route, plain text).
+"""In-process ASGI micro-benchmark for the S1 and S2 scenarios.
 
-Calls each application directly with a prebuilt scope, so it measures framework
-overhead per request without sockets, HTTP parsing or a load generator. It is a
-regression guard and a first baseline; the design's acceptance numbers are
+S1 is a static route returning plain text; S2 is a path parameter with a JSON
+response. Each application is called directly with a prebuilt scope, so the
+numbers measure framework overhead per request without sockets, HTTP parsing or
+a load generator. It is a regression guard; the design's acceptance numbers are
 measured through a single uvicorn worker.
 
     uv run python benchmarks/run_benchmark.py [--iterations 100000] [--repeat 5]
@@ -16,32 +17,34 @@ from typing import Any
 
 from starlette.applications import Starlette
 from starlette.requests import Request as StarletteRequest
-from starlette.responses import PlainTextResponse
+from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
 
-from lettia.core import Context, Response
-from lettia.core.asgi import asgi_app
+from lettia.core import App, Context, Response
 
 Message = MutableMapping[str, Any]
 ASGI = Callable[
     [dict[str, Any], Callable[[], Awaitable[Message]], Any], Awaitable[None]
 ]
 
-SCOPE: dict[str, Any] = {
-    "type": "http",
-    "asgi": {"version": "3.0"},
-    "http_version": "1.1",
-    "method": "GET",
-    "scheme": "http",
-    "path": "/",
-    "raw_path": b"/",
-    "root_path": "",
-    "query_string": b"",
-    "headers": [(b"host", b"localhost"), (b"accept", b"*/*")],
-    "server": ("127.0.0.1", 8000),
-    "client": ("127.0.0.1", 50000),
-}
 REQUEST: Message = {"type": "http.request", "body": b"", "more_body": False}
+
+
+def scope_for(path: str) -> dict[str, Any]:
+    return {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "root_path": "",
+        "query_string": b"",
+        "headers": [(b"host", b"localhost"), (b"accept", b"*/*")],
+        "server": ("127.0.0.1", 8000),
+        "client": ("127.0.0.1", 50000),
+    }
 
 
 async def receive() -> Message:
@@ -67,43 +70,75 @@ async def bare_asgi(scope: dict[str, Any], receive: Any, send: Any) -> None:
     await send({"type": "http.response.body", "body": b"ok", "more_body": False})
 
 
-async def lettia_handler(c: Context) -> Response:
-    return c.text(200, "ok")
+def lettia_app() -> App:
+    async def healthz(c: Context) -> Response:
+        return c.text(200, "ok")
+
+    async def user(c: Context) -> Response:
+        return c.json(200, {"id": c.path_params["id"], "name": "Ann"})
+
+    app = App()
+    app.get("/", healthz)
+    app.get("/users/{id}", user)
+    app.build()
+    return app
 
 
-async def starlette_endpoint(request: StarletteRequest) -> PlainTextResponse:
-    return PlainTextResponse("ok")
+def starlette_app() -> Starlette:
+    async def healthz(request: StarletteRequest) -> PlainTextResponse:
+        return PlainTextResponse("ok")
+
+    async def user(request: StarletteRequest) -> JSONResponse:
+        return JSONResponse({"id": request.path_params["id"], "name": "Ann"})
+
+    return Starlette(
+        routes=[Route("/", healthz), Route("/users/{id}", user)],
+    )
 
 
-def build_apps() -> dict[str, ASGI]:
+def scenarios() -> dict[str, tuple[dict[str, Any], dict[str, ASGI]]]:
+    lettia, starlette = lettia_app(), starlette_app()
     return {
-        "bare ASGI (floor)": bare_asgi,
-        "lettia (adapter only)": asgi_app(lettia_handler),
-        "starlette (full app)": Starlette(routes=[Route("/", starlette_endpoint)]),
+        "S1 static route, plain text": (
+            scope_for("/"),
+            {
+                "bare ASGI (floor)": bare_asgi,
+                "lettia": lettia,
+                "starlette": starlette,
+            },
+        ),
+        "S2 path parameter, JSON": (
+            scope_for("/users/42"),
+            {"lettia": lettia, "starlette": starlette},
+        ),
     }
 
 
-async def best_rps(app: ASGI, iterations: int, repeat: int) -> float:
+async def best_rps(
+    app: ASGI, scope: dict[str, Any], iterations: int, repeat: int
+) -> float:
     for _ in range(min(1000, iterations)):  # warm up
-        await app(SCOPE, receive, send)
+        await app(scope, receive, send)
     best = float("inf")
     for _ in range(repeat):
         start = time.perf_counter()
         for _ in range(iterations):
-            await app(SCOPE, receive, send)
+            await app(scope, receive, send)
         best = min(best, time.perf_counter() - start)
     return iterations / best
 
 
 async def main(iterations: int, repeat: int) -> None:
-    results = {
-        name: await best_rps(app, iterations, repeat)
-        for name, app in build_apps().items()
-    }
-    floor = results["bare ASGI (floor)"]
-    print(f"S1 static text, {iterations} calls x {repeat} runs (best run), in-process")
-    for name, rps in results.items():
-        print(f"  {name:<24} {rps:>10,.0f} req/s  ({rps / floor:>5.0%} of floor)")
+    print(f"{iterations} calls x {repeat} runs (best run), in-process")
+    for title, (scope, apps) in scenarios().items():
+        results = {
+            name: await best_rps(app, scope, iterations, repeat)
+            for name, app in apps.items()
+        }
+        print(f"\n{title}")
+        for name, rps in results.items():
+            ratio = rps / results["starlette"]
+            print(f"  {name:<20} {rps:>10,.0f} req/s  ({ratio:>5.2f}x starlette)")
 
 
 if __name__ == "__main__":
