@@ -11,10 +11,14 @@ from lettia.core.response import Response
 _encode_json = msgspec.json.Encoder().encode
 
 
-def _typed(status: int, body: bytes | None, media_type: str | None) -> Response:
+# The media types the helpers use most are encoded once, not on every response.
+_TEXT_TYPE = (b"content-type", b"text/plain; charset=utf-8")
+_JSON_TYPE = (b"content-type", b"application/json")
+
+
+def _typed(status: int, body: bytes | None, media_type: str) -> Response:
     headers = MutableHeaders()
-    if media_type is not None:
-        headers.set("content-type", media_type)
+    headers.set("content-type", media_type)
     return Response(status, body, headers)
 
 
@@ -41,10 +45,10 @@ class Context:
         return self._state
 
     def text(self, status: int, text: str) -> Response:
-        return _typed(status, text.encode(), "text/plain; charset=utf-8")
+        return Response(status, text.encode(), MutableHeaders([_TEXT_TYPE]))
 
     def json(self, status: int, data: object) -> Response:
-        return _typed(status, _encode_json(data), "application/json")
+        return Response(status, _encode_json(data), MutableHeaders([_JSON_TYPE]))
 
     def no_content(self) -> Response:
         return Response(204)

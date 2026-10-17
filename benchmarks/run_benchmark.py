@@ -1,8 +1,8 @@
 """In-process ASGI micro-benchmark for the S1, S2 and S3 scenarios.
 
 S1 is a static route returning plain text; S2 is a path parameter with a JSON
-response; S3 is the contract path (request decoding, handler, response encoding,
-no guard yet) compared with an equivalent hand-written Core handler. Each
+response; S3 is the full contract path (guard, request decoding, handler, response
+encoding) compared with an equivalent hand-written Core handler. Each
 application is called directly with a prebuilt scope, so the numbers measure
 framework overhead per request without sockets, HTTP parsing or a load generator.
 It is a regression guard; the design's acceptance numbers are measured through a
@@ -24,7 +24,7 @@ from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
 
 import lettia
-from lettia import Body, Created, HeaderName, op, public
+from lettia import Body, Created, GuardSpec, HeaderName, RequestHead, op
 from lettia.core import App, Context, Response
 
 Message = MutableMapping[str, Any]
@@ -128,22 +128,35 @@ class UserCreated(Created[UserOut], kw_only=True):
     location: Annotated[str, HeaderName("Location")]
 
 
+class Principal(msgspec.Struct):
+    name: str
+
+
+bearer = GuardSpec[Principal]("bearer")
+
+
+async def verify(head: RequestHead) -> Principal:
+    if head.headers.get("authorization") != "Bearer good":
+        raise lettia.core.Unauthorized("bad token")
+    return Principal("ann")
+
+
 class UsersApi(Protocol):
-    @op.post("/users", guard=public)
+    @op.post("/users", guard=bearer)
     async def create_user(
-        self, c: lettia.Context[None], req: CreateUserReq
+        self, c: lettia.Context[Principal], req: CreateUserReq
     ) -> UserCreated: ...
 
 
 class UsersService(UsersApi):
     async def create_user(
-        self, c: lettia.Context[None], req: CreateUserReq
+        self, c: lettia.Context[Principal], req: CreateUserReq
     ) -> UserCreated:
         return UserCreated(UserOut(1, req.body.name), location="/users/1")
 
 
 def contract_app() -> lettia.App:
-    app = lettia.App()
+    app = lettia.App(guards=[bearer.use(verify)])
     app.mount(UsersService())
     app.build()
     return app
@@ -153,6 +166,7 @@ def handwritten_app() -> App:
     decode = msgspec.json.Decoder(NewUser).decode
 
     async def create_user(c: Context) -> Response:
+        await verify(c.request)
         data = decode(await c.request.body())
         response = c.json(201, UserOut(1, data.name))
         response.headers.set("location", "/users/1")
@@ -181,11 +195,14 @@ def scenarios() -> dict[str, tuple[dict[str, Any], Receive, dict[str, ASGI]]]:
             receive,
             {"lettia": lettia, "starlette": starlette},
         ),
-        "S3 contract: decode body, JSON response (no guard yet)": (
+        "S3 contract: guard, decode body, JSON response": (
             {
                 **scope_for("/users"),
                 "method": "POST",
-                "headers": [(b"content-type", b"application/json")],
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"authorization", b"Bearer good"),
+                ],
             },
             receive_json,
             {"hand-written Core": handwritten_app(), "contract": contract_app()},
@@ -193,27 +210,36 @@ def scenarios() -> dict[str, tuple[dict[str, Any], Receive, dict[str, ASGI]]]:
     }
 
 
-async def best_rps(
-    app: ASGI, scope: dict[str, Any], receive: Receive, iterations: int, repeat: int
-) -> float:
-    for _ in range(min(1000, iterations)):  # warm up
-        await app(scope, receive, send)
-    best = float("inf")
-    for _ in range(repeat):
-        start = time.perf_counter()
-        for _ in range(iterations):
+async def best_rates(
+    apps: dict[str, ASGI],
+    scope: dict[str, Any],
+    receive: Receive,
+    iterations: int,
+    repeat: int,
+) -> dict[str, float]:
+    """Requests per second of each app, best of ``repeat`` interleaved rounds.
+
+    Alternating between the apps inside every round keeps slow drift of the
+    machine (frequency scaling, other processes) from favouring whichever app
+    happens to be measured first.
+    """
+    for app in apps.values():  # warm up
+        for _ in range(min(1000, iterations)):
             await app(scope, receive, send)
-        best = min(best, time.perf_counter() - start)
-    return iterations / best
+    best = dict.fromkeys(apps, float("inf"))
+    for _ in range(repeat):
+        for name, app in apps.items():
+            start = time.perf_counter()
+            for _ in range(iterations):
+                await app(scope, receive, send)
+            best[name] = min(best[name], time.perf_counter() - start)
+    return {name: iterations / seconds for name, seconds in best.items()}
 
 
 async def main(iterations: int, repeat: int) -> None:
-    print(f"{iterations} calls x {repeat} runs (best run), in-process")
+    print(f"{iterations} calls x {repeat} interleaved rounds (best), in-process")
     for title, (scope, receive_fn, apps) in scenarios().items():
-        results = {
-            name: await best_rps(app, scope, receive_fn, iterations, repeat)
-            for name, app in apps.items()
-        }
+        results = await best_rates(apps, scope, receive_fn, iterations, repeat)
         print(f"\n{title}")
         reference = "starlette" if "starlette" in results else "hand-written Core"
         for name, rps in results.items():

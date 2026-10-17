@@ -17,7 +17,8 @@ class _Plan:
     media_type: str
     has_body: bool
     json_body: bool
-    header_fields: tuple[tuple[str, str], ...]
+    content_type: tuple[bytes, bytes]
+    header_fields: tuple[tuple[str, bytes], ...]
 
 
 def _plan(shape: ResponseShape) -> _Plan:
@@ -27,7 +28,11 @@ def _plan(shape: ResponseShape) -> _Plan:
         media_type=shape.media_type,
         has_body=shape.body_type is not None,
         json_body=media == "application/json" or media.endswith("+json"),
-        header_fields=shape.headers,
+        content_type=(b"content-type", shape.media_type.encode("latin-1")),
+        header_fields=tuple(
+            (attribute, MutableHeaders.validated_name(wire))
+            for attribute, wire in shape.headers
+        ),
     )
 
 
@@ -56,15 +61,16 @@ def compile_responses(operation: Operation, codec: Codec) -> ResponseEncoder:
 
     def encode(reply: Reply) -> Response:
         plan = find(reply)
-        headers = MutableHeaders()
         body: bytes | None = None
         if plan.has_body:
-            headers.set("content-type", plan.media_type)
+            headers = MutableHeaders([plan.content_type])
             body = _body_bytes(getattr(reply, "body"), plan, encode_json)  # noqa: B009
-        for attribute, wire_name in plan.header_fields:
+        else:
+            headers = MutableHeaders()
+        for attribute, name in plan.header_fields:
             value = getattr(reply, attribute)
             if value is not None:
-                headers.set(wire_name, value if isinstance(value, str) else str(value))
+                headers.add_known(name, value if isinstance(value, str) else str(value))
         return Response(plan.status, body, headers)
 
     return encode

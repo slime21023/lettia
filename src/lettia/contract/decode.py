@@ -7,6 +7,7 @@ them in one step and builds the request ``Struct``.
 
 import re
 from collections.abc import Awaitable, Callable
+from functools import lru_cache
 from typing import Any
 
 import msgspec
@@ -44,6 +45,17 @@ def compile_request(operation: Operation, codec: Codec) -> RequestDecoder | None
     )
     body_reader = _body_reader(body, codec) if body is not None else None
     body_name = body.name if body is not None else ""
+
+    if decode_params is None and body_reader is not None:
+        read_body = body_reader
+
+        async def decode_body_only(c: Context) -> msgspec.Struct:
+            value = await read_body(c)
+            if value is _ABSENT:
+                return request_type()
+            return request_type(**{body_name: value})
+
+        return decode_body_only
 
     async def decode(c: Context) -> msgspec.Struct:
         values: dict[str, Any] = {}
@@ -143,10 +155,12 @@ def _allows_none(tp: Any) -> bool:
     )
 
 
+@lru_cache(maxsize=64)
 def _media_type(content_type: str) -> str:
     return content_type.split(";", 1)[0].strip().lower()
 
 
+@lru_cache(maxsize=64)
 def _is_json(content_type: str) -> bool:
     media = _media_type(content_type)
     return media == "application/json" or media.endswith("+json")

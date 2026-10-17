@@ -2,6 +2,7 @@
 
 import re
 from collections.abc import Iterable, Iterator, Mapping
+from functools import lru_cache
 from typing import overload, override
 
 type RawHeaders = list[tuple[bytes, bytes]]
@@ -10,6 +11,7 @@ _TOKEN = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
 _LINE_BREAKS = ("\r", "\n")
 
 
+@lru_cache(maxsize=512)
 def _key(name: str) -> bytes:
     return name.lower().encode("latin-1")
 
@@ -98,11 +100,27 @@ class MutableHeaders(Headers):
         """Append a value, keeping existing ones (for example ``set-cookie``)."""
         self._raw.append(self._encode(name, value))
 
+    def add_known(self, name: bytes, value: str) -> None:
+        """Append a header whose lowercase ``name`` the caller already validated.
+
+        For names fixed when a route is compiled: only the value is checked.
+        """
+        if "\r" in value or "\n" in value:
+            raise ValueError("header value must not contain a line break")
+        self._raw.append((name, value.encode("latin-1")))
+
     def remove(self, name: str) -> None:
         self._drop(_key(name))
 
     def _drop(self, key: bytes) -> None:
         self._raw[:] = [pair for pair in self._raw if pair[0] != key]
+
+    @staticmethod
+    def validated_name(name: str) -> bytes:
+        """The lowercase bytes of a header name, for use with :meth:`add_known`."""
+        if not _TOKEN.fullmatch(name):
+            raise ValueError(f"invalid header name: {name!r}")
+        return _key(name)
 
     @staticmethod
     def _encode(name: str, value: str) -> tuple[bytes, bytes]:
