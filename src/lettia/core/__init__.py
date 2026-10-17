@@ -11,6 +11,7 @@ from lettia.core.key import Key
 from lettia.core.query import QueryParams
 from lettia.core.request import Request, RequestHead
 from lettia.core.response import Response, ResponseBody
+from lettia.core.router import Matched, MethodNotAllowed, RouteConflict, Router
 
 __all__ = [
     "ClientDisconnect",
@@ -20,11 +21,15 @@ __all__ = [
     "Handler",
     "Headers",
     "Key",
+    "Matched",
+    "MethodNotAllowed",
     "MutableHeaders",
     "QueryParams",
     "Request",
     "RequestHead",
     "Response",
     "ResponseBody",
+    "RouteConflict",
+    "Router",
     "Unauthorized",
 ]
