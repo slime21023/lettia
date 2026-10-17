@@ -41,6 +41,8 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "granian>=2.8.4",
+    "hypercorn>=0.18.0",
     "mypy>=2.4.0",
     "openapi-spec-validator>=0.9.0",
     "pyrefly>=1.4.0",
@@ -86,6 +88,7 @@ minversion = "9.0"
 asyncio_mode = "auto"
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = ["server: starts real ASGI servers in subprocesses (deselect with -m \"not server\")"]
 addopts = ["--strict-config", "--strict-markers"]
 
 [tool.ruff.lint.per-file-ignores]
