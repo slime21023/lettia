@@ -372,6 +372,11 @@ class App(_Routes):
             if isinstance(exc, StartupError):
                 return str(exc)
             return f"{type(exc).__name__}: {exc}"
+        except BaseException:
+            # Cancelled while starting (the server is shutting down): there is
+            # nobody to report to, but what was opened must still be closed.
+            await _close_after_failed_startup(contexts)
+            raise
         self._open_contexts = contexts
         return None
 

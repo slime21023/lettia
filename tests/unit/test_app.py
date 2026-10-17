@@ -999,3 +999,37 @@ def test_lifespan_contexts_cannot_be_added_after_the_build() -> None:
 
     with pytest.raises(RuntimeError, match="built"):
         app.lifespan(resource("db", []))
+
+
+async def test_a_cancelled_startup_still_closes_the_contexts_already_open() -> None:
+    import asyncio
+    from contextlib import asynccontextmanager
+
+    log: list[str] = []
+    started = asyncio.Event()
+
+    @asynccontextmanager
+    async def slow() -> Any:
+        log.append("open slow")
+        started.set()
+        await asyncio.sleep(3600)  # the server gives up waiting here
+        yield
+
+    app = App()
+    app.lifespan(resource("db", log))
+    app.lifespan(slow)
+    queue: list[Message] = [{"type": "lifespan.startup"}]
+
+    async def receive() -> Message:
+        return queue.pop(0)
+
+    async def send(message: Message) -> None:
+        return None
+
+    task = asyncio.ensure_future(app({"type": "lifespan"}, receive, send))
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert log == ["open db", "open slow", "close db"]
