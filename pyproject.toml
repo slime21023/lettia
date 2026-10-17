@@ -1,15 +1,15 @@
 [project]
 name = "lettia"
-version = "1.0.1rc2"
-description = "Lettia — Lightweight High-Performance Python ASGI Core Library"
+version = "0.1.0.dev0"
+description = "Lettia — a contract-first ASGI framework"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [
     { name = "KevinChueh", email = "slime21023@gmail.com" }
 ]
-keywords = ["asgi", "web", "web-framework", "asyncio", "routing"]
+keywords = ["asgi", "web", "web-framework", "asyncio", "openapi", "contract"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 3 - Alpha",
     "Framework :: AsyncIO",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
@@ -17,34 +17,40 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+    "Typing :: Typed",
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "msgspec>=0.22.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "httpx>=0.28.1",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.13,<0.10.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "pyrefly>=1.4.0",
+    "pyright>=1.1.414",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.17.1",
+    "starlette>=1.8.0",
+    "uvicorn>=0.54.0",
+]
 
 [tool.ruff]
 line-length = 88
 target-version = "py312"
 
 [tool.ruff.lint]
-select = [
-    "E",     # pycodestyle errors
-    "W",     # pycodestyle warnings
-    "F",     # Pyflakes
-    "I",     # isort
-    "B",     # flake8-bugbear
-    "C4",    # flake8-comprehensions
-    "UP",    # pyupgrade
-    "ASYNC", # flake8-async
-    "S",     # flake8-bandit
-]
-
-[tool.ruff.lint.per-file-ignores]
-"tests/**/*.py" = ["S101", "S106"]
-"benchmarks/**/*.py" = ["S105"]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "ASYNC", "S"]
 
 [tool.pyright]
 include = ["src"]
@@ -54,25 +60,18 @@ venvPath = "."
 venv = ".venv"
 
 [tool.pyrefly]
-project-includes = ["src", "tests", "examples"]
+project-includes = ["src", "tests"]
 project-excludes = [".venv", "build", "dist"]
-search-path = ["src", "."]
 python-version = "3.12"
 preset = "strict"
 
-[tool.pyrefly.coverage]
-includes = ["src"]
+[tool.mypy]
+strict = true
+python_version = "3.12"
+files = ["src"]
 
 [tool.pytest.ini_options]
-minversion = "8.0"
+minversion = "9.0"
 asyncio_mode = "auto"
 testpaths = ["tests"]
-pythonpath = ["src", "."]
-addopts = [
-    "--strict-config",
-    "--strict-markers",
-    "--cov=lettia",
-    "--cov-branch",
-    "--cov-report=term-missing",
-    "--cov-fail-under=90",
-]
+addopts = ["--strict-config", "--strict-markers"]
