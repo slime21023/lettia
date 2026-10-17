@@ -2,7 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, NamedTuple
 
 from lettia.contract.codec import Codec, CodecError
 from lettia.contract.introspect import Operation, ResponseShape
@@ -12,6 +12,12 @@ from lettia.core import MutableHeaders, Response
 type ResponseEncoder = Callable[[Reply], Response]
 
 
+class _HeaderField(NamedTuple):
+    attribute: str  # on the response class
+    name: bytes  # lowercase wire name, validated when the route is compiled
+    required: bool
+
+
 @dataclass(frozen=True, slots=True)
 class _Plan:
     status: int
@@ -19,7 +25,7 @@ class _Plan:
     has_body: bool
     json_body: bool
     content_type: tuple[bytes, bytes]
-    header_fields: tuple[tuple[str, bytes, bool], ...]  # attribute, name, required
+    header_fields: tuple[_HeaderField, ...]
     check: Callable[[bytes], Any] | None
     declared: str
 
@@ -44,7 +50,7 @@ def _plan(shape: ResponseShape, codec: Codec, *, debug: bool) -> _Plan:
         json_body=json_body,
         content_type=(b"content-type", media_type.encode("latin-1")),
         header_fields=tuple(
-            (
+            _HeaderField(
                 header.attribute,
                 MutableHeaders.validated_name(header.wire_name),
                 header.required,
