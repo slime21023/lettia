@@ -1,0 +1,60 @@
+{
+  "tests/typing/negative/neg_guard_context_mismatch.py": [
+    [
+      26,
+      "reportArgumentType"
+    ]
+  ],
+  "tests/typing/negative/neg_guard_impl_wrong_type.py": [
+    [
+      29,
+      "reportArgumentType"
+    ]
+  ],
+  "tests/typing/negative/neg_missing_method.py": [
+    [
+      38,
+      "reportAbstractUsage"
+    ]
+  ],
+  "tests/typing/negative/neg_missing_response_header.py": [
+    [
+      29,
+      "reportCallIssue"
+    ]
+  ],
+  "tests/typing/negative/neg_non_response_return.py": [
+    [
+      26,
+      "reportArgumentType"
+    ]
+  ],
+  "tests/typing/negative/neg_op_without_guard.py": [
+    [
+      26,
+      "reportCallIssue"
+    ],
+    [
+      26,
+      "reportUntypedFunctionDecorator"
+    ]
+  ],
+  "tests/typing/negative/neg_request_not_struct.py": [
+    [
+      26,
+      "reportArgumentType"
+    ]
+  ],
+  "tests/typing/negative/neg_signature_differs.py": [
+    [
+      31,
+      "reportIncompatibleMethodOverride"
+    ]
+  ],
+  "tests/typing/negative/neg_undeclared_response.py": [
+    [
+      31,
+      "reportIncompatibleMethodOverride"
+    ]
+  ]
+}

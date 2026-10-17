@@ -48,6 +48,7 @@ dev = [
 [tool.ruff]
 line-length = 88
 target-version = "py312"
+extend-exclude = ["spec", ".agents", ".claude"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "C4", "UP", "ASYNC", "S"]
@@ -61,7 +62,7 @@ venv = ".venv"
 
 [tool.pyrefly]
 project-includes = ["src", "tests"]
-project-excludes = [".venv", "build", "dist"]
+project-excludes = [".venv", "build", "dist", "tests/typing/negative"]
 python-version = "3.12"
 preset = "strict"
 
@@ -75,3 +76,7 @@ minversion = "9.0"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 addopts = ["--strict-config", "--strict-markers"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101"]
+"tests/typing/negative/*.py" = ["F401", "I001", "E501"]
