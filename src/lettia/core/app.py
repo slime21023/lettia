@@ -3,6 +3,7 @@
 import logging
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Iterable, Sequence
+from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from dataclasses import dataclass
 
 from lettia.core.asgi import ASGIApp, Message, Receive, Scope, Send, asgi_app
@@ -16,6 +17,7 @@ from lettia.core.router import Matched, MethodNotAllowed, Router
 
 type Hook = Callable[[], Awaitable[None]]
 type StartupCheck = Callable[[], Iterable[str]]
+type LifespanContext = Callable[[], AbstractAsyncContextManager[object]]
 
 logger = logging.getLogger("lettia")
 
@@ -172,6 +174,8 @@ class App(_Routes):
         self._middleware: list[Middleware] = []
         self._startup: list[Hook] = []
         self._shutdown: list[Hook] = []
+        self._lifespans: list[LifespanContext] = []
+        self._open_contexts: AsyncExitStack | None = None
         self._http: ASGIApp | None = None
         self._not_allowed: dict[str, Handler] = {}
 
@@ -217,6 +221,18 @@ class App(_Routes):
     def on_shutdown(self, hook: Hook) -> None:
         self._registry.ensure_open()
         self._shutdown.append(hook)
+
+    def lifespan(self, context: LifespanContext) -> None:
+        """Hold a resource for the life of the app, as an async context manager.
+
+        Contexts are entered in order before the startup hooks and left in
+        reverse after the shutdown hooks. When startup fails, only the contexts
+        that were already entered are left, so a resource that opened is always
+        closed. ``context`` is called with no arguments, for example a function
+        decorated with ``contextlib.asynccontextmanager``.
+        """
+        self._registry.ensure_open()
+        self._lifespans.append(context)
 
     # --- assembly -------------------------------------------------------
 
@@ -340,15 +356,23 @@ class App(_Routes):
                 return
 
     async def _start(self) -> str | None:
-        """Run the startup checks, then the hooks; return a failure message."""
+        """Run the startup checks, the contexts, then the hooks.
+
+        Returns a failure message, after leaving every context that was entered.
+        """
+        contexts = AsyncExitStack()
         try:
             self.build()
+            for context in self._lifespans:
+                await contexts.enter_async_context(context())
             for hook in self._startup:
                 await hook()
-        except StartupError as exc:
-            return str(exc)
         except Exception as exc:
+            await _close_after_failed_startup(contexts)
+            if isinstance(exc, StartupError):
+                return str(exc)
             return f"{type(exc).__name__}: {exc}"
+        self._open_contexts = contexts
         return None
 
     async def _stop(self) -> Message:
@@ -359,9 +383,23 @@ class App(_Routes):
                 await hook()
             except Exception as exc:
                 failures.append(f"{type(exc).__name__}: {exc}")
+        contexts, self._open_contexts = self._open_contexts, None
+        if contexts is not None:
+            try:
+                await contexts.aclose()  # every context is left, even if one fails
+            except Exception as exc:
+                failures.append(f"{type(exc).__name__}: {exc}")
         if failures:
             return {"type": "lifespan.shutdown.failed", "message": "; ".join(failures)}
         return {"type": "lifespan.shutdown.complete"}
+
+
+async def _close_after_failed_startup(contexts: AsyncExitStack) -> None:
+    try:
+        await contexts.aclose()
+    except Exception:
+        # The startup failure is what gets reported; this one is only logged.
+        logger.exception("a lifespan context failed while closing after startup failed")
 
 
 async def _raise_not_found(c: Context) -> Response:

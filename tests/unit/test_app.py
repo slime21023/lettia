@@ -894,3 +894,108 @@ async def test_an_error_raised_by_middleware_uses_the_app_error_handler() -> Non
         res = await http.get("/x")
 
     assert (res.status_code, res.text) == (418, "custom RuntimeError")
+
+
+# --- paired lifespan contexts --------------------------------------------
+
+
+def resource(name: str, log: list[str], *, fail_on_enter: bool = False) -> Any:
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def context() -> Any:
+        if fail_on_enter:
+            raise RuntimeError(f"{name} could not start")
+        log.append(f"open {name}")
+        try:
+            yield
+        finally:
+            log.append(f"close {name}")
+
+    return context
+
+
+async def test_lifespan_contexts_open_in_order_and_close_in_reverse() -> None:
+    log: list[str] = []
+    app = App()
+    app.lifespan(resource("db", log))
+    app.lifespan(resource("cache", log))
+
+    sent = await run_lifespan(app, "lifespan.startup", "lifespan.shutdown")
+
+    assert log == ["open db", "open cache", "close cache", "close db"]
+    assert [m["type"] for m in sent] == [
+        "lifespan.startup.complete",
+        "lifespan.shutdown.complete",
+    ]
+
+
+async def test_a_failing_lifespan_context_closes_the_ones_already_open() -> None:
+    log: list[str] = []
+    app = App()
+    app.lifespan(resource("db", log))
+    app.lifespan(resource("cache", log, fail_on_enter=True))
+
+    sent = await run_lifespan(app, "lifespan.startup")
+
+    assert log == ["open db", "close db"]
+    assert sent[0]["type"] == "lifespan.startup.failed"
+    assert "cache could not start" in sent[0]["message"]
+
+
+async def test_a_failing_startup_hook_also_closes_the_open_contexts() -> None:
+    log: list[str] = []
+
+    async def broken() -> None:
+        raise RuntimeError("warm-up failed")
+
+    app = App()
+    app.lifespan(resource("db", log))
+    app.on_startup(broken)
+
+    sent = await run_lifespan(app, "lifespan.startup")
+
+    assert log == ["open db", "close db"]
+    assert "warm-up failed" in sent[0]["message"]
+
+
+async def test_shutdown_hooks_run_while_the_contexts_are_still_open() -> None:
+    log: list[str] = []
+    app = App()
+    app.lifespan(resource("db", log))
+    app.on_shutdown(recorder("flush", log))
+
+    await run_lifespan(app, "lifespan.startup", "lifespan.shutdown")
+
+    assert log == ["open db", "flush", "close db"]
+
+
+async def test_a_context_failing_on_close_is_reported_and_the_others_still_close() -> (
+    None
+):
+    from contextlib import asynccontextmanager
+
+    log: list[str] = []
+
+    @asynccontextmanager
+    async def leaky() -> Any:
+        yield
+        raise RuntimeError("could not close")
+
+    app = App()
+    app.lifespan(resource("db", log))
+    app.lifespan(leaky)
+
+    sent = await run_lifespan(app, "lifespan.startup", "lifespan.shutdown")
+
+    assert log == ["open db", "close db"]
+    assert sent[-1]["type"] == "lifespan.shutdown.failed"
+    assert "could not close" in sent[-1]["message"]
+
+
+def test_lifespan_contexts_cannot_be_added_after_the_build() -> None:
+    app = App()
+    app.build()
+
+    with pytest.raises(RuntimeError, match="built"):
+        app.lifespan(resource("db", []))

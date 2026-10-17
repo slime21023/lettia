@@ -170,3 +170,25 @@ async def test_test_client_is_an_httpx_client_with_a_default_base_url() -> None:
 
 def test_test_client_is_not_collected_as_a_test_class() -> None:
     assert TestClient.__test__ is False
+
+
+async def test_test_client_holds_lifespan_contexts_open_for_the_block() -> None:
+    from collections.abc import AsyncGenerator
+    from contextlib import asynccontextmanager
+
+    log: list[str] = []
+
+    @asynccontextmanager
+    async def pool() -> AsyncGenerator[None]:
+        log.append("open")
+        yield
+        log.append("close")
+
+    app = build_app()
+    app.lifespan(pool)
+
+    async with TestClient(app) as client:
+        log.append("request")
+        await client.get("/items/1")
+
+    assert log == ["open", "request", "close"]
