@@ -14,7 +14,7 @@ DEFAULT_MAX_BODY_SIZE = 5 * 1024 * 1024
 _PATH_SAFE = "/:@!$&'()*+,;=-._~"
 
 
-def _encoded(path: str) -> bytes:
+def _raw_path_from(path: str) -> bytes:
     """Rebuild a raw path from a decoded one, for servers that send no raw_path.
 
     The router splits the raw path and then percent-decodes each segment, so the
@@ -56,7 +56,7 @@ class RequestHead:
     ) -> None:
         self.method = method
         self.path = path
-        self.raw_path = _encoded(path) if raw_path is None else raw_path
+        self.raw_path = _raw_path_from(path) if raw_path is None else raw_path
         self.client = client
         self._query_string = query_string
         self._raw_headers: RawHeaders = [] if headers is None else headers
@@ -66,8 +66,10 @@ class RequestHead:
 
     @property
     def loggable_path(self) -> str:
-        """The path as it is safe to log: still percent-encoded, so an encoded
-        newline cannot start a forged log line."""
+        """The path as it is safe to log, still percent-encoded.
+
+        An encoded newline in the URL therefore cannot start a forged log line.
+        """
         return self.raw_path.decode("latin-1")
 
     @property
