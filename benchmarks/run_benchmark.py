@@ -1,10 +1,12 @@
-"""In-process ASGI micro-benchmark for the S1 and S2 scenarios.
+"""In-process ASGI micro-benchmark for the S1, S2 and S3 scenarios.
 
 S1 is a static route returning plain text; S2 is a path parameter with a JSON
-response. Each application is called directly with a prebuilt scope, so the
-numbers measure framework overhead per request without sockets, HTTP parsing or
-a load generator. It is a regression guard; the design's acceptance numbers are
-measured through a single uvicorn worker.
+response; S3 is the contract path (request decoding, handler, response encoding,
+no guard yet) compared with an equivalent hand-written Core handler. Each
+application is called directly with a prebuilt scope, so the numbers measure
+framework overhead per request without sockets, HTTP parsing or a load generator.
+It is a regression guard; the design's acceptance numbers are measured through a
+single uvicorn worker.
 
     uv run python benchmarks/run_benchmark.py [--iterations 100000] [--repeat 5]
 """
@@ -13,19 +15,21 @@ import argparse
 import asyncio
 import time
 from collections.abc import Awaitable, Callable, MutableMapping
-from typing import Any
+from typing import Annotated, Any, Protocol
 
+import msgspec
 from starlette.applications import Starlette
 from starlette.requests import Request as StarletteRequest
 from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
 
+import lettia
+from lettia import Body, Created, HeaderName, op, public
 from lettia.core import App, Context, Response
 
 Message = MutableMapping[str, Any]
-ASGI = Callable[
-    [dict[str, Any], Callable[[], Awaitable[Message]], Any], Awaitable[None]
-]
+Receive = Callable[[], Awaitable[Message]]
+ASGI = Callable[[dict[str, Any], Receive, Any], Awaitable[None]]
 
 REQUEST: Message = {"type": "http.request", "body": b"", "more_body": False}
 
@@ -49,6 +53,17 @@ def scope_for(path: str) -> dict[str, Any]:
 
 async def receive() -> Message:
     return REQUEST
+
+
+S3_BODY: Message = {
+    "type": "http.request",
+    "body": b'{"name": "Ann"}',
+    "more_body": False,
+}
+
+
+async def receive_json() -> Message:
+    return S3_BODY
 
 
 async def send(message: Message) -> None:
@@ -96,11 +111,65 @@ def starlette_app() -> Starlette:
     )
 
 
-def scenarios() -> dict[str, tuple[dict[str, Any], dict[str, ASGI]]]:
+class NewUser(msgspec.Struct):
+    name: str
+
+
+class UserOut(msgspec.Struct):
+    id: int
+    name: str
+
+
+class CreateUserReq(msgspec.Struct):
+    body: Body[NewUser]
+
+
+class UserCreated(Created[UserOut], kw_only=True):
+    location: Annotated[str, HeaderName("Location")]
+
+
+class UsersApi(Protocol):
+    @op.post("/users", guard=public)
+    async def create_user(
+        self, c: lettia.Context[None], req: CreateUserReq
+    ) -> UserCreated: ...
+
+
+class UsersService(UsersApi):
+    async def create_user(
+        self, c: lettia.Context[None], req: CreateUserReq
+    ) -> UserCreated:
+        return UserCreated(UserOut(1, req.body.name), location="/users/1")
+
+
+def contract_app() -> lettia.App:
+    app = lettia.App()
+    app.mount(UsersService())
+    app.build()
+    return app
+
+
+def handwritten_app() -> App:
+    decode = msgspec.json.Decoder(NewUser).decode
+
+    async def create_user(c: Context) -> Response:
+        data = decode(await c.request.body())
+        response = c.json(201, UserOut(1, data.name))
+        response.headers.set("location", "/users/1")
+        return response
+
+    app = App()
+    app.post("/users", create_user)
+    app.build()
+    return app
+
+
+def scenarios() -> dict[str, tuple[dict[str, Any], Receive, dict[str, ASGI]]]:
     lettia, starlette = lettia_app(), starlette_app()
     return {
         "S1 static route, plain text": (
             scope_for("/"),
+            receive,
             {
                 "bare ASGI (floor)": bare_asgi,
                 "lettia": lettia,
@@ -109,13 +178,23 @@ def scenarios() -> dict[str, tuple[dict[str, Any], dict[str, ASGI]]]:
         ),
         "S2 path parameter, JSON": (
             scope_for("/users/42"),
+            receive,
             {"lettia": lettia, "starlette": starlette},
+        ),
+        "S3 contract: decode body, JSON response (no guard yet)": (
+            {
+                **scope_for("/users"),
+                "method": "POST",
+                "headers": [(b"content-type", b"application/json")],
+            },
+            receive_json,
+            {"hand-written Core": handwritten_app(), "contract": contract_app()},
         ),
     }
 
 
 async def best_rps(
-    app: ASGI, scope: dict[str, Any], iterations: int, repeat: int
+    app: ASGI, scope: dict[str, Any], receive: Receive, iterations: int, repeat: int
 ) -> float:
     for _ in range(min(1000, iterations)):  # warm up
         await app(scope, receive, send)
@@ -130,15 +209,19 @@ async def best_rps(
 
 async def main(iterations: int, repeat: int) -> None:
     print(f"{iterations} calls x {repeat} runs (best run), in-process")
-    for title, (scope, apps) in scenarios().items():
+    for title, (scope, receive_fn, apps) in scenarios().items():
         results = {
-            name: await best_rps(app, scope, iterations, repeat)
+            name: await best_rps(app, scope, receive_fn, iterations, repeat)
             for name, app in apps.items()
         }
         print(f"\n{title}")
+        reference = "starlette" if "starlette" in results else "hand-written Core"
         for name, rps in results.items():
-            ratio = rps / results["starlette"]
-            print(f"  {name:<20} {rps:>10,.0f} req/s  ({ratio:>5.2f}x starlette)")
+            ratio = rps / results[reference]
+            print(f"  {name:<20} {rps:>10,.0f} req/s  ({ratio:>5.2f}x {reference})")
+        if reference == "hand-written Core":
+            overhead = 1 - results["contract"] / results[reference]
+            print(f"  contract overhead vs {reference}: {overhead:.0%} (target <= 25%)")
 
 
 if __name__ == "__main__":

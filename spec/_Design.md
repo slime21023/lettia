@@ -204,10 +204,10 @@ app.group("/v1").mount(UserService(repo))
 | Request | A msgspec `Struct`; every field must be marked with its source via `Path[T]`, `Query[T]`, `Header[T]`, `Cookie[T]` or `Body[T]`, with no inference; at most one `Body`; write `None` when there are no parameters |
 | Response | Generic status classes such as `Ok[T]`, `Created[T]`, `NoContent`, `NotFound[T]`, all msgspec `Struct`s; `body` can be passed positionally; 401 / 403 and 422 are added automatically |
 | Response headers and content type | A subclass adds `Annotated[str, HeaderName("...")]` fields with `kw_only=True`, and omitting one is a type error; the content type is set with the subclass's `media_type: ClassVar[str]` |
-| Mounting | The implementation class inherits the contract; `mount(impl)` walks the MRO to find the contract and reads annotations from it; one implementation may implement several contracts |
+| Mounting | The implementation class inherits the contract; `mount(impl)` (on `lettia.App` and `lettia.Group`) walks the MRO to find the contract and reads annotations from it; one implementation may implement several contracts. Mounting the same contract twice in one app is rejected, because both mounts would declare the same operationIds |
 | Implementation annotations | Implementation methods must be fully annotated; pyrefly does not infer parameter types from the base class |
 
-Sources are always marked explicitly rather than inferred. If they were inferred from the path template, renaming `{user_id}` would silently turn that field into a query parameter, changing the contract without any error. `Path[T]` and the other markers are type aliases of the form `type Path[T] = Annotated[T, ...]`; checkers treat them as `T`, and the framework recognizes the source with `get_origin(hint) is Path`. For a custom header name, use the long form `Annotated[str, HeaderName("X-Custom")]`. The name is `HeaderName`, not `Header`, because a `type` alias cannot be called: `Header("X-Custom")` is rejected at runtime and by all three checkers, so `Header` is reserved for the alias `Header[T]`.
+A marker must be the outermost part of the annotation, so an optional body is written `Body[NewUser | None]`, not `Body[NewUser] | None`; the latter is reported as an unmarked field. Sources are always marked explicitly rather than inferred. If they were inferred from the path template, renaming `{user_id}` would silently turn that field into a query parameter, changing the contract without any error. `Path[T]` and the other markers are type aliases of the form `type Path[T] = Annotated[T, ...]`; checkers treat them as `T`, and the framework recognizes the source with `get_origin(hint) is Path`. For a custom request header name, put the name inside the marker: `Header[Annotated[str, HeaderName("X-Custom")]]`; the default is the field name with underscores turned into dashes. On a response class the same metadata is written `Annotated[str, HeaderName("X-Custom")]`. The name is `HeaderName`, not `Header`, because a `type` alias cannot be called: `Header("X-Custom")` is rejected at runtime and by all three checkers, so `Header` is reserved for the alias `Header[T]`.
 
 ## Guard
 
@@ -266,13 +266,15 @@ The design of the official DI extension `lettia-di` is in lettia-di: Dependency 
 
 Validation happens in two places only: at startup, the contract structure is checked; at request time, msgspec decodes and validates in a single step. Responses are guaranteed by types, so production does no runtime response validation.
 
-- **Decoding**: decoders are compiled from the request `Struct` at mount time. A failure returns 422 problem+json with msgspec's field path (such as `$.body.name`). In 0.1, query supports only `style: form, explode: true`.
+- **Decoding**: decoders are compiled from the request `Struct` at mount time. Path, query, header and cookie values arrive as strings and are converted in one lenient msgspec call (`"42"` to `42`, `"true"` to `True`); the JSON body is decoded strictly, so `"5"` is not accepted for an `int`. A scalar field takes the first value of a repeated query parameter or header, a list-like field takes all of them. In 0.1, query supports only `style: form, explode: true`.
+- **Failures**: an invalid value returns 422 problem+json whose `errors` member lists where it went wrong, for example `{"in": "body", "path": "$.body.name", "message": "..."}`; `path` is prefixed with the source (`$.path.user_id`, `$.query.expand`, `$.header.x-token`). A body that is not valid JSON is also a 422. Decoding stops at the first error.
+- **Request body**: it is read only when the request type has a `Body` field. A body whose `Content-Type` is not `application/json` (or `+json`) is a 415; a missing `Content-Type` is accepted. An empty body uses the field's default, or `None` when the type allows it, and is otherwise a 422. Size limits are described under Request.
 - **Encoding**: pre-built msgspec encoders are chosen by the response class's `status` and body type. With `App(debug=True)`, the returned value is additionally checked against the declared union.
 - **Codec extension point**: the internal `Codec` protocol has only three operations (build a decoder, build an encoder, produce a JSON Schema); 0.1 implements only msgspec.
 
 ### Startup checks
 
-If any check fails, startup is refused and all problems are listed.
+If any check fails, startup is refused and all problems are listed. Checks run when the app is built (at lifespan startup, or on the first request when the server does not send one); `mount` records its problems on the app instead of raising, so a failing mount does not hide the others.
 
 1. Each `{name}` in a path template corresponds one-to-one to a `Path` field, and contract routes contain no `*`.
 2. The request type is a `Struct` or `None`, every request field has a source marker and there is at most one `Body`; GET, HEAD and DELETE may not have a body.

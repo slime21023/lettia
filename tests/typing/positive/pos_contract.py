@@ -6,6 +6,7 @@ from typing import Annotated, Protocol, assert_type
 import msgspec
 
 from lettia import (
+    App,
     Body,
     Context,
     Created,
@@ -101,3 +102,9 @@ def check_request_fields(req: GetUserReq, c: Context[User]) -> None:
 
 
 service = UserService({})
+
+
+app = App()
+app.mount(service)
+app.group("/v1").mount(service)
+app.group("/v1").group("/admin").mount(service)
