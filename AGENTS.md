@@ -30,7 +30,8 @@ uv run pytest tests/typing -q              # typing tests only
 uv run ruff check src tests benchmarks examples && uv run ruff format --check src tests benchmarks examples
 uv run pyrefly check                       # primary type checker
 uv run pyright && uv run mypy              # compatibility targets
-uv run python benchmarks/run_benchmark.py  # in-process S1/S2/S3 micro-benchmark
+uv run python -m benchmarks.run_benchmark         # in-process S1/S2/S3 regression guard
+uv run python -m benchmarks.run_server_benchmark  # through one uvicorn worker (the design's numbers)
 uv run lettia openapi export examples.users_api:app --output examples/openapi.json
 ```
 

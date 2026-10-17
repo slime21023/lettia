@@ -1,12 +1,12 @@
 """In-process ASGI micro-benchmark for the S1, S2 and S3 scenarios.
 
 S1 is a static route returning plain text; S2 is a path parameter with a JSON
-response; S3 is the full contract path (guard, request decoding, handler, response
-encoding) compared with an equivalent hand-written Core handler. Each
+response; S3 is the full contract path (guard, request decoding, handler,
+response encoding) compared with an equivalent hand-written Core handler. Each
 application is called directly with a prebuilt scope, so the numbers measure
-framework overhead per request without sockets, HTTP parsing or a load generator.
-It is a regression guard; the design's acceptance numbers are measured through a
-single uvicorn worker.
+framework overhead per request without sockets, HTTP parsing or a load
+generator. It is a regression guard; the design's acceptance numbers come from
+``run_server_benchmark.py``, which goes through a real server.
 
     uv run python benchmarks/run_benchmark.py [--iterations 100000] [--repeat 5]
 """
@@ -15,31 +15,28 @@ import argparse
 import asyncio
 import time
 from collections.abc import Awaitable, Callable, MutableMapping
-from typing import Annotated, Any, Protocol
+from typing import Any
 
-import msgspec
-from starlette.applications import Starlette
-from starlette.requests import Request as StarletteRequest
-from starlette.responses import JSONResponse, PlainTextResponse
-from starlette.routing import Route
-
-import lettia
-from lettia import Body, Created, GuardSpec, HeaderName, RequestHead, op
-from lettia.core import App, Context, Response
+from benchmarks.apps import handwritten_app, lettia_app, starlette_app
 
 Message = MutableMapping[str, Any]
 Receive = Callable[[], Awaitable[Message]]
 ASGI = Callable[[dict[str, Any], Receive, Any], Awaitable[None]]
 
 REQUEST: Message = {"type": "http.request", "body": b"", "more_body": False}
+S3_BODY: Message = {
+    "type": "http.request",
+    "body": b'{"name": "Ann"}',
+    "more_body": False,
+}
 
 
-def scope_for(path: str) -> dict[str, Any]:
+def scope_for(path: str, method: str = "GET", **extra: Any) -> dict[str, Any]:
     return {
         "type": "http",
         "asgi": {"version": "3.0"},
         "http_version": "1.1",
-        "method": "GET",
+        "method": method,
         "scheme": "http",
         "path": path,
         "raw_path": path.encode(),
@@ -48,18 +45,12 @@ def scope_for(path: str) -> dict[str, Any]:
         "headers": [(b"host", b"localhost"), (b"accept", b"*/*")],
         "server": ("127.0.0.1", 8000),
         "client": ("127.0.0.1", 50000),
+        **extra,
     }
 
 
 async def receive() -> Message:
     return REQUEST
-
-
-S3_BODY: Message = {
-    "type": "http.request",
-    "body": b'{"name": "Ann"}',
-    "more_body": False,
-}
 
 
 async def receive_json() -> Message:
@@ -85,127 +76,30 @@ async def bare_asgi(scope: dict[str, Any], receive: Any, send: Any) -> None:
     await send({"type": "http.response.body", "body": b"ok", "more_body": False})
 
 
-def lettia_app() -> App:
-    async def healthz(c: Context) -> Response:
-        return c.text(200, "ok")
-
-    async def user(c: Context) -> Response:
-        return c.json(200, {"id": c.path_params["id"], "name": "Ann"})
-
-    app = App()
-    app.get("/", healthz)
-    app.get("/users/{id}", user)
-    app.build()
-    return app
-
-
-def starlette_app() -> Starlette:
-    async def healthz(request: StarletteRequest) -> PlainTextResponse:
-        return PlainTextResponse("ok")
-
-    async def user(request: StarletteRequest) -> JSONResponse:
-        return JSONResponse({"id": request.path_params["id"], "name": "Ann"})
-
-    return Starlette(
-        routes=[Route("/", healthz), Route("/users/{id}", user)],
-    )
-
-
-class NewUser(msgspec.Struct):
-    name: str
-
-
-class UserOut(msgspec.Struct):
-    id: int
-    name: str
-
-
-class CreateUserReq(msgspec.Struct):
-    body: Body[NewUser]
-
-
-class UserCreated(Created[UserOut], kw_only=True):
-    location: Annotated[str, HeaderName("Location")]
-
-
-class Principal(msgspec.Struct):
-    name: str
-
-
-bearer = GuardSpec[Principal]("bearer")
-
-
-async def verify(head: RequestHead) -> Principal:
-    if head.headers.get("authorization") != "Bearer good":
-        raise lettia.core.Unauthorized("bad token")
-    return Principal("ann")
-
-
-class UsersApi(Protocol):
-    @op.post("/users", guard=bearer)
-    async def create_user(
-        self, c: lettia.Context[Principal], req: CreateUserReq
-    ) -> UserCreated: ...
-
-
-class UsersService(UsersApi):
-    async def create_user(
-        self, c: lettia.Context[Principal], req: CreateUserReq
-    ) -> UserCreated:
-        return UserCreated(UserOut(1, req.body.name), location="/users/1")
-
-
-def contract_app() -> lettia.App:
-    app = lettia.App(guards=[bearer.use(verify)])
-    app.mount(UsersService())
-    app.build()
-    return app
-
-
-def handwritten_app() -> App:
-    decode = msgspec.json.Decoder(NewUser).decode
-
-    async def create_user(c: Context) -> Response:
-        await verify(c.request)
-        data = decode(await c.request.body())
-        response = c.json(201, UserOut(1, data.name))
-        response.headers.set("location", "/users/1")
-        return response
-
-    app = App()
-    app.post("/users", create_user)
-    app.build()
-    return app
-
-
 def scenarios() -> dict[str, tuple[dict[str, Any], Receive, dict[str, ASGI]]]:
-    lettia, starlette = lettia_app(), starlette_app()
+    s3_headers = [
+        (b"content-type", b"application/json"),
+        (b"authorization", b"Bearer good"),
+    ]
     return {
         "S1 static route, plain text": (
             scope_for("/"),
             receive,
             {
                 "bare ASGI (floor)": bare_asgi,
-                "lettia": lettia,
-                "starlette": starlette,
+                "lettia": lettia_app,
+                "starlette": starlette_app,
             },
         ),
         "S2 path parameter, JSON": (
             scope_for("/users/42"),
             receive,
-            {"lettia": lettia, "starlette": starlette},
+            {"lettia": lettia_app, "starlette": starlette_app},
         ),
         "S3 contract: guard, decode body, JSON response": (
-            {
-                **scope_for("/users"),
-                "method": "POST",
-                "headers": [
-                    (b"content-type", b"application/json"),
-                    (b"authorization", b"Bearer good"),
-                ],
-            },
+            scope_for("/users", "POST", headers=s3_headers),
             receive_json,
-            {"hand-written Core": handwritten_app(), "contract": contract_app()},
+            {"hand-written Core": handwritten_app, "contract": lettia_app},
         ),
     }
 
