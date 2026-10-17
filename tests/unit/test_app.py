@@ -821,3 +821,23 @@ async def test_path_parameters_are_decoded_once_when_the_server_sends_no_raw_pat
     await app(scope, receive, send)
 
     assert msgspec.json.decode(sent[1]["body"]) == expected
+
+
+def test_group_route_without_a_leading_slash_is_a_startup_problem() -> None:
+    app = App()
+    app.group("/api").get("users", text("x"))
+
+    with pytest.raises(StartupError) as caught:
+        app.build()
+
+    [problem] = caught.value.problems
+    assert "'users'" in problem
+    assert "/api" in problem
+
+
+async def test_group_root_path_is_still_the_prefix_with_a_slash() -> None:
+    app = App()
+    app.group("/api").get("/", text("root"))
+
+    async with client(app) as http:
+        assert (await http.get("/api/")).text == "root"

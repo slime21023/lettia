@@ -110,6 +110,13 @@ class Group(_Routes):
         self._middleware = middleware
 
     def route(self, method: str, path: str, handler: Handler) -> None:
+        if not path.startswith("/"):
+            # Joined to the prefix it would still look valid ("/api" + "users").
+            self._registry.add_problem(
+                f"invalid path {path!r} in group {self._prefix!r}: "
+                "it must start with '/'"
+            )
+            return
         self._registry.register(
             _RouteSpec(method, self._prefix + path, handler, self._middleware)
         )
