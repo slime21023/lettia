@@ -1,60 +1,70 @@
 # Repository Guidelines
 
+`spec/_Design.md` is the source of truth for scope and API shape. Do not edit it
+unless asked; propose changes instead.
+
 ## Project Structure & Module Organization
 
-- `src/lettia/` contains the typed ASGI framework core: `app.py`, routing,
-  request `context.py`, responses, errors, and WebSockets.
-- `src/lettia/middleware/`, `protocols/`, and `ext/` hold composable middleware,
-  binding/validation/rendering contracts, and extensions such as `StaticFiles`.
-- `tests/` contains behavior and regression tests; `examples/` contains runnable
-  REST and static-site examples; `benchmarks/` contains local performance tests.
-- `docs/` contains user guides and component-oriented API references. Update
-  `zensical.toml` when adding documentation pages.
+- `src/lettia/core/` (L0/L1): ASGI adapter, `App`, `Group`, router, `Context`,
+  `Key[T]`, `HTTPError`. Must not import `lettia.contract`.
+- `src/lettia/middleware/` (L1): built-in middleware.
+- `src/lettia/contract/` (L2): `op`, source markers, response classes, `GuardSpec`,
+  `mount`, codec, OpenAPI derivation.
+- `src/lettia/__init__.py`: public entry point re-exporting the common names.
+- `src/lettia/testing/`, `src/lettia/cli/`: test client and `lettia openapi export`.
+- `tests/typing/` (positive and negative fixtures plus snapshots), `tests/unit/`,
+  `tests/integration/`; `benchmarks/` for S1/S2/S3.
+
+Layers depend only downward. Do all parsing of annotations at registration or
+mount time; request-time code only looks things up and calls.
 
 ## Build, Test, and Development Commands
 
 Use Python 3.12+ and `uv`:
 
 ```bash
-uv sync
-uv run pytest                         # tests with the 90% coverage gate
-uv run pytest tests/unit/test_routing.py --no-cov    # focused tests
-uv run ruff check .                   # lint
-uv run pyright                        # type check
-uv run python benchmarks/run_benchmark.py
-uv run zensical build --strict        # documentation build
+uv sync --all-extras
+uv run pytest                              # unit, integration and typing tests
+uv run pytest tests/typing -q              # typing tests only
+uv run ruff check src tests && uv run ruff format --check src tests
+uv run pyrefly check                       # primary type checker
+uv run pyright && uv run mypy              # compatibility targets
 ```
 
-Run an example with `uv run python examples/rest_api.py`, or serve an ASGI app
-with `uv run uvicorn app:app --reload`.
+Run `ruff` only on `src`, `tests` and `benchmarks`: ruff also formats code blocks in
+Markdown, which rewrites `spec/`.
 
 ## Coding Style & Naming Conventions
 
-Use four-space indentation, Python 3.12 type hints, and an 88-character line
-limit. Ruff enforces E/W/F/I/B/C4/UP/ASYNC rules. Use `snake_case` for
-functions, methods, modules, and variables; `PascalCase` for classes; and
-uppercase names for constants. Prefer `attrs` classes with `slots=True` for
-framework data objects, narrow exception handling, and explicit async ASGI
-boundaries.
+Four-space indentation, Python 3.12 syntax (PEP 695 generics and `type` aliases), and
+an 88-character line limit. `snake_case` for functions, methods, modules and
+variables; `PascalCase` for classes; uppercase for constants. Use only typing forms
+that pyrefly, pyright and mypy all check correctly. Prefer explicit, fixed handler
+signatures `(self, c, req)`; never inject by name or by type. msgspec is the only
+runtime dependency; keep `httpx` and similar tools out of the core import path.
 
 ## Testing Guidelines
 
-Name files `tests/<layer>/test_<component>.py` (unit, integration, smoke or
-architecture), mark every test with a registered contract ID, and name tests
-`test_<unit>_<scenario>_<expected_result>()`. Test observable contracts and
-edge cases: routing precedence, middleware order, invalid input, headers,
-streaming, traversal, sessions, and WebSocket disconnects. Add regression tests
-for every bug fix and keep coverage at or above 90%.
+Name files `tests/<layer>/test_<component>.py` and tests
+`test_<unit>_<scenario>_<expected_result>()`. Cover observable contracts and edge
+cases: routing precedence, middleware order, invalid input, guard composition,
+startup checks, deterministic OpenAPI output.
+
+Typing tests: `tests/typing/positive/` holds valid forms that all three checkers must
+accept with zero errors; `negative/` holds one file per class of error. Snapshots in
+`tests/typing/snapshots/` record `(line, code)` per checker. Regenerate with
+`LETTIA_UPDATE_TYPING_SNAPSHOTS=1 uv run pytest tests/typing`, and explain any
+change in the PR. A checker that cannot flag a case goes in `KNOWN_GAPS` with a reason.
 
 ## Commit & Pull Request Guidelines
 
-Use concise imperative subjects, for example
-`Fix HEAD fallback for GET routes`. Pull requests should describe behavior
-changes, link relevant issues, list validation commands, and call out API or
-documentation changes. Include benchmark results for performance work.
+Use concise imperative subjects, for example `Add radix router`. Keep each commit
+single-purpose and green. Pull requests describe behavior changes, link issues, list
+validation commands, and call out public API or design-document changes. Include
+benchmark results for performance work.
 
 ## Security & Configuration Tips
 
-Do not commit secrets. Signed sessions provide integrity, not encryption; the
-in-memory rate limiter is process-local. Treat forwarded proxy headers as
-untrusted unless the deployment explicitly trusts the proxy.
+Do not commit secrets. Treat forwarded proxy headers as untrusted unless the
+deployment explicitly trusts the proxy. Guards read only the request head and run
+before decoding, so unauthenticated requests never see field-level errors.

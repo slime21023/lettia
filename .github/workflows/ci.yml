@@ -13,6 +13,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
         python-version: ["3.12", "3.13", "3.14"]
+    env:
+      UV_PYTHON: ${{ matrix.python-version }}
 
     steps:
       - name: Check out repository
@@ -29,25 +31,22 @@ jobs:
       - name: Install dependencies
         run: uv sync --locked --all-extras
 
-      - name: Run tests
-        run: uv run pytest
-
       - name: Check formatting and lint
         run: |
-          uv run ruff format --check .
-          uv run ruff check .
+          uv run ruff format --check src tests
+          uv run ruff check src tests
 
-      - name: Type check
-        run: uv run pyright
-
-      - name: Pyrefly type check
+      - name: Type check (pyrefly, primary)
         run: uv run pyrefly check
 
-      - name: Pyrefly public API coverage
-        run: uv run pyrefly coverage check src/lettia --strict --public-only --fail-under 100
+      - name: Type check (pyright)
+        run: uv run pyright
 
-      - name: Build documentation
-        run: uv run zensical build --strict
+      - name: Type check (mypy)
+        run: uv run mypy
+
+      - name: Run tests
+        run: uv run pytest
 
   package:
     name: Package validation
