@@ -45,6 +45,9 @@ class MountTarget(Protocol):
     def prefix(self) -> str: ...
 
     @property
+    def debug(self) -> bool: ...
+
+    @property
     def state(self) -> dict[str, object]: ...
 
     def route(self, method: str, path: str, handler: Handler) -> None: ...
@@ -83,7 +86,9 @@ def mount(
                 for problem in problems:
                     target.add_startup_problem(problem)
                 continue
-            handler = _compile(operation, implementation, codec, guards)
+            handler = _compile(
+                operation, implementation, codec, guards, debug=target.debug
+            )
             target.route(operation.spec.method, operation.spec.path, handler)
             mounted.append(
                 MountedOperation(operation, target.prefix + operation.spec.path)
@@ -147,11 +152,13 @@ def _compile(
     implementation: object,
     codec: Codec,
     guards: GuardRegistry,
+    *,
+    debug: bool,
 ) -> Handler:
     """Chain guard, decode, call and encode into one Core handler."""
     run_guard = compile_guard(operation.spec.guard, guards)
     decode = compile_request(operation, codec)
-    encode = compile_responses(operation, codec)
+    encode = compile_responses(operation, codec, debug=debug)
     call = cast(
         Callable[[Context, Any], Awaitable[Reply]],
         getattr(implementation, operation.name),

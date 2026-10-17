@@ -296,3 +296,32 @@ async def test_a_handler_returning_an_undeclared_class_is_a_logged_500(
 
     assert res.status_code == 500
     assert any("does not declare" in str(r.exc_info) for r in caplog.records)
+
+
+class Mismatched(UserService):
+    @override
+    async def get_user(
+        self, c: Context[None], req: GetUserReq
+    ) -> Ok[UserOut] | NotFound[Problem]:
+        return Ok({"id": "not an int", "name": "x"})  # type: ignore[arg-type]
+
+
+async def test_debug_mode_turns_a_body_that_breaks_the_contract_into_a_500() -> None:
+    app = App(debug=True)
+    app.mount(Mismatched({}))
+
+    async with client(app) as http:
+        res = await http.get("/users/1")
+
+    assert res.status_code == 500
+    assert "does not match" in res.json()["detail"]
+
+
+async def test_production_mode_does_not_pay_for_the_body_check() -> None:
+    app = App()
+    app.mount(Mismatched({}))
+
+    async with client(app) as http:
+        res = await http.get("/users/1")
+
+    assert res.status_code == 200

@@ -60,11 +60,11 @@ class Api(Protocol):
     async def nothing(self, c: Context[None], req: None) -> Ok[None]: ...
 
 
-def encoder(name: str) -> Any:
+def encoder(name: str, *, debug: bool = False) -> Any:
     operations, problems = inspect_contract(Api)
     assert problems == []
     operation: Operation = next(o for o in operations if o.name == name)
-    return compile_responses(operation, MsgspecCodec())
+    return compile_responses(operation, MsgspecCodec(), debug=debug)
 
 
 # --- declared responses -------------------------------------------------
@@ -161,3 +161,45 @@ def test_encode_rejects_something_that_is_not_a_response_at_all() -> None:
 
     with pytest.raises(RuntimeError, match="Reply"):
         encoder("delete")(reply)
+
+
+# --- debug check of the body ---------------------------------------------
+
+
+class Stranger(msgspec.Struct):
+    label: str
+
+
+def test_encode_without_debug_does_not_check_the_body_against_the_declaration() -> None:
+    res = encoder("user")(Ok(Stranger("x")))  # type: ignore[arg-type]
+
+    assert res.body == b'{"label":"x"}'
+
+
+def test_encode_in_debug_rejects_a_body_that_does_not_match_the_declaration() -> None:
+    with pytest.raises(RuntimeError) as caught:
+        encoder("user", debug=True)(Ok(Stranger("x")))  # type: ignore[arg-type]
+
+    assert "Api.user" in str(caught.value)
+    assert "does not match" in str(caught.value)
+    assert "UserOut" in str(caught.value)
+
+
+def test_encode_in_debug_names_the_offending_field() -> None:
+    with pytest.raises(RuntimeError, match=r"\$\.id"):
+        encoder("user", debug=True)(Ok({"id": "x"}))  # type: ignore[arg-type]
+
+
+def test_encode_in_debug_accepts_what_the_client_would_see_as_valid() -> None:
+    res = encoder("user", debug=True)(Ok(UserOut(7)))
+    as_dict = encoder("user", debug=True)(Ok({"id": 7}))  # type: ignore[arg-type]
+
+    assert res.body == as_dict.body == b'{"id":7}'
+
+
+def test_encode_in_debug_leaves_non_json_bodies_alone() -> None:
+    assert encoder("text", debug=True)(Text("plain")).body == b"plain"
+
+
+def test_encode_in_debug_still_accepts_responses_without_a_body() -> None:
+    assert encoder("delete", debug=True)(NoContent()).status == 204
