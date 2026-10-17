@@ -7,6 +7,7 @@ part in request handling beyond running those closures.
 
 import inspect
 from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
 from lettia.contract.codec import Codec, MsgspecCodec
@@ -21,14 +22,27 @@ from lettia.contract.responses import Reply
 from lettia.core import Context, Handler, Response
 
 _OPERATION_IDS_KEY = "lettia.operation_ids"
+MOUNTED_KEY = "lettia.mounted_operations"
+"""``App.state`` key of the list of :class:`MountedOperation`."""
 GUARDS_KEY = "lettia.guards"
 """``App.state`` key under which the guard implementations are stored."""
 
 type GuardRegistry = Mapping[GuardSpec[Any], GuardImpl[Any]]
 
 
+@dataclass(frozen=True, slots=True)
+class MountedOperation:
+    """An operation together with the full path it is served under."""
+
+    operation: Operation
+    path: str
+
+
 class MountTarget(Protocol):
     """What ``mount`` needs from an ``App`` or a ``Group``."""
+
+    @property
+    def prefix(self) -> str: ...
 
     @property
     def state(self) -> dict[str, object]: ...
@@ -57,6 +71,7 @@ def mount(
         return
 
     operation_ids = _operation_ids(target)
+    mounted = cast(list[MountedOperation], target.state.setdefault(MOUNTED_KEY, []))
     guards = cast(GuardRegistry, target.state.get(GUARDS_KEY, {}))
     for contract in contracts:
         operations, problems = inspect_contract(contract)
@@ -70,6 +85,9 @@ def mount(
                 continue
             handler = _compile(operation, implementation, codec, guards)
             target.route(operation.spec.method, operation.spec.path, handler)
+            mounted.append(
+                MountedOperation(operation, target.prefix + operation.spec.path)
+            )
 
 
 def _contracts_of(cls: type) -> list[type]:
