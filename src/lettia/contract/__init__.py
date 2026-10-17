@@ -6,7 +6,6 @@ from lettia.contract.guards import (
     GuardImpl,
     GuardSpec,
     HttpBearer,
-    RequestHead,
     public,
 )
 from lettia.contract.markers import Body, Cookie, Header, HeaderName, Path, Query
@@ -31,7 +30,6 @@ __all__ = [
     "Problem",
     "Query",
     "Reply",
-    "RequestHead",
     "op",
     "public",
 ]

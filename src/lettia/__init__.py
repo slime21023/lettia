@@ -17,11 +17,10 @@ from lettia.contract import (
     Problem,
     Query,
     Reply,
-    RequestHead,
     op,
     public,
 )
-from lettia.core import Key
+from lettia.core import Key, RequestHead
 
 __all__ = [
     "ApiKeyHeader",

@@ -7,6 +7,8 @@ from lettia.core.context import Context
 from lettia.core.errors import ClientDisconnect, Forbidden, HTTPError, Unauthorized
 from lettia.core.headers import Headers, MutableHeaders
 from lettia.core.key import Key
+from lettia.core.query import QueryParams
+from lettia.core.request import Request, RequestHead
 
 __all__ = [
     "ClientDisconnect",
@@ -16,5 +18,8 @@ __all__ = [
     "Headers",
     "Key",
     "MutableHeaders",
+    "QueryParams",
+    "Request",
+    "RequestHead",
     "Unauthorized",
 ]

@@ -5,9 +5,7 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
-
-class RequestHead:
-    """The request head a guard may read; guards run before decoding."""
+from lettia.core.request import RequestHead
 
 
 @dataclass(frozen=True, slots=True)
