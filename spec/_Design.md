@@ -66,7 +66,7 @@ Request-time flow: Router match → middleware chain → guard → decode and va
 
 | Module | Layer | Contents |
 | --- | --- | --- |
-| `lettia.core` | L0, L1 | ASGI adapter, `App`, `Group`, Router, `Context`, `Key[T]`, `HTTPError` |
+| `lettia.core` | L0, L1 | ASGI adapter, `Headers`, `RequestHead`, `Request`, `Response`, `App`, `Group`, Router, `Context`, `Key[T]`, `HTTPError` |
 | `lettia.middleware` | L1 | Built-in middleware |
 | `lettia.contract` | L2 | `op`, source markers, response classes, `GuardSpec`, `mount`, Codec, OpenAPI derivation |
 | `lettia` | L2 | Public entry point: an `App` extending `core.App`, `Context[G]`, and re-exports of common names |
@@ -97,17 +97,30 @@ app.group("/static").get("/*", serve_file)
 - `*` may appear only at the end of a Core route; it matches the rest of the path and its value is stored in `c.path_params["*"]`. Contract routes may not use `*`, because OpenAPI cannot describe it.
 - Matching priority is static > parameter > wildcard, implemented as a radix tree.
 - Paths are matched strictly; trailing slashes are not handled automatically.
+- Matching works on the ASGI `raw_path`: it is split into segments first, and only parameter values are percent-decoded afterwards, so an encoded `%2F` never becomes a segment boundary. When the server omits `raw_path`, the router falls back to the decoded `path`.
 - An unknown path returns 404; a known path with the wrong method returns 405 with an `Allow` header; GET routes answer HEAD automatically.
+
+### Request
+
+- `RequestHead` holds `method`, `path`, `headers`, `query`, `cookies` and `client`; `Request` extends it with `await body()` and `stream()`. Guards receive the same object typed as `RequestHead`, so they can read only the head.
+- `headers`, `query` and `cookies` are parsed lazily on first access and cached. `headers` is case-insensitive and multi-valued (`get`, `get_all`); `query` is multi-valued; `cookies` is single-valued.
+- A request is built from a small body-source interface instead of the ASGI `scope` and `receive` directly. The ASGI adapter supplies the real source; `make_context` supplies an in-memory one, so handlers can be tested without ASGI.
+- `body()` reads the whole body once and caches it. `stream()` yields chunks. They are mutually exclusive: using one after the other raises an error.
+- `App(max_body_size=...)` limits the request body, 5 MiB by default (`None` disables it). Exceeding it raises `HTTPError(413)`, both when `Content-Length` announces too much and when a chunked body grows past the limit.
+- If the client disconnects while the body is being read, `body()` and `stream()` raise `ClientDisconnect` and nothing is sent.
+- Proxy headers such as `X-Forwarded-For` are not interpreted in 0.1; `client` is the address of the direct peer.
 
 ### Handler and Response
 
 - `type Handler = Callable[[Context], Awaitable[Response]]`.
+- `Response` is a mutable value object with `status`, `headers` and `body`; the body is `bytes`, an async iterator of `bytes`, or empty. It does not know about ASGI `send`. Mutability lets middleware such as `cors` and `request_id` add headers after `next` returns without copying; middleware owns the response it receives, and a response must not be shared across requests.
+- The ASGI adapter serializes the response: it sets `content-length` for `bytes` bodies, streams other bodies in chunks, drops the body for `HEAD`, `204` and `304`, and lowercases header names.
 - `Context` provides response helpers: `c.json(status, data)` (msgspec encoding), `c.text(status, s)`, `c.bytes(status, data, media_type)`, `c.no_content()`, `c.stream(status, chunks, media_type)`.
 - A contract handler does not return a `Response` directly; it returns a response class, which the contract layer converts.
 
 ### Context
 
-- Request data: `c.request` provides `method`, `path`, `headers` (case-insensitive, multi-valued), `query` (multi-valued), `cookies`, `client`, `await body()` and `stream()`; the raw path-parameter strings are in `c.path_params`.
+- Request data: `c.request` is the `Request` described above; the raw path-parameter strings are in `c.path_params`.
 - Request-scoped shared data uses `Key[T]`: `RequestId.set(c, v)` and `RequestId.get(c) -> T`, which raises `LookupError` if unset. The accessors live on the key so that `T` is fixed by the instance.
 - Extension point: `App(context_class=...)`. `lettia.App` uses it to inject `Context[G]`, a subclass of the Core `Context` with an extra `principal: G`, so middleware and `Key[T]` work for both kinds of handler.
 
