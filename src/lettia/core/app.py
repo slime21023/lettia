@@ -273,7 +273,7 @@ class App(_Routes):
                 return await not_found(c)
             except ClientDisconnect:
                 raise
-            except Exception as exc:  # raised by middleware, outside the inner guard
+            except Exception as exc:  # defensive: every layer already converts
                 return await self._to_response(c, exc)
 
         return asgi_app(
