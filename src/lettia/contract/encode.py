@@ -19,7 +19,7 @@ class _Plan:
     has_body: bool
     json_body: bool
     content_type: tuple[bytes, bytes]
-    header_fields: tuple[tuple[str, bytes], ...]
+    header_fields: tuple[tuple[str, bytes, bool], ...]  # attribute, name, required
     check: Callable[[bytes], Any] | None
     declared: str
 
@@ -27,17 +27,28 @@ class _Plan:
 def _plan(shape: ResponseShape, codec: Codec, *, debug: bool) -> _Plan:
     media = shape.media_type.split(";", 1)[0].strip().lower()
     json_body = media == "application/json" or media.endswith("+json")
+    media_type = shape.media_type
+    if (
+        media.startswith("text/")
+        and shape.body_type is str
+        and "charset" not in media_type.lower()
+    ):
+        media_type = f"{media_type}; charset=utf-8"  # str bodies are sent as UTF-8
     check = None
     if debug and json_body and shape.body_type is not None:
         check = codec.build_decoder(shape.body_type, json=True)
     return _Plan(
         status=shape.status,
-        media_type=shape.media_type,
+        media_type=media_type,
         has_body=shape.body_type is not None,
         json_body=json_body,
-        content_type=(b"content-type", shape.media_type.encode("latin-1")),
+        content_type=(b"content-type", media_type.encode("latin-1")),
         header_fields=tuple(
-            (header.attribute, MutableHeaders.validated_name(header.wire_name))
+            (
+                header.attribute,
+                MutableHeaders.validated_name(header.wire_name),
+                header.required,
+            )
             for header in shape.headers
         ),
         check=check,
@@ -84,10 +95,17 @@ def compile_responses(
                 _verify(plan.check, plan, body, reply, operation)
         else:
             headers = MutableHeaders()
-        for attribute, name in plan.header_fields:
+        for attribute, name, required in plan.header_fields:
             value = getattr(reply, attribute)
             if value is not None:
                 headers.add_known(name, value if isinstance(value, str) else str(value))
+            elif required:
+                # msgspec does not check types on construction, so None gets here.
+                raise RuntimeError(
+                    f"{operation.contract.__qualname__}.{operation.name} returned a "
+                    f"{type(reply).__name__} without the required header field "
+                    f"{attribute!r}"
+                )
         return Response(plan.status, body, headers)
 
     return encode

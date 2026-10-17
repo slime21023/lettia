@@ -325,3 +325,23 @@ async def test_production_mode_does_not_pay_for_the_body_check() -> None:
         res = await http.get("/users/1")
 
     assert res.status_code == 200
+
+
+class Unlocated(UserService):
+    @override
+    async def create_user(self, c: Context[None], req: CreateUserReq) -> UserCreated:
+        return UserCreated(UserOut(1, "x"), location=None)  # type: ignore[arg-type]
+
+
+async def test_a_missing_required_response_header_is_a_logged_500(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = App()
+    app.mount(Unlocated({}))
+
+    with caplog.at_level(logging.ERROR, logger="lettia"):
+        async with client(app) as http:
+            res = await http.post("/users", json={"name": "Bo"})
+
+    assert res.status_code == 500
+    assert any("required header" in str(r.exc_info) for r in caplog.records)

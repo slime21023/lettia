@@ -38,6 +38,10 @@ class Blob(Ok[bytes]):
     media_type = "application/octet-stream"
 
 
+class Html(Ok[str]):
+    media_type = "text/html"
+
+
 class Api(Protocol):
     @op.get("/user", guard=public)
     async def user(
@@ -55,6 +59,9 @@ class Api(Protocol):
 
     @op.get("/blob", guard=public)
     async def blob(self, c: Context[None], req: None) -> Blob: ...
+
+    @op.get("/html", guard=public)
+    async def html(self, c: Context[None], req: None) -> Html: ...
 
     @op.get("/nothing", guard=public)
     async def nothing(self, c: Context[None], req: None) -> Ok[None]: ...
@@ -203,3 +210,32 @@ def test_encode_in_debug_leaves_non_json_bodies_alone() -> None:
 
 def test_encode_in_debug_still_accepts_responses_without_a_body() -> None:
     assert encoder("delete", debug=True)(NoContent()).status == 204
+
+
+def test_encode_rejects_a_required_header_that_is_none() -> None:
+    reply = UserCreated(UserOut(1), location=None)  # type: ignore[arg-type]
+
+    with pytest.raises(RuntimeError) as caught:
+        encoder("create")(reply)
+
+    assert "Api.create" in str(caught.value)
+    assert "location" in str(caught.value)
+
+
+def test_encode_text_media_type_without_charset_gets_utf8() -> None:
+    res = encoder("html")(Html("<p>hé</p>"))
+
+    assert res.headers["content-type"] == "text/html; charset=utf-8"
+    assert res.body == "<p>hé</p>".encode()
+
+
+def test_encode_keeps_a_charset_the_class_declares() -> None:
+    assert encoder("text")(Text("x")).headers["content-type"] == (
+        "text/plain; charset=utf-8"
+    )
+
+
+def test_encode_does_not_add_a_charset_to_binary_media_types() -> None:
+    assert encoder("blob")(Blob(b"x")).headers["content-type"] == (
+        "application/octet-stream"
+    )
