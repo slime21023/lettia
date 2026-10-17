@@ -76,8 +76,10 @@ lettia openapi export examples.users_api:app --output examples/openapi.json
 
 **A small core.** Routes that do not belong in a contract (health checks,
 webhooks, files) use the Echo-style core directly: `app.get("/x", handler)`,
-groups, `Middleware = Callable[[Handler], Handler]`, and the built-in `recover`,
-`request_id`, `access_log` and `cors` in `lettia.middleware`. `import lettia.core`
+groups, `Middleware = Callable[[Handler], Handler]`, and the built-in
+`request_id`, `access_log` and `cors` in `lettia.middleware`. Errors are turned
+into responses at every layer, so an exception in a middleware still reaches the
+middleware outside it as a response. `import lettia.core`
 does not load the contract layer.
 
 **Testing.** Handlers are ordinary async methods, so call them directly with

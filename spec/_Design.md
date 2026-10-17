@@ -81,10 +81,10 @@ The Core layer corresponds to Echo itself: `App`, `Group`, routing, middleware, 
 
 ```python
 from lettia.core import App, Context, Response
-from lettia.middleware import recover, request_id
+from lettia.middleware import access_log, request_id
 
 app = App()
-app.use(recover(), request_id())
+app.use(access_log(), request_id())
 
 async def healthz(c: Context) -> Response:
     return c.text(200, "ok")
@@ -131,13 +131,14 @@ app.group("/static").get("/*", serve_file)
 - `type Middleware = Callable[[Handler], Handler]`, the same `next`-wrapping style as Echo.
 - Attach globally with `app.use(...)`, or to a group with `app.group(prefix, *middleware)`; the call chain for each route is assembled at registration time.
 - Middleware runs before guards, so it cannot read `principal`.
-- 0.1 ships `recover` (turns uncaught exceptions into 500), `request_id`, `access_log` and `cors`.
+- 0.1 ships `request_id`, `access_log` and `cors`. There is no `recover` middleware: the framework already converts errors at every layer (see Error handling).
 
 ### Error handling
 
 - An `HTTPError(status, title, detail=None)` raised at any layer is converted centrally by `App(error_handler=...)`; the default output is RFC 9457 problem+json.
 - The `Unauthorized` and `Forbidden` used by guards are subclasses of `HTTPError`.
 - Any other exception becomes a 500; with `App(debug=True)`, an exception summary is added to `detail`.
+- Errors are converted around the handler and around every middleware, so a middleware that raises (an authentication check, say) still yields a response that the middleware outside it can decorate and log: a 401 keeps its CORS headers and request id. This costs one extra call per middleware layer.
 
 ### Lifecycle
 
