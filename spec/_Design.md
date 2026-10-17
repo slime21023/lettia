@@ -236,7 +236,9 @@ app = App(guards=[
 - **Chained `&`**: `&` is left-associative, so `a & b & c` is `GuardSpec[tuple[tuple[A, B], C]]` and the context principal is nested the same way. Group guards explicitly (`a & (b & c)`) when a flat shape is wanted.
 
 - **Implementation type**: `fn` is a `Callable[[RequestHead], Awaitable[G]]`, with `G` fixed by the spec instance; a mismatched return type is reported.
-- **Failure**: raise `Unauthorized` (401) or `Forbidden` (403). When every branch of `|` fails, the response is 403 if any of them raised `Forbidden`.
+- **Failure**: raise `Unauthorized` (401) or `Forbidden` (403); both accept `headers`, for example `WWW-Authenticate` on a 401. When every branch of `|` fails, the response is the first `Forbidden` if any branch raised one, otherwise the first `Unauthorized`, with that branch's detail and headers. Only these two errors mean "this guard said no": a guard that crashes, or raises another `HTTPError` such as a 503 from an unreachable key service, stops evaluation and is answered as that error, so a failing verifier never lets a request fall through to the next branch.
+- **Optional authentication**: `public` can be a branch of `|`. `bearer | public` is tried in order and falls back to an anonymous caller, its type is `GuardSpec[User | None]`, and `c.principal` is `None` for anonymous requests.
+- **Assembly**: implementations are passed as `App(guards=[...])`. A guard may appear once; implementing it twice, or using a guard that nobody implemented, is a startup problem that names the operation. Guards that no operation uses are allowed. Composite guards (`a | b`, `a & b`) cannot be implemented; implement the guards they are made of.
 - **Reads only the request head**: guards run before decoding, so an unauthenticated request never sees 422 field details. Resource-level authorization (for example, "may only edit your own posts") therefore belongs in the handler.
 - **Versus middleware**: middleware acts on a group, does not change the `Context` type, and is not part of the contract; a guard acts on a single operation, determines `Context[G]`, and is part of the contract.
 
