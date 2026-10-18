@@ -82,67 +82,67 @@ def _form_reader(
             values: dict[str, Any] = {}
             if decode_form is not None:
                 raw_form: dict[str, str | list[str]] = {}
-                for f in form_fields:
-                    wire = f.wire_name
+                for field in form_fields:
+                    wire = field.wire_name
                     if wire in form_data and form_data[wire]:
-                        raw_form[f.name] = (
-                            form_data[wire] if f.multi else form_data[wire][0]
+                        raw_form[field.name] = (
+                            form_data[wire] if field.multi else form_data[wire][0]
                         )
                 try:
                     parsed_form = decode_form(raw_form)
                 except CodecError as exc:
                     raise _invalid("form", exc) from None
-                for f in form_fields:
-                    values[f.name] = getattr(parsed_form, f.name)
+                for field in form_fields:
+                    values[field.name] = getattr(parsed_form, field.name)
 
             if file_fields:
                 files_by_name: dict[str, list[UploadFile]] = {}
                 for file in files:
                     if file.name is not None:
                         files_by_name.setdefault(file.name, []).append(file)
-                for f in file_fields:
-                    wire = f.wire_name
+                for field in file_fields:
+                    wire = field.wire_name
                     uploaded = files_by_name.get(wire, [])
-                    if f.multi:
+                    if field.multi:
                         if uploaded:
-                            values[f.name] = uploaded
-                        elif f.required:
+                            values[field.name] = uploaded
+                        elif field.required:
                             raise _invalid(
                                 "file",
                                 CodecError(
-                                    f"missing required field `{f.name}`",
-                                    f"$.{f.name}",
+                                    f"missing required field `{field.name}`",
+                                    f"$.{field.name}",
                                 ),
                             )
                         else:
-                            info = declared[f.name]
+                            info = declared[field.name]
                             if info.default is not msgspec.NODEFAULT:
-                                values[f.name] = info.default
+                                values[field.name] = info.default
                             elif callable(info.default_factory):
-                                values[f.name] = info.default_factory()
+                                values[field.name] = info.default_factory()
                             else:
-                                values[f.name] = []
+                                values[field.name] = []
                     else:
                         if uploaded:
-                            values[f.name] = uploaded[0]
-                        elif f.required:
+                            values[field.name] = uploaded[0]
+                        elif field.required:
                             raise _invalid(
                                 "file",
                                 CodecError(
-                                    f"missing required field `{f.name}`",
-                                    f"$.{f.name}",
+                                    f"missing required field `{field.name}`",
+                                    f"$.{field.name}",
                                 ),
                             )
-                        elif f.nullable:
-                            values[f.name] = None
+                        elif field.nullable:
+                            values[field.name] = None
                         else:
-                            info = declared[f.name]
+                            info = declared[field.name]
                             if info.default is not msgspec.NODEFAULT:
-                                values[f.name] = info.default
+                                values[field.name] = info.default
                             elif callable(info.default_factory):
-                                values[f.name] = info.default_factory()
+                                values[field.name] = info.default_factory()
                             else:
-                                values[f.name] = None
+                                values[field.name] = None
             return values
         except Exception:
             for file in files:
@@ -158,9 +158,9 @@ def _params_reader(
     declared: dict[str, msgspec.structs.FieldInfo],
     codec: Codec,
 ) -> Callable[[Context], dict[str, Any]]:
-    names = tuple(f.name for f in params)
-    source_of = {f.name: f.source for f in params}
-    extractors = [(f.name, _extractor(f)) for f in params]
+    names = tuple(field.name for field in params)
+    source_of = {field.name: field.source for field in params}
+    extractors = [(field.name, _extractor(field)) for field in params]
     decode_params = codec.build_decoder(_params_type(params, declared), json=False)
 
     def read(c: Context) -> dict[str, Any]:
@@ -185,15 +185,19 @@ def _params_type(
 ) -> type[msgspec.Struct]:
     """A Struct of the non-body fields, typed without their source markers."""
     spec: list[tuple[str, Any] | tuple[str, Any, Any]] = []
-    for f in params:
-        info = declared[f.name]
-        if f.required:
-            spec.append((f.name, f.type))
+    for field in params:
+        info = declared[field.name]
+        if field.required:
+            spec.append((field.name, field.type))
         elif info.default is not msgspec.NODEFAULT:
-            spec.append((f.name, f.type, info.default))
+            spec.append((field.name, field.type, info.default))
         else:
             spec.append(
-                (f.name, f.type, msgspec.field(default_factory=info.default_factory))
+                (
+                    field.name,
+                    field.type,
+                    msgspec.field(default_factory=info.default_factory),
+                )
             )
     return msgspec.defstruct("Params", spec, kw_only=True)
 

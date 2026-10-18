@@ -189,16 +189,16 @@ class _Builder:
     # --- request ----------------------------------------------------------
 
     def _parameters(self, fields: Sequence[RequestField]) -> list[dict[str, Any]]:
-        params = [f for f in fields if f.source in _LOCATION_ORDER]
-        params.sort(key=lambda f: (_LOCATION_ORDER[f.source], f.wire_name))
+        params = [field for field in fields if field.source in _LOCATION_ORDER]
+        params.sort(key=lambda field: (_LOCATION_ORDER[field.source], field.wire_name))
         return [
             {
-                "name": f.wire_name,
-                "in": f.source,
-                "required": f.source == "path" or f.required,
-                "schema": self._slot(f.type, self._default_of(f)),
+                "name": field.wire_name,
+                "in": field.source,
+                "required": field.source == "path" or field.required,
+                "schema": self._slot(field.type, self._default_of(field)),
             }
-            for f in params
+            for field in params
         ]
 
     def _default_of(self, field: RequestField) -> object:
@@ -226,21 +226,23 @@ class _Builder:
         properties: dict[str, Any] = {}
         required: list[str] = []
 
-        for f in form_fields:
-            properties[f.wire_name] = self._slot(f.type, self._default_of(f))
-            if f.required:
-                required.append(f.wire_name)
+        for field in form_fields:
+            properties[field.wire_name] = self._slot(
+                field.type, self._default_of(field)
+            )
+            if field.required:
+                required.append(field.wire_name)
 
-        for f in file_fields:
-            if f.multi:
-                properties[f.wire_name] = {
+        for field in file_fields:
+            if field.multi:
+                properties[field.wire_name] = {
                     "type": "array",
                     "items": {"type": "string", "format": "binary"},
                 }
             else:
-                properties[f.wire_name] = {"type": "string", "format": "binary"}
-            if f.required:
-                required.append(f.wire_name)
+                properties[field.wire_name] = {"type": "string", "format": "binary"}
+            if field.required:
+                required.append(field.wire_name)
 
         schema: dict[str, Any] = {
             "type": "object",

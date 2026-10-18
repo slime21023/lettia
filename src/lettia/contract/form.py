@@ -7,7 +7,7 @@ from typing import BinaryIO
 
 from lettia.core import Headers, HTTPError, Request
 
-_DEFAULT_SPOOL_MAX_SIZE = 1024 * 1024  # 1 MiB in memory before spilling to disk
+_DEFAULT_SPOOL_MAX_BYTES = 1024 * 1024  # 1 MiB in memory before spilling to disk
 
 
 class UploadFile:
@@ -32,7 +32,7 @@ class UploadFile:
         self._file: BinaryIO | SpooledTemporaryFile[bytes] = (
             file
             if file is not None
-            else SpooledTemporaryFile(max_size=_DEFAULT_SPOOL_MAX_SIZE)
+            else SpooledTemporaryFile(max_size=_DEFAULT_SPOOL_MAX_BYTES)
         )
         self.filename = filename
         self.content_type = content_type
@@ -58,10 +58,13 @@ class UploadFile:
     async def close(self) -> None:
         self._file.close()
 
-    async def stream(self, chunk_size: int = 65536) -> AsyncIterator[bytes]:
+    async def stream(
+        self, chunk_size: int = 65536, *, chunk_size_bytes: int | None = None
+    ) -> AsyncIterator[bytes]:
+        size_bytes = chunk_size_bytes if chunk_size_bytes is not None else chunk_size
         await self.seek(0)
         while True:
-            chunk = await self.read(chunk_size)
+            chunk = await self.read(size_bytes)
             if not chunk:
                 break
             yield chunk
@@ -112,9 +115,9 @@ async def parse_form_data(
 
 def _extract_boundary(params_raw: str) -> str:
     for param in params_raw.split(";"):
-        key, sep, val = param.strip().partition("=")
-        if sep and key.strip().lower() == "boundary":
-            boundary = val.strip()
+        param_key, separator, param_value = param.strip().partition("=")
+        if separator and param_key.strip().lower() == "boundary":
+            boundary = param_value.strip()
             if boundary.startswith('"') and boundary.endswith('"'):
                 boundary = boundary[1:-1]
             return boundary
@@ -125,22 +128,23 @@ async def _parse_multipart(
     stream: AsyncIterator[bytes], boundary: str
 ) -> tuple[dict[str, list[str]], list[UploadFile]]:
     stream_iter = aiter(stream)
-    buf = bytearray()
+    buffer = bytearray()
     initial_delim = b"--" + boundary.encode("latin-1")
     part_delim = b"\r\n--" + boundary.encode("latin-1")
-    delim_len = len(part_delim)
+    delim_byte_count = len(part_delim)
     form_data: dict[str, list[str]] = {}
     files: list[UploadFile] = []
 
     try:
-        # 1. Seek past initial boundary
+        # Why: RFC 7578 initial boundary is prefixed with '--' and may follow
+        # an optional preamble.
         while True:
-            idx = buf.find(initial_delim)
-            if idx != -1:
-                del buf[: idx + len(initial_delim)]
+            boundary_index = buffer.find(initial_delim)
+            if boundary_index != -1:
+                del buffer[: boundary_index + len(initial_delim)]
                 break
             try:
-                buf.extend(await anext(stream_iter))
+                buffer.extend(await anext(stream_iter))
             except StopAsyncIteration:
                 raise HTTPError(
                     400,
@@ -148,149 +152,150 @@ async def _parse_multipart(
                     "unexpected EOF waiting for initial multipart boundary",
                 ) from None
 
-        # Check if empty multipart: immediately `--`
-        while len(buf) < 2:
+        # Why: An empty multipart payload terminates immediately with '--'
+        # after the initial boundary.
+        while len(buffer) < 2:
             try:
-                buf.extend(await anext(stream_iter))
+                buffer.extend(await anext(stream_iter))
             except StopAsyncIteration:
                 raise HTTPError(
                     400, "Bad Request", "unexpected EOF after initial boundary"
                 ) from None
 
-        if bytes(buf[:2]) == b"--":
+        if bytes(buffer[:2]) == b"--":
             return {}, []
-        if bytes(buf[:2]) == b"\r\n":
-            del buf[:2]
+        if bytes(buffer[:2]) == b"\r\n":
+            del buffer[:2]
 
-        # 2. Loop parsing each part
         while True:
-            # Read headers
             while True:
-                header_end = buf.find(b"\r\n\r\n")
+                header_end = buffer.find(b"\r\n\r\n")
                 if header_end != -1:
-                    raw_headers = bytes(buf[:header_end])
-                    del buf[: header_end + 4]
+                    raw_headers = bytes(buffer[:header_end])
+                    del buffer[: header_end + 4]
                     break
                 try:
-                    buf.extend(await anext(stream_iter))
+                    buffer.extend(await anext(stream_iter))
                 except StopAsyncIteration:
                     raise HTTPError(
                         400, "Bad Request", "unexpected EOF reading multipart headers"
                     ) from None
 
             headers = _parse_part_headers(raw_headers)
-            disp = headers.get("content-disposition", "")
-            name, filename = _parse_content_disposition(disp)
+            disposition = headers.get("content-disposition", "")
+            field_name, filename = _parse_content_disposition(disposition)
             part_content_type = headers.get("content-type")
 
             is_file = filename is not None
             upload: UploadFile | None = None
-            text_acc: bytearray | None = None
+            text_buffer: bytearray | None = None
             if is_file:
                 upload = UploadFile(
                     filename=filename,
                     content_type=part_content_type,
                     headers=headers,
-                    name=name,
+                    name=field_name,
                 )
             else:
-                text_acc = bytearray()
+                text_buffer = bytearray()
 
-            # Read part body until part_delim
+            # Why: part_delim starts with CRLF (\r\n--), which acts as part terminator.
             while True:
-                idx = buf.find(part_delim)
-                if idx != -1:
-                    chunk = bytes(buf[:idx])
+                boundary_index = buffer.find(part_delim)
+                if boundary_index != -1:
+                    chunk = bytes(buffer[:boundary_index])
                     if upload is not None:
                         upload.write(chunk)
-                    elif text_acc is not None:
-                        text_acc.extend(chunk)
-                    del buf[: idx + delim_len]
+                    elif text_buffer is not None:
+                        text_buffer.extend(chunk)
+                    del buffer[: boundary_index + delim_byte_count]
                     break
 
-                if len(buf) > delim_len:
-                    flush_len = len(buf) - delim_len
-                    chunk = bytes(buf[:flush_len])
+                if len(buffer) > delim_byte_count:
+                    flush_byte_count = len(buffer) - delim_byte_count
+                    chunk = bytes(buffer[:flush_byte_count])
                     if upload is not None:
                         upload.write(chunk)
-                    elif text_acc is not None:
-                        text_acc.extend(chunk)
-                    del buf[:flush_len]
+                    elif text_buffer is not None:
+                        text_buffer.extend(chunk)
+                    del buffer[:flush_byte_count]
 
                 try:
-                    buf.extend(await anext(stream_iter))
+                    buffer.extend(await anext(stream_iter))
                 except StopAsyncIteration:
                     raise HTTPError(
                         400, "Bad Request", "unexpected EOF reading multipart part body"
                     ) from None
 
-            # Finalize part
             if upload is not None:
                 await upload.seek(0)
                 files.append(upload)
-            elif text_acc is not None:
-                value = text_acc.decode("utf-8", errors="replace")
-                form_data.setdefault(name, []).append(value)
+            elif text_buffer is not None:
+                field_value = text_buffer.decode("utf-8", errors="replace")
+                form_data.setdefault(field_name, []).append(field_value)
 
-            # Check next 2 bytes after delimiter
-            while len(buf) < 2:
+            # Why: After delimiter, '--' indicates end of payload;
+            # CRLF indicates the next part follows.
+            while len(buffer) < 2:
                 try:
-                    buf.extend(await anext(stream_iter))
+                    buffer.extend(await anext(stream_iter))
                 except StopAsyncIteration:
                     raise HTTPError(
                         400, "Bad Request", "unexpected EOF after multipart boundary"
                     ) from None
 
-            if bytes(buf[:2]) == b"--":
+            if bytes(buffer[:2]) == b"--":
                 break
-            if bytes(buf[:2]) == b"\r\n":
-                del buf[:2]
+            if bytes(buffer[:2]) == b"\r\n":
+                del buffer[:2]
                 continue
             raise HTTPError(400, "Bad Request", "malformed multipart boundary line")
 
         return form_data, files
     except Exception:
-        for f in files:
-            await f.close()
+        for upload_file in files:
+            await upload_file.close()
         raise
 
 
-def _parse_part_headers(raw: bytes) -> Headers:
-    lines = raw.split(b"\r\n")
+def _parse_part_headers(raw_headers: bytes) -> Headers:
+    lines = raw_headers.split(b"\r\n")
     pairs: list[tuple[bytes, bytes]] = []
     for line in lines:
         if not line:
             continue
-        name, sep, val = line.partition(b":")
-        if sep:
-            pairs.append((name.strip().lower(), val.strip()))
+        header_name, separator, header_value = line.partition(b":")
+        if separator:
+            pairs.append((header_name.strip().lower(), header_value.strip()))
     return Headers(pairs)
 
 
-def _parse_content_disposition(value: str) -> tuple[str, str | None]:
+def _parse_content_disposition(disposition_header: str) -> tuple[str, str | None]:
     name = ""
     filename = None
-    parts = value.split(";")
+    parts = disposition_header.split(";")
     for part in parts[1:]:
         part = part.strip()
         if not part:
             continue
-        key, sep, val = part.partition("=")
-        if not sep:
+        param_key, separator, param_value = part.partition("=")
+        if not separator:
             continue
-        key = key.strip().lower()
-        val = val.strip()
-        if key == "name":
-            name = _decode_header_str(val.strip('"'))
-        elif key == "filename":
-            filename = _decode_header_str(val.strip('"'))
-        elif key == "filename*" and filename is None:
-            _, _, encoded = val.partition("''")
-            filename = urllib.parse.unquote(encoded or val.strip('"'))
+        param_key = param_key.strip().lower()
+        param_value = param_value.strip()
+        if param_key == "name":
+            name = _decode_header_str(param_value.strip('"'))
+        elif param_key == "filename":
+            filename = _decode_header_str(param_value.strip('"'))
+        elif param_key == "filename*" and filename is None:
+            # Why: RFC 5987 encodes charset''language''filename format
+            _, _, encoded = param_value.partition("''")
+            filename = urllib.parse.unquote(encoded or param_value.strip('"'))
     return name, filename
 
 
 def _decode_header_str(value: str) -> str:
+    # Why: RFC 2047 and browsers transmit non-ASCII headers in ISO-8859-1 wrapper
     try:
         return value.encode("latin-1").decode("utf-8")
     except (UnicodeEncodeError, UnicodeDecodeError):
