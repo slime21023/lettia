@@ -77,7 +77,15 @@ async def parse_form_data(
     request: Request,
 ) -> tuple[dict[str, list[str]], list[UploadFile]]:
     """Parse form data (urlencoded or multipart) from an incoming request."""
-    content_type_header = request.headers.get("content-type", "")
+    content_type_header = request.headers.get("content-type")
+    if content_type_header is None:
+        body = await request.body()
+        if not body:
+            return {}, []
+        text = body.decode("utf-8", errors="replace")
+        parsed = urllib.parse.parse_qs(text, keep_blank_values=True)
+        return parsed, []
+
     media, _, params_raw = content_type_header.partition(";")
     media = media.strip().lower()
 
@@ -121,126 +129,130 @@ async def _parse_multipart(
     initial_delim = b"--" + boundary.encode("latin-1")
     part_delim = b"\r\n--" + boundary.encode("latin-1")
     delim_len = len(part_delim)
-
-    # 1. Seek past initial boundary
-    while True:
-        idx = buf.find(initial_delim)
-        if idx != -1:
-            del buf[: idx + len(initial_delim)]
-            break
-        try:
-            buf.extend(await anext(stream_iter))
-        except StopAsyncIteration:
-            raise HTTPError(
-                400,
-                "Bad Request",
-                "unexpected EOF waiting for initial multipart boundary",
-            ) from None
-
-    # Check if empty multipart: immediately `--`
-    while len(buf) < 2:
-        try:
-            buf.extend(await anext(stream_iter))
-        except StopAsyncIteration:
-            raise HTTPError(
-                400, "Bad Request", "unexpected EOF after initial boundary"
-            ) from None
-
-    if bytes(buf[:2]) == b"--":
-        return {}, []
-    if bytes(buf[:2]) == b"\r\n":
-        del buf[:2]
-
     form_data: dict[str, list[str]] = {}
     files: list[UploadFile] = []
 
-    # 2. Loop parsing each part
-    while True:
-        # Read headers
+    try:
+        # 1. Seek past initial boundary
         while True:
-            header_end = buf.find(b"\r\n\r\n")
-            if header_end != -1:
-                raw_headers = bytes(buf[:header_end])
-                del buf[: header_end + 4]
-                break
-            try:
-                buf.extend(await anext(stream_iter))
-            except StopAsyncIteration:
-                raise HTTPError(
-                    400, "Bad Request", "unexpected EOF reading multipart headers"
-                ) from None
-
-        headers = _parse_part_headers(raw_headers)
-        disp = headers.get("content-disposition", "")
-        name, filename = _parse_content_disposition(disp)
-        part_content_type = headers.get("content-type")
-
-        is_file = filename is not None
-        upload: UploadFile | None = None
-        text_acc: bytearray | None = None
-        if is_file:
-            upload = UploadFile(
-                filename=filename,
-                content_type=part_content_type,
-                headers=headers,
-                name=name,
-            )
-        else:
-            text_acc = bytearray()
-
-        # Read part body until part_delim
-        while True:
-            idx = buf.find(part_delim)
+            idx = buf.find(initial_delim)
             if idx != -1:
-                chunk = bytes(buf[:idx])
-                if upload is not None:
-                    upload.write(chunk)
-                elif text_acc is not None:
-                    text_acc.extend(chunk)
-                del buf[: idx + delim_len]
+                del buf[: idx + len(initial_delim)]
                 break
-
-            if len(buf) > delim_len:
-                flush_len = len(buf) - delim_len
-                chunk = bytes(buf[:flush_len])
-                if upload is not None:
-                    upload.write(chunk)
-                elif text_acc is not None:
-                    text_acc.extend(chunk)
-                del buf[:flush_len]
-
             try:
                 buf.extend(await anext(stream_iter))
             except StopAsyncIteration:
                 raise HTTPError(
-                    400, "Bad Request", "unexpected EOF reading multipart part body"
+                    400,
+                    "Bad Request",
+                    "unexpected EOF waiting for initial multipart boundary",
                 ) from None
 
-        # Finalize part
-        if upload is not None:
-            await upload.seek(0)
-            files.append(upload)
-        elif text_acc is not None:
-            value = text_acc.decode("utf-8", errors="replace")
-            form_data.setdefault(name, []).append(value)
-
-        # Check next 2 bytes after delimiter
+        # Check if empty multipart: immediately `--`
         while len(buf) < 2:
             try:
                 buf.extend(await anext(stream_iter))
             except StopAsyncIteration:
                 raise HTTPError(
-                    400, "Bad Request", "unexpected EOF after multipart boundary"
+                    400, "Bad Request", "unexpected EOF after initial boundary"
                 ) from None
 
         if bytes(buf[:2]) == b"--":
-            break
+            return {}, []
         if bytes(buf[:2]) == b"\r\n":
             del buf[:2]
-            continue
-        raise HTTPError(400, "Bad Request", "malformed multipart boundary line")
 
-    return form_data, files
+        # 2. Loop parsing each part
+        while True:
+            # Read headers
+            while True:
+                header_end = buf.find(b"\r\n\r\n")
+                if header_end != -1:
+                    raw_headers = bytes(buf[:header_end])
+                    del buf[: header_end + 4]
+                    break
+                try:
+                    buf.extend(await anext(stream_iter))
+                except StopAsyncIteration:
+                    raise HTTPError(
+                        400, "Bad Request", "unexpected EOF reading multipart headers"
+                    ) from None
+
+            headers = _parse_part_headers(raw_headers)
+            disp = headers.get("content-disposition", "")
+            name, filename = _parse_content_disposition(disp)
+            part_content_type = headers.get("content-type")
+
+            is_file = filename is not None
+            upload: UploadFile | None = None
+            text_acc: bytearray | None = None
+            if is_file:
+                upload = UploadFile(
+                    filename=filename,
+                    content_type=part_content_type,
+                    headers=headers,
+                    name=name,
+                )
+            else:
+                text_acc = bytearray()
+
+            # Read part body until part_delim
+            while True:
+                idx = buf.find(part_delim)
+                if idx != -1:
+                    chunk = bytes(buf[:idx])
+                    if upload is not None:
+                        upload.write(chunk)
+                    elif text_acc is not None:
+                        text_acc.extend(chunk)
+                    del buf[: idx + delim_len]
+                    break
+
+                if len(buf) > delim_len:
+                    flush_len = len(buf) - delim_len
+                    chunk = bytes(buf[:flush_len])
+                    if upload is not None:
+                        upload.write(chunk)
+                    elif text_acc is not None:
+                        text_acc.extend(chunk)
+                    del buf[:flush_len]
+
+                try:
+                    buf.extend(await anext(stream_iter))
+                except StopAsyncIteration:
+                    raise HTTPError(
+                        400, "Bad Request", "unexpected EOF reading multipart part body"
+                    ) from None
+
+            # Finalize part
+            if upload is not None:
+                await upload.seek(0)
+                files.append(upload)
+            elif text_acc is not None:
+                value = text_acc.decode("utf-8", errors="replace")
+                form_data.setdefault(name, []).append(value)
+
+            # Check next 2 bytes after delimiter
+            while len(buf) < 2:
+                try:
+                    buf.extend(await anext(stream_iter))
+                except StopAsyncIteration:
+                    raise HTTPError(
+                        400, "Bad Request", "unexpected EOF after multipart boundary"
+                    ) from None
+
+            if bytes(buf[:2]) == b"--":
+                break
+            if bytes(buf[:2]) == b"\r\n":
+                del buf[:2]
+                continue
+            raise HTTPError(400, "Bad Request", "malformed multipart boundary line")
+
+        return form_data, files
+    except Exception:
+        for f in files:
+            await f.close()
+        raise
 
 
 def _parse_part_headers(raw: bytes) -> Headers:

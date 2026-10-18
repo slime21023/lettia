@@ -13,6 +13,7 @@ from typing import Any
 import msgspec
 
 from lettia.contract.codec import Codec, CodecError
+from lettia.contract.form import UploadFile, parse_form_data
 from lettia.contract.introspect import Operation, RequestField
 from lettia.core import Context, HTTPError
 
@@ -30,11 +31,22 @@ def compile_request(operation: Operation, codec: Codec) -> RequestDecoder | None
         return None
 
     declared = {info.name: info for info in msgspec.structs.fields(request_type)}
-    params = [f for f in operation.fields if f.source != "body"]
+    head_params = [
+        f for f in operation.fields if f.source in ("path", "query", "header", "cookie")
+    ]
     body = next((f for f in operation.fields if f.source == "body"), None)
+    form_fields = [f for f in operation.fields if f.source == "form"]
+    file_fields = [f for f in operation.fields if f.source == "file"]
 
-    params_reader = _params_reader(params, declared, codec) if params else None
+    params_reader = (
+        _params_reader(head_params, declared, codec) if head_params else None
+    )
     body_reader = _body_reader(body, codec) if body is not None else None
+    form_reader = (
+        _form_reader(form_fields, file_fields, declared, codec)
+        if (form_fields or file_fields)
+        else None
+    )
     body_name = body.name if body is not None else ""
 
     async def decode(c: Context) -> msgspec.Struct:
@@ -43,9 +55,102 @@ def compile_request(operation: Operation, codec: Codec) -> RequestDecoder | None
             value = await body_reader(c)
             if value is not _ABSENT:
                 values[body_name] = value
+        if form_reader is not None:
+            form_values = await form_reader(c)
+            values.update(form_values)
         return request_type(**values)
 
     return decode
+
+
+def _form_reader(
+    form_fields: list[RequestField],
+    file_fields: list[RequestField],
+    declared: dict[str, msgspec.structs.FieldInfo],
+    codec: Codec,
+) -> Callable[[Context], Awaitable[dict[str, Any]]]:
+    decode_form = (
+        codec.build_decoder(_params_type(form_fields, declared), json=False)
+        if form_fields
+        else None
+    )
+
+    async def read(c: Context) -> dict[str, Any]:
+        form_data, files = await parse_form_data(c.request)
+        c.state["_lettia.upload_files"] = files
+        try:
+            values: dict[str, Any] = {}
+            if decode_form is not None:
+                raw_form: dict[str, str | list[str]] = {}
+                for f in form_fields:
+                    wire = f.wire_name
+                    if wire in form_data and form_data[wire]:
+                        raw_form[f.name] = (
+                            form_data[wire] if f.multi else form_data[wire][0]
+                        )
+                try:
+                    parsed_form = decode_form(raw_form)
+                except CodecError as exc:
+                    raise _invalid("form", exc) from None
+                for f in form_fields:
+                    values[f.name] = getattr(parsed_form, f.name)
+
+            if file_fields:
+                files_by_name: dict[str, list[UploadFile]] = {}
+                for file in files:
+                    if file.name is not None:
+                        files_by_name.setdefault(file.name, []).append(file)
+                for f in file_fields:
+                    wire = f.wire_name
+                    uploaded = files_by_name.get(wire, [])
+                    if f.multi:
+                        if uploaded:
+                            values[f.name] = uploaded
+                        elif f.required:
+                            raise _invalid(
+                                "file",
+                                CodecError(
+                                    f"missing required field `{f.name}`",
+                                    f"$.{f.name}",
+                                ),
+                            )
+                        else:
+                            info = declared[f.name]
+                            if info.default is not msgspec.NODEFAULT:
+                                values[f.name] = info.default
+                            elif callable(info.default_factory):
+                                values[f.name] = info.default_factory()
+                            else:
+                                values[f.name] = []
+                    else:
+                        if uploaded:
+                            values[f.name] = uploaded[0]
+                        elif f.required:
+                            raise _invalid(
+                                "file",
+                                CodecError(
+                                    f"missing required field `{f.name}`",
+                                    f"$.{f.name}",
+                                ),
+                            )
+                        elif f.nullable:
+                            values[f.name] = None
+                        else:
+                            info = declared[f.name]
+                            if info.default is not msgspec.NODEFAULT:
+                                values[f.name] = info.default
+                            elif callable(info.default_factory):
+                                values[f.name] = info.default_factory()
+                            else:
+                                values[f.name] = None
+            return values
+        except Exception:
+            for file in files:
+                await file.close()
+            c.state.pop("_lettia.upload_files", None)
+            raise
+
+    return read
 
 
 def _params_reader(

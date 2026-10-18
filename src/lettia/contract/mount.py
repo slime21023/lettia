@@ -14,6 +14,7 @@ from lettia.contract.codec import Codec, MsgspecCodec
 from lettia.contract.context import Context as PrincipalContext
 from lettia.contract.decode import compile_request
 from lettia.contract.encode import compile_responses
+from lettia.contract.form import UploadFile
 from lettia.contract.guard_runtime import compile_guard, missing_implementations
 from lettia.contract.guards import GuardImpl, GuardSpec
 from lettia.contract.introspect import Operation, inspect_contract
@@ -205,7 +206,13 @@ def _compile(
         if run_guard is not None:
             # Guards read only the head, so they run before anything is decoded.
             cast(PrincipalContext[Any], c).principal = await run_guard(c.request)
-        request = None if decode is None else await decode(c)
-        return encode(await call(c, request))
+        try:
+            request = None if decode is None else await decode(c)
+            return encode(await call(c, request))
+        finally:
+            files = c.state.get("_lettia.upload_files")
+            if isinstance(files, list):
+                for f in cast(list[UploadFile], files):
+                    await f.close()
 
     return handle

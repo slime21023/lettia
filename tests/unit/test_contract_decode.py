@@ -8,12 +8,15 @@ from lettia import (
     Body,
     Context,
     Cookie,
+    File,
+    Form,
     Header,
     HeaderName,
     NoContent,
     Ok,
     Path,
     Query,
+    UploadFile,
     op,
     public,
 )
@@ -349,3 +352,126 @@ async def test_decode_oversized_body_keeps_its_413() -> None:
     error = await invalid("required_body", CoreContext(request))
 
     assert error.status == 413
+
+
+class FormReq(msgspec.Struct, kw_only=True):
+    name: Form[str]
+    count: Form[int] = 1
+    tags: Form[list[str]] = msgspec.field(default_factory=list)
+
+
+class FormApi(Protocol):
+    @op.post("/submit", guard=public)
+    async def submit(self, c: Context[None], req: FormReq) -> Ok[int]: ...
+
+
+class UploadReq(msgspec.Struct, kw_only=True):
+    title: Form[str]
+    avatar: File[UploadFile]
+    docs: File[list[UploadFile]] = msgspec.field(default_factory=list)
+
+
+class UploadApi(Protocol):
+    @op.post("/upload", guard=public)
+    async def upload(self, c: Context[None], req: UploadReq) -> Ok[int]: ...
+
+
+async def test_decode_urlencoded_form() -> None:
+    [operation], _ = inspect_contract(FormApi)
+    decode = compile_request(operation, codec)
+    assert decode is not None
+
+    async def chunks() -> AsyncIterator[bytes]:
+        yield b"name=Alice&count=5&tags=a&tags=b"
+
+    req = Request(
+        method="POST",
+        path="/submit",
+        headers=[(b"content-type", b"application/x-www-form-urlencoded")],
+        body=chunks(),
+    )
+    result = await decode(CoreContext(req))
+    assert isinstance(result, FormReq)
+    assert result.name == "Alice"
+    assert result.count == 5
+    assert result.tags == ["a", "b"]
+
+
+async def test_decode_multipart_form_and_files() -> None:
+    [operation], _ = inspect_contract(UploadApi)
+    decode = compile_request(operation, codec)
+    assert decode is not None
+
+    boundary = "----TestBoundary"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="title"\r\n\r\n'
+        "Hello\r\n"
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="avatar"; filename="avatar.png"\r\n'
+        "Content-Type: image/png\r\n\r\n"
+        "binary-png\r\n"
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="docs"; filename="doc1.txt"\r\n'
+        "Content-Type: text/plain\r\n\r\n"
+        "doc-one\r\n"
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="docs"; filename="doc2.txt"\r\n'
+        "Content-Type: text/plain\r\n\r\n"
+        "doc-two\r\n"
+        f"--{boundary}--\r\n"
+    ).encode()
+
+    async def chunks() -> AsyncIterator[bytes]:
+        yield body
+
+    req = Request(
+        method="POST",
+        path="/upload",
+        headers=[
+            (b"content-type", f"multipart/form-data; boundary={boundary}".encode())
+        ],
+        body=chunks(),
+    )
+    c = CoreContext(req)
+    result = await decode(c)
+    assert isinstance(result, UploadReq)
+    assert result.title == "Hello"
+    assert result.avatar.filename == "avatar.png"
+    assert await result.avatar.read() == b"binary-png"
+    assert len(result.docs) == 2
+    assert result.docs[0].filename == "doc1.txt"
+    assert await result.docs[0].read() == b"doc-one"
+    assert result.docs[1].filename == "doc2.txt"
+    assert await result.docs[1].read() == b"doc-two"
+
+
+async def test_decode_multipart_missing_required_file_is_a_422() -> None:
+    [operation], _ = inspect_contract(UploadApi)
+    decode = compile_request(operation, codec)
+    assert decode is not None
+
+    boundary = "----TestBoundary"
+    body = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="title"\r\n\r\n'
+        "Hello\r\n"
+        f"--{boundary}--\r\n"
+    ).encode()
+
+    async def chunks() -> AsyncIterator[bytes]:
+        yield body
+
+    req = Request(
+        method="POST",
+        path="/upload",
+        headers=[
+            (b"content-type", f"multipart/form-data; boundary={boundary}".encode())
+        ],
+        body=chunks(),
+    )
+    with pytest.raises(HTTPError) as caught:
+        await decode(CoreContext(req))
+    assert caught.value.status == 422
+    assert caught.value.detail is not None
+    assert "avatar" in caught.value.detail
