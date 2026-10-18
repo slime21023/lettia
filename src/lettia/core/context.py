@@ -6,7 +6,7 @@ import msgspec
 
 from lettia.core.headers import MutableHeaders
 from lettia.core.request import Request
-from lettia.core.response import Response
+from lettia.core.response import Response, ResponseBody
 
 _encode_json = msgspec.json.Encoder().encode
 
@@ -16,7 +16,7 @@ _TEXT_TYPE = (b"content-type", b"text/plain; charset=utf-8")
 _JSON_TYPE = (b"content-type", b"application/json")
 
 
-def _typed(status: int, body: bytes | None, media_type: str) -> Response:
+def _with_content_type(status: int, body: ResponseBody, media_type: str) -> Response:
     headers = MutableHeaders()
     headers.set("content-type", media_type)
     return Response(status, body, headers)
@@ -56,13 +56,11 @@ class Context:
     def stream(
         self, status: int, chunks: AsyncIterator[bytes], media_type: str
     ) -> Response:
-        response = _typed(status, None, media_type)
-        response.body = chunks
-        return response
+        return _with_content_type(status, chunks, media_type)
 
     # Defined last: inside the class body, a method named ``bytes`` would shadow
     # the builtin type in every annotation that follows it.
     def bytes(
         self, status: int, data: bytes, media_type: str = "application/octet-stream"
     ) -> Response:
-        return _typed(status, data, media_type)
+        return _with_content_type(status, data, media_type)
