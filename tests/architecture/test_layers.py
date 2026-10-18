@@ -60,3 +60,31 @@ def test_layer_rules_cover_every_subpackage_that_exists() -> None:
     present = {p.name for p in SRC.iterdir() if p.is_dir() and p.name != "__pycache__"}
 
     assert present <= set(FORBIDDEN) | {"testing", "cli"}
+
+
+def test_docs_module_has_no_internal_dependencies() -> None:
+    docs_path = SRC / "docs.py"
+    imported = imported_lettia_modules(docs_path)
+    assert imported == set(), (
+        f"docs.py must not import any lettia modules, got {imported}"
+    )
+
+
+def test_top_level_app_does_not_import_forbidden_layers() -> None:
+    app_path = SRC / "app.py"
+    imported = imported_lettia_modules(app_path)
+    forbidden = {"middleware", "testing", "cli"}
+    offenders = {
+        name
+        for name in imported
+        if (len(parts := name.split(".")) > 1 and parts[1] in forbidden)
+        or name == "lettia"
+    }
+    assert offenders == set(), (
+        f"app.py must not import forbidden modules, got {offenders}"
+    )
+
+
+def test_top_level_files_are_accounted_for() -> None:
+    present_files = {p.name for p in SRC.glob("*.py")}
+    assert present_files == {"__init__.py", "__main__.py", "app.py", "docs.py"}
