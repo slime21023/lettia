@@ -19,6 +19,9 @@ wheels/
 /task_plan.md
 /findings.md
 /progress.md
+.agents/
+.claude/
+skills-lock.json
 
 # Virtual environments
 .venv
