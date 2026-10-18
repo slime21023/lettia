@@ -10,6 +10,8 @@ from lettia import (
     Body,
     Context,
     Created,
+    File,
+    Form,
     GuardSpec,
     HeaderName,
     HttpBearer,
@@ -19,6 +21,7 @@ from lettia import (
     Path,
     Problem,
     Query,
+    UploadFile,
     op,
     public,
 )
@@ -99,6 +102,18 @@ def check_request_fields(req: GetUserReq, c: Context[User]) -> None:
     assert_type(req.user_id, int)
     assert_type(req.expand, bool)
     assert_type(c.principal, User)
+
+
+class UploadReq(msgspec.Struct, kw_only=True):
+    name: Form[str]
+    avatar: File[UploadFile]
+    docs: File[list[UploadFile]]
+
+
+def check_form_fields(req: UploadReq) -> None:
+    assert_type(req.name, str)
+    assert_type(req.avatar, UploadFile)
+    assert_type(req.docs, list[UploadFile])
 
 
 service = UserService({})

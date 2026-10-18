@@ -8,6 +8,8 @@ from lettia import (
     Context,
     Cookie,
     Created,
+    File,
+    Form,
     GuardSpec,
     Header,
     HeaderName,
@@ -17,6 +19,7 @@ from lettia import (
     Path,
     Problem,
     Query,
+    UploadFile,
     op,
     public,
 )
@@ -431,3 +434,59 @@ def ok_handler_annotated() -> Callable[..., Any]:
 
     good.__annotations__ = {"c": Context[None], "req": None, "return": Ok[int]}
     return good
+
+
+class FormAndFileReq(msgspec.Struct, kw_only=True):
+    name: Form[str]
+    count: Form[int] = 1
+    avatar: File[UploadFile]
+    docs: File[list[UploadFile]] = msgspec.field(default_factory=list)
+
+
+def test_inspect_recognizes_form_and_file_markers() -> None:
+    class UploadApi(Protocol):
+        @op.post("/upload", guard=public)
+        async def upload(self, c: Context[None], req: FormAndFileReq) -> Ok[int]: ...
+
+    [operation], problems = inspect_contract(UploadApi)
+
+    assert problems == []
+    fields = {f.name: f for f in operation.fields}
+    assert fields["name"].source == "form"
+    assert fields["name"].type is str
+    assert fields["count"].source == "form"
+    assert fields["count"].type is int
+    assert fields["avatar"].source == "file"
+    assert fields["avatar"].type is UploadFile
+    assert fields["docs"].source == "file"
+    assert fields["docs"].type == list[UploadFile]
+    assert fields["docs"].multi is True
+
+
+def test_inspect_reports_mixing_body_with_form_or_file() -> None:
+    class MixedReq(msgspec.Struct):
+        body: Body[NewUser]
+        extra: Form[str]
+
+    class MixedApi(Protocol):
+        @op.post("/mixed", guard=public)
+        async def mixed(self, c: Context[None], req: MixedReq) -> Ok[int]: ...
+
+    operations, problems = inspect_contract(MixedApi)
+
+    assert operations == []
+    assert any("cannot mix Body fields" in p for p in problems)
+
+
+def test_inspect_reports_form_or_file_on_methods_without_body() -> None:
+    class FormGetReq(msgspec.Struct):
+        name: Form[str]
+
+    class GetApi(Protocol):
+        @op.get("/items", guard=public)
+        async def get_items(self, c: Context[None], req: FormGetReq) -> Ok[int]: ...
+
+    operations, problems = inspect_contract(GetApi)
+
+    assert operations == []
+    assert any("GET operations cannot have Form or File fields" in p for p in problems)

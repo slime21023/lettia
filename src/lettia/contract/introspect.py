@@ -17,11 +17,20 @@ import msgspec
 import msgspec.inspect as mi
 
 from lettia.contract.annotations import read_annotations
-from lettia.contract.markers import Body, Cookie, Header, HeaderName, Path, Query
+from lettia.contract.markers import (
+    Body,
+    Cookie,
+    File,
+    Form,
+    Header,
+    HeaderName,
+    Path,
+    Query,
+)
 from lettia.contract.op import OperationSpec, operation_spec
 from lettia.contract.responses import Reply
 
-type Source = Literal["path", "query", "header", "cookie", "body"]
+type Source = Literal["path", "query", "header", "cookie", "body", "form", "file"]
 
 _SOURCES: dict[Any, Source] = {
     Path: "path",
@@ -29,6 +38,8 @@ _SOURCES: dict[Any, Source] = {
     Header: "header",
     Cookie: "cookie",
     Body: "body",
+    Form: "form",
+    File: "file",
 }
 _METHODS_WITHOUT_BODY = frozenset({"GET", "HEAD", "DELETE"})
 _PLACEHOLDER = re.compile(r"\{([^}]*)\}")
@@ -212,7 +223,8 @@ def _inspect_fields(
 def _unmarked(name: str, hint: Any) -> str:
     message = (
         f"field {name!r} has no source marker; "
-        "mark it with Path[T], Query[T], Header[T], Cookie[T] or Body[T]"
+        "mark it with Path[T], Query[T], Header[T], Cookie[T], Body[T], "
+        "Form[T] or File[T]"
     )
     members = get_args(hint) if get_origin(hint) in (Union, types.UnionType) else ()
     if any(get_origin(m) in _SOURCES for m in members):
@@ -273,10 +285,17 @@ def _check_body_fields(
     spec: OperationSpec, fields: list[RequestField], problems: list[str]
 ) -> None:
     bodies = [f.name for f in fields if f.source == "body"]
+    form_fields = [f.name for f in fields if f.source in ("form", "file")]
     if len(bodies) > 1:
         problems.append(f"a request can have at most one Body field, found {bodies}")
+    if bodies and form_fields:
+        problems.append(
+            f"cannot mix Body fields {bodies} with Form/File fields {form_fields}"
+        )
     if bodies and spec.method in _METHODS_WITHOUT_BODY:
         problems.append(f"{spec.method} operations cannot have a Body field")
+    if form_fields and spec.method in _METHODS_WITHOUT_BODY:
+        problems.append(f"{spec.method} operations cannot have Form or File fields")
 
 
 # --- responses ----------------------------------------------------------
