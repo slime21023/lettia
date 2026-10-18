@@ -12,6 +12,8 @@ FORBIDDEN = {
     "core": {"contract", "middleware", "testing", "cli"},
     "middleware": {"contract", "testing", "cli"},
     "contract": {"middleware", "testing", "cli"},
+    "cli": {"testing", "middleware"},
+    "testing": {"cli", "middleware"},
 }
 
 
@@ -59,7 +61,7 @@ def test_layer_does_not_import_the_public_entry_point(layer: str) -> None:
 def test_layer_rules_cover_every_subpackage_that_exists() -> None:
     present = {p.name for p in SRC.iterdir() if p.is_dir() and p.name != "__pycache__"}
 
-    assert present <= set(FORBIDDEN) | {"testing", "cli"}
+    assert present == set(FORBIDDEN)
 
 
 def test_docs_module_has_no_internal_dependencies() -> None:
