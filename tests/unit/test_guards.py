@@ -1,10 +1,11 @@
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from lettia import GuardSpec, RequestHead, public
 from lettia.contract.guard_runtime import compile_guard, missing_implementations
 from lettia.contract.guards import GuardImpl
+from lettia.contract.mount import ContractRegistry
 from lettia.core import Forbidden, HTTPError, Unauthorized
 
 bearer = GuardSpec[str]("bearer")
@@ -278,3 +279,39 @@ def test_missing_implementations_lists_unimplemented_leaves_once() -> None:
 def test_missing_implementations_ignores_public() -> None:
     assert missing_implementations(public, {}) == []
     assert missing_implementations(bearer | public, {}) == [bearer]
+
+
+def test_register_guards_rejects_object_not_created_with_use() -> None:
+    class DummyTarget:
+        def __init__(self) -> None:
+            self.problems: list[str] = []
+
+        def add_startup_problem(self, message: str) -> None:
+            self.problems.append(message)
+
+    registry = ContractRegistry()
+    target: Any = DummyTarget()
+    with pytest.raises(TypeError, match="guards must be made with spec.use"):
+        registry.register_guards(target, [cast(Any, object())])
+
+
+def test_register_guards_reports_duplicate_implementations() -> None:
+    class DummyTarget:
+        def __init__(self) -> None:
+            self.problems: list[str] = []
+
+        def add_startup_problem(self, message: str) -> None:
+            self.problems.append(message)
+
+    async def first(head: RequestHead) -> str:
+        return "1"
+
+    async def second(head: RequestHead) -> str:
+        return "2"
+
+    registry = ContractRegistry()
+    target: Any = DummyTarget()
+    registry.register_guards(target, [bearer.use(first), bearer.use(second)])
+
+    assert len(target.problems) == 1
+    assert "guard 'bearer' is implemented more than once" in target.problems[0]

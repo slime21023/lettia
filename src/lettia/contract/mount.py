@@ -6,7 +6,7 @@ part in request handling beyond running those closures.
 """
 
 import inspect
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
@@ -44,6 +44,23 @@ class ContractRegistry:
         self.guards: dict[GuardSpec[Any], GuardImpl[Any]] = {}
         self.mounted: list[MountedOperation] = []
         self.operation_ids: dict[str, str] = {}
+
+    def register_guards(
+        self, target: "MountTarget", guards: Sequence[GuardImpl[Any]]
+    ) -> None:
+        """Validate and record guard implementations onto this registry."""
+        for implementation in guards:
+            if not isinstance(cast(object, implementation), GuardImpl):
+                raise TypeError(
+                    "guards must be made with spec.use(fn), "
+                    f"got {type(implementation).__name__}"
+                )
+            if implementation.spec in self.guards:
+                target.add_startup_problem(
+                    f"guard {implementation.spec.name!r} is implemented more than once"
+                )
+                continue
+            self.guards[implementation.spec] = implementation
 
 
 class MountTarget(Protocol):

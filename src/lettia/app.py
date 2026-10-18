@@ -6,7 +6,7 @@ from typing import Any, Literal, cast, override
 
 from lettia.contract.codec import Codec
 from lettia.contract.context import Context
-from lettia.contract.guards import GuardImpl, GuardSpec
+from lettia.contract.guards import GuardImpl
 from lettia.contract.mount import contract_registry, mount
 from lettia.contract.openapi import OpenAPIInfo, build_openapi
 from lettia.core import app as core_app
@@ -76,7 +76,7 @@ class App(core_app.App):
         self._contracts = contract_registry(self)
         if codec is not None:
             self._contracts.codec = codec
-        self._contracts.guards = self._register_guards(guards)
+        self._contracts.register_guards(self, guards)
         self._openapi_info = OpenAPIInfo(title, version, description)
         self._openapi_json: bytes | None = None
         self._docs_html = b""
@@ -87,24 +87,6 @@ class App(core_app.App):
             render = scalar_page if docs_ui == "scalar" else swagger_ui_page
             self._docs_html = render(openapi_url, title).encode()
             self.get(docs_url, self._serve_docs)
-
-    def _register_guards(
-        self, guards: Sequence[GuardImpl[Any]]
-    ) -> dict[GuardSpec[Any], GuardImpl[Any]]:
-        registry: dict[GuardSpec[Any], GuardImpl[Any]] = {}
-        for implementation in guards:
-            if not isinstance(cast(object, implementation), GuardImpl):
-                raise TypeError(
-                    "guards must be made with spec.use(fn), "
-                    f"got {type(implementation).__name__}"
-                )
-            if implementation.spec in registry:
-                self.add_startup_problem(
-                    f"guard {implementation.spec.name!r} is implemented more than once"
-                )
-                continue
-            registry[implementation.spec] = implementation
-        return registry
 
     def mount(self, implementation: object, *, codec: Codec | None = None) -> None:
         """Register the operations of the contracts ``implementation`` inherits."""
