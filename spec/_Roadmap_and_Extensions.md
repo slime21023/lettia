@@ -120,8 +120,41 @@ WebSocket 屬於 ASGI 規範核心協定，後續版本將直接在 `lettia.core
 2. **ASGI-to-Lettia 適配輔助函式**：提供統一的適配器，使標準 ASGI 函式亦可直接置入 `app.use(...)`。
 3. **串流回應體轉換抽象**：為即時串流壓縮或日誌記錄提供更高階的串流迭代器包裝 helper。
 
+## 5. 版本演進與擴充套件開發任務規劃 (v0.3.2 ~ v0.3.4)
+
+依據日常開發體驗（DX）與實務生產落地優先級，將後續 4 項擴充套件劃分為三個版本推進：
+
+### 5.1 v0.3.2：開發者視覺化與互動除錯體驗 (`lettia.extensions.docs`)
+- **核心目標**：將現有的 OpenAPI 3.1 導出能力轉化為瀏覽器隨開即用的互動式 API 文件 UI，支援 Swagger UI、Scalar 與 Redoc。
+- **主要職責**：
+  - 提供 `mount_docs(app, prefix="/docs", provider="scalar")` 一鍵掛載。
+  - 自動提供 `/openapi.json` 端點，支援即時動態生成與熱重載。
+  - 零外部依賴：預設透過 CDN 載入前端腳本，亦可搭配 `staticfiles` 支援完全離線部署。
+  - 支援客製化標題、Favicon、深色模式主題配置。
+
+### 5.2 v0.3.3：現代即時串流與生成式 AI 整合 (`lettia.extensions.sse`)
+- **核心目標**：提供專為 Server-Sent Events 與 LLM Token 串流打造的高效能事件產生器。
+- **主要職責**：
+  - 實作符合 RFC 規範的 `ServerSentEvent(data, event, id, retry)`。
+  - 封裝 `EventStream` 回應類別，無縫串接 ASGI 分塊串流管線與斷線資源釋放（`_aclose`）。
+  - 自動心跳保活機制（定期發送 `: keep-alive\n\n` 註解），防止反向代理（Nginx / Cloudflare）逾時斷線。
+  - 自動附加 `Cache-Control: no-cache`、`X-Accel-Buffering: no` 最佳實踐標頭。
+
+### 5.3 v0.3.4：生產環境狀態管理與防護 (`sessions` & `ratelimit`)
+- **子任務 A：`lettia.extensions.sessions`（安全 Cookie 狀態管理）**
+  - 提供基於 HMAC-SHA256 簽署/加密的輕量無狀態 Cookie Session。
+  - 透過 `SessionMiddleware` 自動在 `c.session` 提供直觀的 dict-like 介面。
+  - 支援單次快閃訊息（Flash Messages）、`SameSite=Lax`、`HttpOnly`、`Secure` 安全預設值。
+- **子任務 B：`lettia.extensions.ratelimit`（宣告式 API 流量限流）**
+  - 支援以 Guard 或中介軟體形式宣告：`@op.post("/login", guard=public & rate_limit("5/minute"))`。
+  - 預設提供滑動窗口（Sliding Window）記憶體演算法，並提供可抽換之 Redis 儲存後端介面。
+  - 自動注入 `X-RateLimit-Limit`、`X-RateLimit-Remaining`、`Retry-After` 標頭，超額請求自動生成 RFC 9457 Problem 429 回應。
+
 ---
 
-## 5. 結論
+## 6. 結論與歷史成就
 
-本規範確立了 Lettia 邁向 0.3+ 的發展藍圖：以**微核心 + 選配擴充套件**的方式滿足日常後端多樣化需求，並將關鍵的**原生 WebSocket** 與**進階中介軟體特性**規劃於後續版本有序推進。
+- **v0.3.1 (已釋出)**：Core WebSocket 原生協定、`lettia.extensions.di`、`lettia.extensions.tasks`、`lettia.extensions.staticfiles`。
+- **v0.3.2 (待開發)**：`lettia.extensions.docs`（Swagger UI / Scalar / Redoc 互動文件）。
+- **v0.3.3 (待開發)**：`lettia.extensions.sse`（Server-Sent Events 串流回應）。
+- **v0.3.4 (待開發)**：`lettia.extensions.sessions`（安全狀態）與 `lettia.extensions.ratelimit`（流量限流防禦）。
