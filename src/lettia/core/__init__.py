@@ -13,7 +13,7 @@ from lettia.core.errors import (
     StartupError,
     Unauthorized,
 )
-from lettia.core.handler import Handler, Middleware
+from lettia.core.handler import Handler, Middleware, WebSocketHandler
 from lettia.core.headers import Headers, MutableHeaders
 from lettia.core.key import Key
 from lettia.core.problem import ErrorHandler, problem_response
@@ -21,6 +21,12 @@ from lettia.core.query import QueryParams
 from lettia.core.request import Request, RequestHead
 from lettia.core.response import Response, ResponseBody
 from lettia.core.router import Matched, MethodNotAllowed, RouteConflict, Router
+from lettia.core.websocket import (
+    WebSocket,
+    WebSocketDisconnect,
+    WebSocketError,
+    WebSocketState,
+)
 
 __all__ = [
     "ASGIApp",
@@ -51,5 +57,10 @@ __all__ = [
     "Send",
     "StartupError",
     "Unauthorized",
+    "WebSocket",
+    "WebSocketDisconnect",
+    "WebSocketError",
+    "WebSocketHandler",
+    "WebSocketState",
     "problem_response",
 ]

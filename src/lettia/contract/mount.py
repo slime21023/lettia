@@ -6,7 +6,13 @@ part in request handling beyond running those closures.
 """
 
 import inspect
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import (
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Mapping,
+    Sequence,
+)
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
@@ -20,7 +26,16 @@ from lettia.contract.guards import GuardImpl, GuardSpec
 from lettia.contract.introspect import Operation, inspect_contract
 from lettia.contract.op import operation_spec
 from lettia.contract.responses import Reply
-from lettia.core import Context, Handler, Response
+from lettia.core import (
+    Context,
+    Handler,
+    HTTPError,
+    Request,
+    Response,
+    WebSocket,
+    WebSocketHandler,
+    problem_response,
+)
 
 _CONTRACTS_KEY = "lettia.contracts"
 
@@ -78,6 +93,8 @@ class MountTarget(Protocol):
 
     def route(self, method: str, path: str, handler: Handler) -> None: ...
 
+    def websocket(self, path: str, handler: WebSocketHandler) -> None: ...
+
     def add_startup_problem(self, message: str) -> None: ...
 
 
@@ -124,14 +141,22 @@ def mount(
                 for problem in problems:
                     target.add_startup_problem(problem)
                 continue
-            handler = _compile(
-                operation,
-                implementation,
-                active_codec,
-                registry.guards,
-                debug=target.debug,
-            )
-            target.route(operation.spec.method, operation.spec.path, handler)
+            if operation.spec.method == "WEBSOCKET":
+                ws_handler = _compile_websocket(
+                    operation,
+                    implementation,
+                    registry.guards,
+                )
+                target.websocket(operation.spec.path, ws_handler)
+            else:
+                handler = _compile(
+                    operation,
+                    implementation,
+                    active_codec,
+                    registry.guards,
+                    debug=target.debug,
+                )
+                target.route(operation.spec.method, operation.spec.path, handler)
             registry.mounted.append(
                 MountedOperation(operation, target.prefix + operation.spec.path)
             )
@@ -216,3 +241,51 @@ def _compile(
                     await f.close()
 
     return handle
+
+
+async def _empty_body_stream() -> AsyncIterator[bytes]:
+    if False:
+        yield b""
+
+
+async def _reject_websocket(ws: WebSocket, exc: HTTPError) -> None:
+    problem = problem_response(
+        exc.status, exc.title, exc.detail, exc.headers, exc.extensions
+    )
+    await ws.send_denial_response(problem)
+
+
+def _compile_websocket(
+    operation: Operation,
+    implementation: object,
+    guards: GuardRegistry,
+) -> WebSocketHandler:
+    """Chain Pre-Handshake Guard and call into one Core WebSocket handler."""
+    run_guard = compile_guard(operation.spec.guard, guards)
+    call = cast(
+        Callable[[PrincipalContext[Any], WebSocket], Awaitable[None]],
+        getattr(implementation, operation.name),
+    )
+
+    async def handle_websocket(ws: WebSocket) -> None:
+        request = Request(
+            method="GET",
+            path=ws.path,
+            raw_path=ws.raw_path,
+            query_string=ws.query_string,
+            headers=ws.scope.get("headers", ()),
+            client=ws.client,
+            body=_empty_body_stream(),
+        )
+        c = PrincipalContext[Any](request, path_params=ws.path_params, state=ws.state)
+
+        if run_guard is not None:
+            try:
+                c.principal = await run_guard(request)
+            except HTTPError as exc:
+                await _reject_websocket(ws, exc)
+                return
+
+        await call(c, ws)
+
+    return handle_websocket

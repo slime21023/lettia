@@ -137,6 +137,11 @@ def _inspect(
         problems.append(f"cannot resolve the annotations: {exc}")
         return None
 
+    if spec.method == "WEBSOCKET":
+        return _inspect_websocket(
+            contract, name, function, spec, hints, parameters, problems
+        )
+
     request_type, fields = _inspect_request(spec, hints, parameters[2].name, problems)
     responses = _inspect_responses(hints, problems)
     if problems:
@@ -149,6 +154,39 @@ def _inspect(
         request_type=request_type,
         fields=fields,
         responses=responses,
+        doc=inspect.getdoc(function),
+    )
+
+
+def _inspect_websocket(
+    contract: type,
+    name: str,
+    function: Callable[..., Any],
+    spec: OperationSpec,
+    hints: dict[str, Any],
+    parameters: list[inspect.Parameter],
+    problems: list[str],
+) -> Operation | None:
+    if "*" in spec.path:
+        problems.append("contract paths cannot contain '*'")
+
+    ret = hints.get("return")
+    if ret is not None and ret is not type(None) and ret != "None":
+        problems.append(
+            f"the return type of a WebSocket operation must be None, got {ret!r}"
+        )
+
+    if problems:
+        return None
+
+    return Operation(
+        contract=contract,
+        name=name,
+        spec=spec,
+        operation_id=spec.operation_id or name,
+        request_type=None,
+        fields=(),
+        responses=(),
         doc=inspect.getdoc(function),
     )
 

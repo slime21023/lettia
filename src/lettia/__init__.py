@@ -32,7 +32,13 @@ if TYPE_CHECKING:
         op,
         public,
     )
-    from lettia.core import Key, RequestHead
+    from lettia.core import (
+        Key,
+        RequestHead,
+        WebSocket,
+        WebSocketDisconnect,
+        WebSocketError,
+    )
 
 # public name -> the module that defines it
 _EXPORTS: dict[str, str] = {
@@ -40,6 +46,9 @@ _EXPORTS: dict[str, str] = {
     "Group": "lettia.app",
     "Key": "lettia.core",
     "RequestHead": "lettia.core",
+    "WebSocket": "lettia.core",
+    "WebSocketDisconnect": "lettia.core",
+    "WebSocketError": "lettia.core",
     **dict.fromkeys(
         (
             "ApiKeyHeader",
@@ -92,6 +101,9 @@ __all__ = [
     "Reply",
     "RequestHead",
     "UploadFile",
+    "WebSocket",
+    "WebSocketDisconnect",
+    "WebSocketError",
     "op",
     "public",
 ]

@@ -668,8 +668,8 @@ async def test_non_http_non_lifespan_scope_is_rejected() -> None:
     async def send(message: Message) -> None:
         raise AssertionError
 
-    with pytest.raises(NotImplementedError, match="websocket"):
-        await app({"type": "websocket"}, receive, send)
+    with pytest.raises(NotImplementedError, match="tcp"):
+        await app({"type": "tcp"}, receive, send)
 
 
 # --- extension points ---------------------------------------------------

@@ -15,7 +15,10 @@ class Context[G](CoreContext):
     __slots__ = ("principal",)
 
     def __init__(
-        self, request: Request, path_params: dict[str, str] | None = None
+        self,
+        request: Request,
+        path_params: dict[str, str] | None = None,
+        state: dict[object, object] | None = None,
     ) -> None:
-        super().__init__(request, path_params)
+        super().__init__(request, path_params, state)
         self.principal: G = cast(G, None)

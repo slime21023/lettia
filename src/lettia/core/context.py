@@ -31,11 +31,14 @@ class Context:
     __slots__ = ("_state", "path_params", "request")
 
     def __init__(
-        self, request: Request, path_params: dict[str, str] | None = None
+        self,
+        request: Request,
+        path_params: dict[str, str] | None = None,
+        state: dict[object, object] | None = None,
     ) -> None:
         self.request = request
         self.path_params: dict[str, str] = {} if path_params is None else path_params
-        self._state: dict[object, object] | None = None
+        self._state: dict[object, object] | None = state
 
     @property
     def state(self) -> dict[object, object]:

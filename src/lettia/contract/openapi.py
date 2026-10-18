@@ -112,6 +112,8 @@ class _Builder:
         ordered = sorted(mounted, key=lambda m: (m.path, _method_rank(m.operation)))
         paths: dict[str, dict[str, Any]] = {}
         for item in ordered:
+            if item.operation.spec.method == "WEBSOCKET":
+                continue
             method = item.operation.spec.method.lower()
             paths.setdefault(item.path, {})[method] = self._operation(item.operation)
 

@@ -9,7 +9,7 @@ afterwards, so an encoded ``%2F`` never becomes a segment boundary.
 from dataclasses import dataclass
 from urllib.parse import quote, unquote
 
-from lettia.core.handler import Handler
+from lettia.core.handler import Handler, WebSocketHandler
 
 _WILDCARD = "*"
 _STATIC_SAFE = "!$&'()+,;=:@-._~%"
@@ -21,7 +21,7 @@ class RouteConflict(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class Matched:
-    handler: Handler
+    handler: Handler | WebSocketHandler
     path_params: dict[str, str]
 
 
@@ -39,7 +39,12 @@ class MethodNotAllowed:
 class _Route:
     __slots__ = ("handler", "names", "pattern")
 
-    def __init__(self, handler: Handler, names: tuple[str, ...], pattern: str) -> None:
+    def __init__(
+        self,
+        handler: Handler | WebSocketHandler,
+        names: tuple[str, ...],
+        pattern: str,
+    ) -> None:
         self.handler = handler
         self.names = names
         self.pattern = pattern
@@ -64,7 +69,7 @@ class Router:
         # hit that serves the method needs no tree walk.
         self._exact: dict[bytes, dict[str, _Route]] = {}
 
-    def add(self, method: str, path: str, handler: Handler) -> None:
+    def add(self, method: str, path: str, handler: Handler | WebSocketHandler) -> None:
         method = _normalize_method(method)
         segments, names, has_wildcard = _parse(path)
 

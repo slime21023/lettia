@@ -5,15 +5,17 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from dataclasses import dataclass
+from typing import cast
 
 from lettia.core.asgi import ASGIApp, Receive, Scope, Send, asgi_app, run_lifespan
 from lettia.core.context import Context
 from lettia.core.errors import ClientDisconnect, HTTPError, StartupError
-from lettia.core.handler import Handler, Middleware
+from lettia.core.handler import Handler, Middleware, WebSocketHandler
 from lettia.core.problem import ErrorHandler, default_error_handler, problem_response
 from lettia.core.request import DEFAULT_MAX_BODY_SIZE
 from lettia.core.response import Response
 from lettia.core.router import Matched, MethodNotAllowed, Router
+from lettia.core.websocket import WebSocket, WebSocketDisconnect, WebSocketState
 
 type Hook = Callable[[], Awaitable[None]]
 type StartupCheck = Callable[[], Iterable[str]]
@@ -27,6 +29,9 @@ class _Routes(ABC):
 
     @abstractmethod
     def route(self, method: str, path: str, handler: Handler) -> None: ...
+
+    @abstractmethod
+    def websocket(self, path: str, handler: WebSocketHandler) -> None: ...
 
     @abstractmethod
     def group(self, prefix: str, *middleware: Middleware) -> "Group": ...
@@ -54,7 +59,7 @@ class _Routes(ABC):
 class _RouteSpec:
     method: str
     path: str
-    handler: Handler
+    handler: Handler | WebSocketHandler
     middleware: tuple[Middleware, ...]
 
 
@@ -117,6 +122,17 @@ class Group(_Routes):
             _RouteSpec(method, self._prefix + path, handler, self._middleware)
         )
 
+    def websocket(self, path: str, handler: WebSocketHandler) -> None:
+        if not path.startswith("/"):
+            self._registry.add_problem(
+                f"invalid path {path!r} in group {self._prefix!r}: "
+                "it must start with '/'"
+            )
+            return
+        self._registry.register(
+            _RouteSpec("WEBSOCKET", self._prefix + path, handler, ())
+        )
+
     def group(self, prefix: str, *middleware: Middleware) -> "Group":
         self._registry.ensure_open()
         return type(self)(
@@ -177,12 +193,16 @@ class App(_Routes):
         self._lifespans: list[LifespanContext] = []
         self._open_contexts: AsyncExitStack | None = None
         self._http: ASGIApp | None = None
+        self._ws: ASGIApp | None = None
         self._not_allowed: dict[str, Handler] = {}
 
     # --- registration ---------------------------------------------------
 
     def route(self, method: str, path: str, handler: Handler) -> None:
         self._registry.register(_RouteSpec(method, path, handler, ()))
+
+    def websocket(self, path: str, handler: WebSocketHandler) -> None:
+        self._registry.register(_RouteSpec("WEBSOCKET", path, handler, ()))
 
     def group(self, prefix: str, *middleware: Middleware) -> Group:
         self._registry.ensure_open()
@@ -242,21 +262,33 @@ class App(_Routes):
 
     def _built_http(self) -> ASGIApp:
         if self._http is None:
-            self._http = self._assemble()
+            self._http, self._ws = self._assemble()
             self._registry.built = True
         return self._http
 
-    def _assemble(self) -> ASGIApp:
+    def _built_ws(self) -> ASGIApp:
+        if self._ws is None:
+            self._http, self._ws = self._assemble()
+            self._registry.built = True
+        return self._ws
+
+    def _assemble(self) -> tuple[ASGIApp, ASGIApp]:
         problems = list(self._registry.problems)
         for check in self._registry.checks:
             problems.extend(check())
         router = Router()
         for spec in self._registry.routes:
-            chain = self._chain(spec.middleware, spec.handler)
-            try:
-                router.add(spec.method, spec.path, chain)
-            except ValueError as exc:
-                problems.append(str(exc))
+            if spec.method == "WEBSOCKET":
+                try:
+                    router.add(spec.method, spec.path, spec.handler)
+                except ValueError as exc:
+                    problems.append(str(exc))
+            else:
+                chain = self._chain(spec.middleware, cast(Handler, spec.handler))
+                try:
+                    router.add(spec.method, spec.path, chain)
+                except ValueError as exc:
+                    problems.append(str(exc))
         if problems:
             raise StartupError(problems)
         not_found = self._chain((), _raise_not_found)
@@ -267,7 +299,7 @@ class App(_Routes):
             try:
                 if isinstance(result, Matched):
                     c.path_params = result.path_params
-                    return await result.handler(c)
+                    return await cast(Handler, result.handler)(c)
                 if isinstance(result, MethodNotAllowed):
                     return await self._method_not_allowed(result.allow_header)(c)
                 return await not_found(c)
@@ -276,11 +308,59 @@ class App(_Routes):
             except Exception as exc:  # defensive: every layer already converts
                 return await self._to_response(c, exc)
 
-        return asgi_app(
+        http_app = asgi_app(
             dispatch,
             max_body_size=self._max_body_size,
             context_class=self._context_class,
         )
+
+        async def websocket_app(scope: Scope, receive: Receive, send: Send) -> None:
+            raw_path = scope.get("raw_path")
+            if raw_path is None:
+                raw_path = scope["path"].encode("ascii")
+            result = router.match("WEBSOCKET", raw_path)
+            if isinstance(result, Matched):
+                handler = cast(WebSocketHandler, result.handler)
+                ws = WebSocket(scope, receive, send, path_params=result.path_params)
+                try:
+                    await handler(ws)
+                except WebSocketDisconnect:
+                    pass
+                except Exception as exc:
+                    logger.exception(
+                        "unhandled exception in WebSocket handler on %s",
+                        scope.get("path"),
+                        exc_info=exc,
+                    )
+                    if ws.application_state == WebSocketState.CONNECTED:
+                        await ws.close(code=1011, reason="Internal Server Error")
+                    elif ws.application_state == WebSocketState.CONNECTING:
+                        if "websocket.http.response" in scope.get("extensions", {}):
+                            await _send_websocket_denial(
+                                receive, send, 500, "Internal Server Error"
+                            )
+                        else:
+                            await ws.close(code=1011, reason="Internal Server Error")
+            elif isinstance(result, MethodNotAllowed):
+                if "websocket.http.response" in scope.get("extensions", {}):
+                    await _send_websocket_denial(
+                        receive,
+                        send,
+                        405,
+                        "Method Not Allowed",
+                        headers=[(b"allow", result.allow_header.encode("latin-1"))],
+                    )
+                else:
+                    await _send_websocket_close(
+                        receive, send, 4405, "Method Not Allowed"
+                    )
+            else:
+                if "websocket.http.response" in scope.get("extensions", {}):
+                    await _send_websocket_denial(receive, send, 404, "Not Found")
+                else:
+                    await _send_websocket_close(receive, send, 4404, "Not Found")
+
+        return http_app, websocket_app
 
     def _chain(
         self, group_middleware: Sequence[Middleware], handler: Handler
@@ -337,6 +417,9 @@ class App(_Routes):
                 await http(scope, receive, send)
             except ClientDisconnect:
                 return  # nobody is left to answer
+        elif kind == "websocket":
+            ws_app = self._ws or self._built_ws()
+            await ws_app(scope, receive, send)
         elif kind == "lifespan":
             await run_lifespan(receive, send, start=self._start, stop=self._stop)
         else:
@@ -401,3 +484,43 @@ def _raise_method_not_allowed(allow: str) -> Handler:
         raise HTTPError(405, "Method Not Allowed", headers={"allow": allow})
 
     return handler
+
+
+async def _send_websocket_close(
+    receive: Receive, send: Send, code: int, reason: str = ""
+) -> None:
+    message = await receive()
+    if message.get("type") == "websocket.connect":
+        await send({"type": "websocket.close", "code": code, "reason": reason})
+
+
+async def _send_websocket_denial(
+    receive: Receive,
+    send: Send,
+    status: int,
+    title: str,
+    headers: Sequence[tuple[bytes, bytes]] = (),
+) -> None:
+    message = await receive()
+    if message.get("type") == "websocket.connect":
+        body = problem_response(status, title).body
+        body_bytes = body if isinstance(body, bytes) else b""
+        all_headers = [
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body_bytes)).encode("ascii")),
+            *headers,
+        ]
+        await send(
+            {
+                "type": "websocket.http.response.start",
+                "status": status,
+                "headers": all_headers,
+            }
+        )
+        await send(
+            {
+                "type": "websocket.http.response.body",
+                "body": body_bytes,
+                "more_body": False,
+            }
+        )

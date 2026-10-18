@@ -22,6 +22,7 @@ from lettia import (
     Problem,
     Query,
     UploadFile,
+    WebSocket,
     op,
     public,
 )
@@ -75,6 +76,9 @@ class UserApi(Protocol):
     @op.get("/healthz", guard=public)
     async def health(self, c: Context[None], req: None) -> NoContent: ...
 
+    @op.websocket("/stream", guard=bearer)
+    async def stream(self, c: Context[User], ws: WebSocket) -> None: ...
+
 
 @dataclass(frozen=True, slots=True)
 class UserService(UserApi):
@@ -97,11 +101,17 @@ class UserService(UserApi):
     async def health(self, c: Context[None], req: None) -> NoContent:
         return NoContent()
 
+    async def stream(self, c: Context[User], ws: WebSocket) -> None:
+        await ws.accept()
+        await ws.send_text("hello")
+        await ws.close()
 
-def check_request_fields(req: GetUserReq, c: Context[User]) -> None:
+
+def check_request_fields(req: GetUserReq, c: Context[User], ws: WebSocket) -> None:
     assert_type(req.user_id, int)
     assert_type(req.expand, bool)
     assert_type(c.principal, User)
+    assert_type(ws, WebSocket)
 
 
 class UploadReq(msgspec.Struct, kw_only=True):
