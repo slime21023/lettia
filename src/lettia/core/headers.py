@@ -8,7 +8,6 @@ from typing import overload, override
 type RawHeaders = list[tuple[bytes, bytes]]
 
 _TOKEN = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
-_LINE_BREAKS = ("\r", "\n")
 
 
 @lru_cache(maxsize=512)
@@ -105,9 +104,7 @@ class MutableHeaders(Headers):
 
         For names fixed when a route is compiled: only the value is checked.
         """
-        if "\r" in value or "\n" in value:
-            raise ValueError("header value must not contain a line break")
-        self._raw.append((name, value.encode("latin-1")))
+        self._raw.append((name, self._encode_value(value)))
 
     def remove(self, name: str) -> None:
         self._drop(_key(name))
@@ -123,9 +120,11 @@ class MutableHeaders(Headers):
         return _key(name)
 
     @staticmethod
-    def _encode(name: str, value: str) -> tuple[bytes, bytes]:
-        if not _TOKEN.fullmatch(name):
-            raise ValueError(f"invalid header name: {name!r}")
-        if any(c in value for c in _LINE_BREAKS):
+    def _encode_value(value: str) -> bytes:
+        if "\r" in value or "\n" in value:
             raise ValueError("header value must not contain a line break")
-        return _key(name), value.encode("latin-1")
+        return value.encode("latin-1")
+
+    @classmethod
+    def _encode(cls, name: str, value: str) -> tuple[bytes, bytes]:
+        return cls.validated_name(name), cls._encode_value(value)
