@@ -192,3 +192,22 @@ async def test_test_client_holds_lifespan_contexts_open_for_the_block() -> None:
         await client.get("/items/1")
 
     assert log == ["open", "request", "close"]
+
+
+async def test_test_client_supports_pure_core_app() -> None:
+    from lettia.core import App as CoreApp
+    from lettia.core.context import Context as CoreContext
+    from lettia.core.response import Response
+
+    app = CoreApp()
+
+    async def ping(c: CoreContext) -> Response:
+        return c.text(200, "pong")
+
+    app.get("/ping", ping)
+
+    async with TestClient(app) as client:
+        res = await client.get("/ping")
+
+    assert res.status_code == 200
+    assert res.text == "pong"

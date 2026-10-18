@@ -6,8 +6,7 @@ from typing import Any, Self, override
 
 import httpx
 
-from lettia.app import App
-from lettia.core import Message
+from lettia.core import App, Message
 
 
 class _Lifespan:
