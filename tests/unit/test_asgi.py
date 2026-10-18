@@ -1,13 +1,21 @@
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, MutableMapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 import pytest
 
-from lettia.core import ClientDisconnect, Context, HTTPError, Response
-from lettia.core.asgi import asgi_app
-
-Message = MutableMapping[str, Any]
+from lettia.core import (
+    ASGIApp,
+    ClientDisconnect,
+    Context,
+    HTTPError,
+    Message,
+    Receive,
+    Response,
+    Scope,
+    Send,
+)
+from lettia.core.asgi import asgi_app, run_lifespan
 
 
 @dataclass
@@ -323,3 +331,51 @@ async def test_asgi_builds_contexts_with_the_given_context_class() -> None:
     await asgi_app(handler, context_class=CustomContext)(scope, receive, send)
 
     assert seen == [CustomContext]
+
+
+async def test_run_lifespan_sends_complete_messages_when_start_and_stop_succeed() -> (
+    None
+):
+    queue: list[Message] = [
+        {"type": "lifespan.startup"},
+        {"type": "lifespan.shutdown"},
+    ]
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return queue.pop(0)
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    async def ok_step() -> str | None:
+        return None
+
+    await run_lifespan(receive, send, start=ok_step, stop=ok_step)
+
+    assert sent == [
+        {"type": "lifespan.startup.complete"},
+        {"type": "lifespan.shutdown.complete"},
+    ]
+
+
+async def test_run_lifespan_stops_and_sends_failed_when_start_returns_message() -> None:
+    queue: list[Message] = [{"type": "lifespan.startup"}]
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return queue.pop(0)
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    async def fail_start() -> str | None:
+        return "boom"
+
+    async def never_stop() -> str | None:
+        raise AssertionError
+
+    await run_lifespan(receive, send, start=fail_start, stop=never_stop)
+
+    assert sent == [{"type": "lifespan.startup.failed", "message": "boom"}]
+    assert (ASGIApp, Receive, Scope, Send) is not None

@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager, AsyncExitStack
 from dataclasses import dataclass
 
-from lettia.core.asgi import ASGIApp, Message, Receive, Scope, Send, asgi_app
+from lettia.core.asgi import ASGIApp, Receive, Scope, Send, asgi_app, run_lifespan
 from lettia.core.context import Context
 from lettia.core.errors import ClientDisconnect, HTTPError, StartupError
 from lettia.core.handler import Handler, Middleware
@@ -338,22 +338,9 @@ class App(_Routes):
             except ClientDisconnect:
                 return  # nobody is left to answer
         elif kind == "lifespan":
-            await self._lifespan(receive, send)
+            await run_lifespan(receive, send, start=self._start, stop=self._stop)
         else:
             raise NotImplementedError(f"unsupported ASGI scope: {kind}")
-
-    async def _lifespan(self, receive: Receive, send: Send) -> None:
-        while True:
-            message = await receive()
-            if message["type"] == "lifespan.startup":
-                failure = await self._start()
-                if failure is not None:
-                    await send({"type": "lifespan.startup.failed", "message": failure})
-                    return
-                await send({"type": "lifespan.startup.complete"})
-            elif message["type"] == "lifespan.shutdown":
-                await send(await self._stop())
-                return
 
     async def _start(self) -> str | None:
         """Run the startup checks, the contexts, then the hooks.
@@ -380,7 +367,7 @@ class App(_Routes):
         self._open_contexts = contexts
         return None
 
-    async def _stop(self) -> Message:
+    async def _stop(self) -> str | None:
         """Run every shutdown hook, last registered first, even after a failure."""
         failures: list[str] = []
         for hook in reversed(self._shutdown):
@@ -394,9 +381,7 @@ class App(_Routes):
                 await contexts.aclose()  # every context is left, even if one fails
             except Exception as exc:
                 failures.append(f"{type(exc).__name__}: {exc}")
-        if failures:
-            return {"type": "lifespan.shutdown.failed", "message": "; ".join(failures)}
-        return {"type": "lifespan.shutdown.complete"}
+        return "; ".join(failures) if failures else None
 
 
 async def _close_after_failed_startup(contexts: AsyncExitStack) -> None:

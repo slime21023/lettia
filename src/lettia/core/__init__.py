@@ -4,6 +4,7 @@ Does not know the contract layer.
 """
 
 from lettia.core.app import App, Group
+from lettia.core.asgi import ASGIApp, Message, Receive, Scope, Send
 from lettia.core.context import Context
 from lettia.core.errors import (
     ClientDisconnect,
@@ -22,6 +23,7 @@ from lettia.core.response import Response, ResponseBody
 from lettia.core.router import Matched, MethodNotAllowed, RouteConflict, Router
 
 __all__ = [
+    "ASGIApp",
     "App",
     "ClientDisconnect",
     "Context",
@@ -33,16 +35,20 @@ __all__ = [
     "Headers",
     "Key",
     "Matched",
-    "Middleware",
+    "Message",
     "MethodNotAllowed",
+    "Middleware",
     "MutableHeaders",
     "QueryParams",
+    "Receive",
     "Request",
     "RequestHead",
     "Response",
     "ResponseBody",
     "RouteConflict",
     "Router",
+    "Scope",
+    "Send",
     "StartupError",
     "Unauthorized",
     "problem_response",

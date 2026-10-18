@@ -14,6 +14,7 @@ type Message = MutableMapping[str, Any]
 type Receive = Callable[[], Awaitable[Message]]
 type Send = Callable[[Message], Awaitable[None]]
 type ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
+type LifespanStep = Callable[[], Awaitable[str | None]]
 
 
 def asgi_app(
@@ -46,6 +47,34 @@ def asgi_app(
         await _send_response(response, request.method == "HEAD", send)
 
     return app
+
+
+async def run_lifespan(
+    receive: Receive,
+    send: Send,
+    *,
+    start: LifespanStep,
+    stop: LifespanStep,
+) -> None:
+    """Drive the ASGI lifespan protocol using ``start`` and ``stop`` steps.
+
+    Each step returns ``None`` when it succeeds or a failure message string.
+    """
+    while True:
+        message = await receive()
+        if message["type"] == "lifespan.startup":
+            failure = await start()
+            if failure is not None:
+                await send({"type": "lifespan.startup.failed", "message": failure})
+                return
+            await send({"type": "lifespan.startup.complete"})
+        elif message["type"] == "lifespan.shutdown":
+            failure = await stop()
+            if failure is not None:
+                await send({"type": "lifespan.shutdown.failed", "message": failure})
+            else:
+                await send({"type": "lifespan.shutdown.complete"})
+            return
 
 
 async def _body_chunks(receive: Receive) -> AsyncIterator[bytes]:
