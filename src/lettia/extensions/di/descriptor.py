@@ -67,4 +67,14 @@ class Injected[T]:
                 "has no resolved service type"
             )
 
+        injected_hook = getattr(self._service_type, "__injected__", None)
+        if callable(injected_hook):
+            services = getattr(scope, "scoped_services", None)
+            if services is not None and self._service_type in services:
+                return services[self._service_type]
+            resolved = injected_hook()
+            if services is not None:
+                services[self._service_type] = resolved
+            return resolved
+
         return scope.get(self._service_type)
