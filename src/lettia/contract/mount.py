@@ -167,8 +167,7 @@ def _compile(
     async def handle(c: Context) -> Response:
         if run_guard is not None:
             # Guards read only the head, so they run before anything is decoded.
-            with_principal: PrincipalContext[Any] = c  # type: ignore[assignment]
-            with_principal.principal = await run_guard(c.request)
+            cast(PrincipalContext[Any], c).principal = await run_guard(c.request)
         request = None if decode is None else await decode(c)
         return encode(await call(c, request))
 
