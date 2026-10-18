@@ -1,10 +1,12 @@
 """Startup checks 4 to 7 and the shape of what ``mount`` accepts."""
 
-from typing import Any, Protocol
+from collections.abc import Callable, Sequence
+from typing import Any, Protocol, override
 
 import pytest
 
 from lettia import App, Context, GuardSpec, NoContent, Ok, op, public
+from lettia.contract import MsgspecCodec
 from lettia.core import StartupError
 
 
@@ -208,3 +210,35 @@ def test_group_of_a_group_is_still_a_lettia_group_with_mount() -> None:
     nested.mount(Complete())
 
     app.build()
+
+
+def test_app_codec_is_used_by_mounted_operations_and_openapi() -> None:
+    class RecordingCodec(MsgspecCodec):
+        def __init__(self) -> None:
+            self.encode_builds = 0
+            self.schema_calls = 0
+
+        @override
+        def build_encoder(self) -> Callable[[object], bytes]:
+            self.encode_builds += 1
+            return super().build_encoder()
+
+        @override
+        def json_schema(
+            self, types: Sequence[Any], *, ref_template: str
+        ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+            self.schema_calls += 1
+            return super().json_schema(types, ref_template=ref_template)
+
+    class SecondImpl(Second):
+        async def ping(self, c: Context[None], req: None) -> Ok[int]:
+            return Ok(1)
+
+    custom_codec = RecordingCodec()
+    app = App(codec=custom_codec)
+    app.group("/v1").mount(SecondImpl())
+
+    app.openapi()
+
+    assert custom_codec.encode_builds >= 2
+    assert custom_codec.schema_calls == 1

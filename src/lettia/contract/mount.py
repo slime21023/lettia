@@ -21,11 +21,7 @@ from lettia.contract.op import operation_spec
 from lettia.contract.responses import Reply
 from lettia.core import Context, Handler, Response
 
-_OPERATION_IDS_KEY = "lettia.operation_ids"
-MOUNTED_KEY = "lettia.mounted_operations"
-"""``App.state`` key of the list of :class:`MountedOperation`."""
-GUARDS_KEY = "lettia.guards"
-"""``App.state`` key under which the guard implementations are stored."""
+_CONTRACTS_KEY = "lettia.contracts"
 
 type GuardRegistry = Mapping[GuardSpec[Any], GuardImpl[Any]]
 
@@ -36,6 +32,18 @@ class MountedOperation:
 
     operation: Operation
     path: str
+
+
+class ContractRegistry:
+    """Contract-layer state shared across an ``App`` and its route groups."""
+
+    __slots__ = ("codec", "guards", "mounted", "operation_ids")
+
+    def __init__(self) -> None:
+        self.codec: Codec = MsgspecCodec()
+        self.guards: dict[GuardSpec[Any], GuardImpl[Any]] = {}
+        self.mounted: list[MountedOperation] = []
+        self.operation_ids: dict[str, str] = {}
 
 
 class MountTarget(Protocol):
@@ -55,6 +63,15 @@ class MountTarget(Protocol):
     def add_startup_problem(self, message: str) -> None: ...
 
 
+def contract_registry(target: MountTarget) -> ContractRegistry:
+    """Return (or create) the :class:`ContractRegistry` stored on ``target``."""
+    registry = target.state.get(_CONTRACTS_KEY)
+    if not isinstance(registry, ContractRegistry):
+        registry = ContractRegistry()
+        target.state[_CONTRACTS_KEY] = registry
+    return registry
+
+
 def mount(
     target: MountTarget, implementation: object, *, codec: Codec | None = None
 ) -> None:
@@ -63,7 +80,8 @@ def mount(
     Problems do not raise here: they are recorded on ``target`` so that startup
     reports them together with everything else that is wrong.
     """
-    codec = codec or MsgspecCodec()
+    registry = contract_registry(target)
+    active_codec = codec or registry.codec
     implementation_type = type(implementation)
     contracts = _contracts_of(implementation_type)
     if not contracts:
@@ -73,24 +91,30 @@ def mount(
         )
         return
 
-    operation_ids = _operation_ids(target)
-    mounted = cast(list[MountedOperation], target.state.setdefault(MOUNTED_KEY, []))
-    guards = cast(GuardRegistry, target.state.get(GUARDS_KEY, {}))
     for contract in contracts:
         operations, problems = inspect_contract(contract)
         for problem in problems:
             target.add_startup_problem(problem)
         for operation in operations:
-            problems = _check(operation, implementation, operation_ids, guards)
+            problems = _check(
+                operation,
+                implementation,
+                registry.operation_ids,
+                registry.guards,
+            )
             if problems:
                 for problem in problems:
                     target.add_startup_problem(problem)
                 continue
             handler = _compile(
-                operation, implementation, codec, guards, debug=target.debug
+                operation,
+                implementation,
+                active_codec,
+                registry.guards,
+                debug=target.debug,
             )
             target.route(operation.spec.method, operation.spec.path, handler)
-            mounted.append(
+            registry.mounted.append(
                 MountedOperation(operation, target.prefix + operation.spec.path)
             )
 
@@ -102,10 +126,6 @@ def _contracts_of(cls: type) -> list[type]:
         for base in cls.__mro__
         if any(operation_spec(member) is not None for member in vars(base).values())
     ]
-
-
-def _operation_ids(target: MountTarget) -> dict[str, str]:
-    return cast(dict[str, str], target.state.setdefault(_OPERATION_IDS_KEY, {}))
 
 
 def _check(

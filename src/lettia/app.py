@@ -4,10 +4,10 @@ import json
 from collections.abc import Sequence
 from typing import Any, Literal, cast, override
 
-from lettia.contract.codec import Codec, MsgspecCodec
+from lettia.contract.codec import Codec
 from lettia.contract.context import Context
 from lettia.contract.guards import GuardImpl, GuardSpec
-from lettia.contract.mount import GUARDS_KEY, MOUNTED_KEY, MountedOperation, mount
+from lettia.contract.mount import contract_registry, mount
 from lettia.contract.openapi import OpenAPIInfo, build_openapi
 from lettia.core import app as core_app
 from lettia.core.context import Context as CoreContext
@@ -55,6 +55,7 @@ class App(core_app.App):
         context_class: type[Context[Any]] = Context,
         max_body_size: int | None = DEFAULT_MAX_BODY_SIZE,
         guards: Sequence[GuardImpl[Any]] = (),
+        codec: Codec | None = None,
         title: str = "API",
         version: str = "0.0.0",
         description: str | None = None,
@@ -72,9 +73,11 @@ class App(core_app.App):
             context_class=context_class,
             max_body_size=max_body_size,
         )
-        self.state[GUARDS_KEY] = self._register_guards(guards)
+        self._contracts = contract_registry(self)
+        if codec is not None:
+            self._contracts.codec = codec
+        self._contracts.guards = self._register_guards(guards)
         self._openapi_info = OpenAPIInfo(title, version, description)
-        self._openapi_codec = MsgspecCodec()
         self._openapi_json: bytes | None = None
         self._docs_html = b""
         self.add_startup_check(self._derive_openapi)
@@ -121,12 +124,12 @@ class App(core_app.App):
         return cast(dict[str, Any], json.loads(self._openapi_json))
 
     def _derive_openapi(self) -> list[str]:
-        mounted = cast(list[MountedOperation], self.state.get(MOUNTED_KEY, []))
+        codec = self._contracts.codec
         document, problems = build_openapi(
-            mounted, info=self._openapi_info, codec=self._openapi_codec
+            self._contracts.mounted, info=self._openapi_info, codec=codec
         )
         if document is not None:
-            self._openapi_json = self._openapi_codec.build_encoder()(document)
+            self._openapi_json = codec.build_encoder()(document)
         return problems
 
     async def _serve_openapi(self, c: CoreContext) -> Response:
