@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 
 import msgspec
 
+from lettia.contract.context import Context as ContractContext
 from lettia.core import Context, Request
 
 
@@ -89,3 +90,11 @@ async def test_context_stream_passes_the_chunks_through() -> None:
     assert res.body is not None
     assert not isinstance(res.body, bytes)
     assert [part async for part in res.body] == [b"a", b"b"]
+
+
+def test_contract_context_has_slots_and_no_instance_dict() -> None:
+    request = Request(method="GET", path="/", body=no_body())
+    c = ContractContext[None](request)
+
+    assert not hasattr(c, "__dict__")
+    assert c.principal is None

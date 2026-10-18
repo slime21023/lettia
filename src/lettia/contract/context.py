@@ -12,6 +12,8 @@ class Context[G](CoreContext):
     For a ``public`` operation ``G`` is ``None`` and so is the principal.
     """
 
+    __slots__ = ("principal",)
+
     def __init__(
         self, request: Request, path_params: dict[str, str] | None = None
     ) -> None:
