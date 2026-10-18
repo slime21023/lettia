@@ -1,12 +1,15 @@
 """The HTTP request: a lazily parsed head plus a single-use body."""
 
 from collections.abc import AsyncIterator, Mapping
+from typing import Literal
 from urllib.parse import quote
 
 from lettia.core.cookies import parse_cookies
 from lettia.core.errors import HTTPError
 from lettia.core.headers import Headers, RawHeaders
 from lettia.core.query import QueryParams
+
+type _BodyMode = Literal["unread", "body", "stream"]
 
 DEFAULT_MAX_BODY_SIZE = 5 * 1024 * 1024
 
@@ -123,7 +126,7 @@ class Request(RequestHead):
         )
         self._source = body
         self._max_body_size = max_body_size
-        self._mode: str = "unread"
+        self._mode: _BodyMode = "unread"
         self._cached: bytes | None = None
 
     async def body(self) -> bytes:
