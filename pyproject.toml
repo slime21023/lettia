@@ -1,6 +1,6 @@
 [project]
 name = "lettia"
-version = "0.1.0.dev0"
+version = "0.3.1"
 description = "Lettia — a contract-first ASGI framework"
 readme = "README.md"
 license = { file = "LICENSE" }
