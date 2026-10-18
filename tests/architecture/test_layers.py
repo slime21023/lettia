@@ -9,11 +9,12 @@ SRC = Path(__file__).parents[2] / "src" / "lettia"
 
 # layer -> top-level lettia sub-packages it must never import
 FORBIDDEN = {
-    "core": {"contract", "middleware", "testing", "cli"},
-    "middleware": {"contract", "testing", "cli"},
-    "contract": {"middleware", "testing", "cli"},
-    "cli": {"testing", "middleware"},
-    "testing": {"cli", "middleware"},
+    "core": {"contract", "middleware", "testing", "cli", "extensions"},
+    "middleware": {"contract", "testing", "cli", "extensions"},
+    "contract": {"middleware", "testing", "cli", "extensions"},
+    "cli": {"testing", "middleware", "extensions"},
+    "testing": {"cli", "middleware", "extensions"},
+    "extensions": {"cli", "testing"},
 }
 
 

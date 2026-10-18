@@ -383,6 +383,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+di = [
+    { name = "rodi" },
+]
 test = [
     { name = "httpx" },
 ]
@@ -412,8 +415,9 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.1" },
     { name = "msgspec", specifier = ">=0.22.0" },
     { name = "pyyaml", marker = "extra == 'yaml'", specifier = ">=6" },
+    { name = "rodi", marker = "extra == 'di'", specifier = ">=2.0.0" },
 ]
-provides-extras = ["test", "yaml"]
+provides-extras = ["test", "yaml", "di"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1038,6 +1042,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/28/ea/a9387748e2d111c3c2b275ba970b735e04e15cdb1eb30693b6b5708c4dbd/rfc3339_validator-0.1.4.tar.gz", hash = "sha256:138a2abdf93304ad60530167e51d2dfb9549521a836871b88d7f4695d0022f6b", size = 5513, upload-time = "2021-05-12T16:37:54.178Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/7b/44/4e421b96b67b2daff264473f7465db72fbdf36a07e05494f50300cc7b0c6/rfc3339_validator-0.1.4-py2.py3-none-any.whl", hash = "sha256:24f6ec1eda14ef823da9e36ec7113124b39c04d50a4d3d3a3c2859577e7791fa", size = 3490, upload-time = "2021-05-12T16:37:52.536Z" },
+]
+
+[[package]]
+name = "rodi"
+version = "2.1.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/19/e6/72d8fbdaf8e70b5e717a889f7d35f4983173cdcd3a5c1a9e427d064bb4c2/rodi-2.1.0.tar.gz", hash = "sha256:7e1548361dcff5eb5e5228c752ed9a3ac1535cbdc1ba0561deeb63b686f069c5", size = 16780, upload-time = "2026-03-08T19:31:22.467Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/34/9565181b12a94139376b49645f2439d57f14d01082e12d28f8d88f1a2b27/rodi-2.1.0-py3-none-any.whl", hash = "sha256:cfca0d9b9f6693850d2ec01c5680aed5f5e356aafe4494671dc8caddd569d654", size = 14734, upload-time = "2026-03-08T19:31:21.374Z" },
 ]
 
 [[package]]

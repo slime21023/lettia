@@ -34,6 +34,9 @@ test = [
 yaml = [
     "pyyaml>=6",
 ]
+di = [
+    "rodi>=2.0.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.13,<0.10.0"]
