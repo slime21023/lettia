@@ -20,7 +20,7 @@ class _Lifespan:
         self._task: asyncio.Task[None] | None = None
 
     async def start(self) -> None:
-        self._task = asyncio.ensure_future(
+        self._task = asyncio.create_task(
             self._app(
                 {"type": "lifespan", "asgi": {"version": "3.0"}},
                 self._to_app.get,
@@ -44,7 +44,7 @@ class _Lifespan:
         task = self._task
         if task is None:
             raise RuntimeError("the lifespan was not started")
-        reply = asyncio.ensure_future(self._from_app.get())
+        reply = asyncio.create_task(self._from_app.get())
         done, _ = await asyncio.wait({reply, task}, return_when=asyncio.FIRST_COMPLETED)
         if reply in done:
             return reply.result()
