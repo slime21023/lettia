@@ -13,6 +13,8 @@ from lettia import (
     Body,
     Context,
     Created,
+    File,
+    Form,
     HeaderName,
     NoContent,
     NotFound,
@@ -20,6 +22,7 @@ from lettia import (
     Path,
     Problem,
     Query,
+    UploadFile,
     op,
     public,
 )
@@ -345,3 +348,105 @@ async def test_a_missing_required_response_header_is_a_logged_500(
 
     assert res.status_code == 500
     assert any("required header" in str(r.exc_info) for r in caplog.records)
+
+
+class FormPostReq(msgspec.Struct, kw_only=True):
+    name: Form[str]
+    count: Form[int] = 1
+
+
+class FormPostResult(msgspec.Struct):
+    greeting: str
+    total: int
+
+
+class MultipartUploadReq(msgspec.Struct, kw_only=True):
+    category: Form[str]
+    avatar: File[UploadFile]
+    docs: File[list[UploadFile]] = msgspec.field(default_factory=list)
+
+
+class MultipartUploadResult(msgspec.Struct):
+    category: str
+    avatar_name: str
+    avatar_bytes: int
+    doc_count: int
+
+
+class FormAndFileApi(Protocol):
+    @op.post("/submit-form", guard=public)
+    async def submit_form(
+        self, c: Context[None], req: FormPostReq
+    ) -> Ok[FormPostResult]: ...
+
+    @op.post("/upload-files", guard=public)
+    async def upload_files(
+        self, c: Context[None], req: MultipartUploadReq
+    ) -> Ok[MultipartUploadResult]: ...
+
+
+class FormAndFileService(FormAndFileApi):
+    async def submit_form(
+        self, c: Context[None], req: FormPostReq
+    ) -> Ok[FormPostResult]:
+        return Ok(FormPostResult(f"Hello, {req.name}", req.count * 2))
+
+    async def upload_files(
+        self, c: Context[None], req: MultipartUploadReq
+    ) -> Ok[MultipartUploadResult]:
+        content = await req.avatar.read()
+        return Ok(
+            MultipartUploadResult(
+                category=req.category,
+                avatar_name=req.avatar.filename or "",
+                avatar_bytes=len(content),
+                doc_count=len(req.docs),
+            )
+        )
+
+
+async def test_form_urlencoded_end_to_end() -> None:
+    app = App()
+    app.mount(FormAndFileService())
+
+    async with client(app) as http:
+        res = await http.post("/submit-form", data={"name": "Bob", "count": "5"})
+
+    assert res.status_code == 200
+    assert res.json() == {"greeting": "Hello, Bob", "total": 10}
+
+
+async def test_multipart_file_upload_end_to_end() -> None:
+    app = App()
+    app.mount(FormAndFileService())
+
+    files = [
+        ("avatar", ("me.png", b"fake-png-content", "image/png")),
+        ("docs", ("doc1.txt", b"doc 1 content", "text/plain")),
+        ("docs", ("doc2.txt", b"doc 2 content", "text/plain")),
+    ]
+    data = {"category": "profile"}
+
+    async with client(app) as http:
+        res = await http.post("/upload-files", data=data, files=files)
+
+    assert res.status_code == 200
+    assert res.json() == {
+        "category": "profile",
+        "avatar_name": "me.png",
+        "avatar_bytes": 16,
+        "doc_count": 2,
+    }
+
+
+async def test_multipart_file_upload_missing_required_file_422() -> None:
+    app = App()
+    app.mount(FormAndFileService())
+
+    data = {"category": "profile"}
+
+    async with client(app) as http:
+        res = await http.post("/upload-files", data=data)
+
+    assert res.status_code == 422
+    assert "avatar" in res.json()["detail"]

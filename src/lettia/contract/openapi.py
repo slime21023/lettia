@@ -167,8 +167,12 @@ class _Builder:
         if parameters:
             result["parameters"] = parameters
         body = next((f for f in operation.fields if f.source == "body"), None)
+        form_fields = [f for f in operation.fields if f.source == "form"]
+        file_fields = [f for f in operation.fields if f.source == "file"]
         if body is not None:
             result["requestBody"] = self._request_body(body)
+        elif form_fields or file_fields:
+            result["requestBody"] = self._form_request_body(form_fields, file_fields)
         result["responses"] = self._responses(operation)
         self._register_schemes(operation.spec.guard)
         security = _security(operation.spec.guard)
@@ -185,7 +189,7 @@ class _Builder:
     # --- request ----------------------------------------------------------
 
     def _parameters(self, fields: Sequence[RequestField]) -> list[dict[str, Any]]:
-        params = [f for f in fields if f.source != "body"]
+        params = [f for f in fields if f.source in _LOCATION_ORDER]
         params.sort(key=lambda f: (_LOCATION_ORDER[f.source], f.wire_name))
         return [
             {
@@ -209,6 +213,45 @@ class _Builder:
         return {
             "required": body.required and not body.nullable,
             "content": {"application/json": {"schema": self._slot(body.type)}},
+        }
+
+    def _form_request_body(
+        self, form_fields: list[RequestField], file_fields: list[RequestField]
+    ) -> dict[str, Any]:
+        media_type = (
+            "multipart/form-data"
+            if file_fields
+            else "application/x-www-form-urlencoded"
+        )
+        properties: dict[str, Any] = {}
+        required: list[str] = []
+
+        for f in form_fields:
+            properties[f.wire_name] = self._slot(f.type, self._default_of(f))
+            if f.required:
+                required.append(f.wire_name)
+
+        for f in file_fields:
+            if f.multi:
+                properties[f.wire_name] = {
+                    "type": "array",
+                    "items": {"type": "string", "format": "binary"},
+                }
+            else:
+                properties[f.wire_name] = {"type": "string", "format": "binary"}
+            if f.required:
+                required.append(f.wire_name)
+
+        schema: dict[str, Any] = {
+            "type": "object",
+            "properties": dict(sorted(properties.items())),
+        }
+        if required:
+            schema["required"] = sorted(required)
+
+        return {
+            "required": bool(required),
+            "content": {media_type: {"schema": schema}},
         }
 
     # --- responses --------------------------------------------------------

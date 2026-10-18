@@ -597,3 +597,60 @@ def test_the_document_is_valid_openapi_3_1() -> None:
 
 def test_a_document_with_only_public_operations_is_valid_openapi_3_1() -> None:
     validate(document(_public_contract()))
+
+
+def test_form_urlencoded_request_body_schema() -> None:
+    from lettia import Form
+
+    class FormReq(msgspec.Struct, kw_only=True):
+        name: Form[str]
+        count: Form[int] = 1
+
+    class FormContract(Protocol):
+        @op.post("/submit", guard=public)
+        async def submit(self, c: Context[None], req: FormReq) -> Ok[int]: ...
+
+    doc, problems = build_openapi(mounted(FormContract), info=INFO, codec=codec)
+    assert not problems
+    assert doc is not None
+    validate(doc)
+    op_spec = doc["paths"]["/submit"]["post"]
+    req_body = op_spec["requestBody"]
+    assert req_body["required"] is True
+    content = req_body["content"]["application/x-www-form-urlencoded"]
+    schema = content["schema"]
+    assert schema["type"] == "object"
+    assert schema["properties"]["name"] == {"type": "string"}
+    assert schema["properties"]["count"] == {"type": "integer", "default": 1}
+    assert schema["required"] == ["name"]
+
+
+def test_multipart_file_upload_request_body_schema() -> None:
+    from lettia import File, Form, UploadFile
+
+    class UploadReq(msgspec.Struct, kw_only=True):
+        title: Form[str]
+        avatar: File[UploadFile]
+        docs: File[list[UploadFile]] = msgspec.field(default_factory=list)
+
+    class UploadContract(Protocol):
+        @op.post("/upload", guard=public)
+        async def upload(self, c: Context[None], req: UploadReq) -> Ok[int]: ...
+
+    doc, problems = build_openapi(mounted(UploadContract), info=INFO, codec=codec)
+    assert not problems
+    assert doc is not None
+    validate(doc)
+    op_spec = doc["paths"]["/upload"]["post"]
+    req_body = op_spec["requestBody"]
+    assert req_body["required"] is True
+    content = req_body["content"]["multipart/form-data"]
+    schema = content["schema"]
+    assert schema["type"] == "object"
+    assert schema["properties"]["title"] == {"type": "string"}
+    assert schema["properties"]["avatar"] == {"type": "string", "format": "binary"}
+    assert schema["properties"]["docs"] == {
+        "type": "array",
+        "items": {"type": "string", "format": "binary"},
+    }
+    assert schema["required"] == ["avatar", "title"]

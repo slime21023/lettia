@@ -242,3 +242,37 @@ def test_app_codec_is_used_by_mounted_operations_and_openapi() -> None:
 
     assert custom_codec.encode_builds >= 2
     assert custom_codec.schema_calls == 1
+
+
+async def test_mount_closes_uploaded_files_after_handler() -> None:
+    import msgspec
+
+    from lettia import File, UploadFile
+    from lettia.testing import TestClient
+
+    class FileReq(msgspec.Struct, kw_only=True):
+        avatar: File[UploadFile]
+
+    class FileContract(Protocol):
+        @op.post("/upload", guard=public)
+        async def upload(self, c: Context[None], req: FileReq) -> Ok[str]: ...
+
+    captured: list[UploadFile] = []
+
+    class FileImpl(FileContract):
+        async def upload(self, c: Context[None], req: FileReq) -> Ok[str]:
+            captured.append(req.avatar)
+            return Ok("ok")
+
+    app = App()
+    app.mount(FileImpl())
+
+    async with TestClient(app) as client:
+        resp = await client.post(
+            "/upload",
+            files={"avatar": ("avatar.png", b"binary-data", "image/png")},
+        )
+        assert resp.status_code == 200
+
+    assert len(captured) == 1
+    assert captured[0]._file.closed
