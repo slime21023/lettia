@@ -37,17 +37,6 @@ def compile_request(operation: Operation, codec: Codec) -> RequestDecoder | None
     body_reader = _body_reader(body, codec) if body is not None else None
     body_name = body.name if body is not None else ""
 
-    if params_reader is None and body_reader is not None:
-        read_body = body_reader
-
-        async def decode_body_only(c: Context) -> msgspec.Struct:
-            value = await read_body(c)
-            if value is _ABSENT:
-                return request_type()
-            return request_type(**{body_name: value})
-
-        return decode_body_only
-
     async def decode(c: Context) -> msgspec.Struct:
         values = {} if params_reader is None else params_reader(c)
         if body_reader is not None:
