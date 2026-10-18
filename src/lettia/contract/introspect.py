@@ -126,8 +126,8 @@ def _inspect(
         problems.append(f"cannot resolve the annotations: {exc}")
         return None
 
-    request_type, fields = _request(spec, hints, parameters[2].name, problems)
-    responses = _responses(hints, problems)
+    request_type, fields = _inspect_request(spec, hints, parameters[2].name, problems)
+    responses = _inspect_responses(hints, problems)
     if problems:
         return None
     return Operation(
@@ -145,7 +145,7 @@ def _inspect(
 # --- request ------------------------------------------------------------
 
 
-def _request(
+def _inspect_request(
     spec: OperationSpec, hints: dict[str, Any], param: str, problems: list[str]
 ) -> tuple[type[msgspec.Struct] | None, tuple[RequestField, ...]]:
     if "*" in spec.path:
@@ -162,7 +162,7 @@ def _request(
         pass
     elif isinstance(hint, type) and issubclass(hint, msgspec.Struct):
         request_type = hint
-        fields = _fields(hint, problems)
+        fields = _inspect_fields(hint, problems)
     else:
         problems.append(
             f"the request type must be a msgspec Struct or None, got {hint!r}"
@@ -173,7 +173,7 @@ def _request(
     return request_type, tuple(fields)
 
 
-def _fields(
+def _inspect_fields(
     request_type: type[msgspec.Struct], problems: list[str]
 ) -> list[RequestField]:
     fields: list[RequestField] = []
@@ -282,7 +282,9 @@ def _check_body_fields(
 # --- responses ----------------------------------------------------------
 
 
-def _responses(hints: dict[str, Any], problems: list[str]) -> tuple[ResponseShape, ...]:
+def _inspect_responses(
+    hints: dict[str, Any], problems: list[str]
+) -> tuple[ResponseShape, ...]:
     if "return" not in hints:
         problems.append(
             "the return annotation is missing; declare the response classes"
@@ -291,7 +293,7 @@ def _responses(hints: dict[str, Any], problems: list[str]) -> tuple[ResponseShap
     shapes = [
         shape
         for member in _union_members(hints["return"])
-        if (shape := _shape(member, problems)) is not None
+        if (shape := _inspect_response_shape(member, problems)) is not None
     ]
     seen: set[int] = set()
     for shape in shapes:
@@ -310,7 +312,7 @@ def _union_members(hint: Any) -> tuple[Any, ...]:
     return (hint,)
 
 
-def _shape(member: Any, problems: list[str]) -> ResponseShape | None:
+def _inspect_response_shape(member: Any, problems: list[str]) -> ResponseShape | None:
     base = get_origin(member) or member
     if not (isinstance(base, type) and issubclass(base, Reply) and base is not Reply):
         name = getattr(member, "__name__", repr(member))
