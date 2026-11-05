@@ -39,9 +39,19 @@ is [`examples/openapi.json`](examples/openapi.json).
 pip install lettia                # the only dependency is msgspec
 pip install 'lettia[test]'        # httpx, for lettia.testing.TestClient
 pip install 'lettia[yaml]'        # PyYAML, for `lettia openapi export --format yaml`
+pip install 'lettia[di]'          # rodi, for lettia.extensions.di
 ```
 
 Run an app with any ASGI server, for example `uvicorn examples.users_api:app`.
+
+## Documentation
+
+Usage guides are in [`docs/`](docs/index.md):
+
+- [Getting started](docs/getting-started.md): a first contract app, end to end.
+- [Core](docs/core.md): routing, requests, responses, middleware, errors, lifecycle.
+- [Contract](docs/contract.md): `op`, request and response types, mounting, startup checks.
+- [Guards](docs/guards.md), [OpenAPI](docs/openapi.md), [WebSockets](docs/websocket.md), [Testing](docs/testing.md), [Extensions](docs/extensions.md).
 
 ## What you get
 
@@ -83,6 +93,39 @@ closed even when a later startup step fails. Errors are turned
 into responses at every layer, so an exception in a middleware still reaches the
 middleware outside it as a response. `import lettia.core`
 does not load the contract layer.
+
+**WebSockets.** A WebSocket route is a contract operation too:
+`@op.websocket("/chat/{room}", guard=bearer)` takes `(self, c, ws: WebSocket)` and
+returns `None`. The guard runs on the HTTP upgrade request, before the handshake
+is accepted, so a rejected caller gets a plain 401 or 403 and never opens a
+socket. Without a contract, register a handler directly with
+`app.websocket(path, handler)`; `handler` takes only the `WebSocket`. The socket has
+`accept`, `close`, `receive_text/bytes/json(Model)`, `send_text/bytes/json` and the
+`iter_*` helpers.
+
+```python
+class ChatApi(Protocol):
+    @op.websocket("/chat/{room}", guard=public)
+    async def chat(self, c: Context[None], ws: WebSocket) -> None: ...
+
+
+class ChatService(ChatApi):
+    async def chat(self, c: Context[None], ws: WebSocket) -> None:
+        await ws.accept()
+        msg = await ws.receive_json(ChatMessage)
+        await ws.send_json(ChatMessage(text=f"[{c.path_params['room']}] {msg.text}"))
+        await ws.close()
+```
+
+## Extensions
+
+Optional pieces live in `lettia.extensions` and are not loaded by the core.
+
+| Module | What it does |
+| --- | --- |
+| `lettia.extensions.di` (`lettia[di]`) | Declarative dependency injection on [rodi](https://github.com/Neoteroi/rodi). Mark service fields `db: Injected[Database]`, then `app.use(DIMiddleware(container))` and `container.wire(app, [UserService])`. Handler signatures stay `(self, c, req)`; a request scope is opened per request and its services are closed afterwards |
+| `lettia.extensions.tasks` | In-process background tasks, started as soon as the handler chain returns (concurrently with sending the response): `app.use(BackgroundTasksMiddleware(app))`, then `BackgroundTasks.of(c).add_task(fn, *args)` in a handler. Pending tasks are drained at shutdown (`shutdown_timeout_sec`). Not a replacement for a durable queue |
+| `lettia.extensions.staticfiles` | `StaticFiles.mount(app, "/static", "./assets")`: rejects path traversal, symlink escapes and dotfiles; `ETag`/`Last-Modified` with 304; single byte `Range` with 206 and 416; `html=True` for single-page-app fallback |
 
 **Testing.** Handlers are ordinary async methods, so call them directly with
 `make_context(principal=...)`; run the whole stack, lifespan included, with
@@ -128,11 +171,14 @@ as ratios for one machine, not as guarantees.
 
 ## Status and scope
 
-Version 0.1, under development. Not in 0.1: code generation or importing existing
-specs, OpenAPI 3.0, pydantic, trio/anyio and sync handlers, a DI container (the
-`lettia-di` extension is designed separately), content negotiation by `Accept`,
-typed server-sent events, and WebSockets. See [`spec/_Design.md`](spec/_Design.md)
-for the design and the reasons.
+Version 0.3.1, alpha. Not planned: code generation or importing existing specs,
+OpenAPI 3.0, pydantic, trio/anyio and sync handlers, content negotiation by `Accept`,
+and a DI container in the core (use `lettia.extensions.di` or construct the
+implementation yourself). Typed server-sent events (`EventStream[T]`) are not
+implemented yet; use `c.stream()` in the meantime. See
+[`spec/_Design.md`](spec/_Design.md) for the design and the reasons, and
+[`spec/_Roadmap_and_Extensions.md`](spec/_Roadmap_and_Extensions.md) for what comes
+next.
 
 ## Development
 
