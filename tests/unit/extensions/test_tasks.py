@@ -1,4 +1,5 @@
 import asyncio
+import functools
 import time
 from collections.abc import AsyncIterator
 from typing import Protocol
@@ -263,3 +264,31 @@ async def test_lifespan_shutdown_drains_tasks() -> None:
 async def _empty_body() -> AsyncIterator[bytes]:
     if False:
         yield b""
+
+
+# --- Test 8: sync callables that return awaitables are awaited ---
+
+
+class _AsyncCallable:
+    def __init__(self, events: list[str]) -> None:
+        self._events = events
+
+    async def __call__(self, name: str) -> None:
+        self._events.append(name)
+
+
+@pytest.mark.asyncio
+async def test_sync_callables_returning_a_coroutine_are_awaited() -> None:
+    events: list[str] = []
+
+    async def job(name: str) -> None:
+        events.append(name)
+
+    tasks = BackgroundTasks()
+    tasks.add_task(lambda: job("lambda"))
+    tasks.add_task(functools.partial(job, "partial"))
+    tasks.add_task(_AsyncCallable(events), "callable-object")
+
+    await tasks.run()
+
+    assert events == ["lambda", "partial", "callable-object"]

@@ -20,13 +20,18 @@ class BackgroundTask:
         self.kwargs = kwargs
 
     async def __call__(self) -> None:
-        """Run the task, delegating sync callables to a thread pool."""
+        """Run the task; sync callables run in a thread pool.
+
+        An awaitable returned by a sync callable (a lambda or ``functools.partial``
+        around an async function, an object with ``async def __call__``) is awaited
+        on the event loop, so such a task is never silently dropped.
+        """
         try:
             if inspect.iscoroutinefunction(self.fn):
-                res = self.fn(*self.args, **self.kwargs)
-                if inspect.isawaitable(res):
-                    await res
+                result = self.fn(*self.args, **self.kwargs)
             else:
-                await asyncio.to_thread(self.fn, *self.args, **self.kwargs)
+                result = await asyncio.to_thread(self.fn, *self.args, **self.kwargs)
+            if inspect.isawaitable(result):
+                await result
         except Exception:
             logger.exception("Error during execution of background task %r", self.fn)
