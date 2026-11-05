@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-05
+
 ### Added
 - `Response(after_send=...)`: a synchronous callback the ASGI adapter calls once, after the whole response was sent and a streamed body was closed. It is not called when the handler, the send or the stream fails or the request is cancelled.
 - Documentation: WebSocket `Origin` checking (`docs/websocket.md#security`), sending a declared `Problem` reply as `application/problem+json`, the limits of group middleware (404/405 and WebSocket routes are not covered), and the lifetime of request-scoped resources in background tasks.
@@ -14,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Background tasks now start after the response was sent successfully instead of as soon as the handler returns. They no longer start when the send fails, a streamed body fails or the request is cancelled, nor when an outer middleware replaces the response. Tasks queued before a handler error still run once the resulting 500 was sent.
 - A background task can no longer resolve `Injected` attributes even when `DIMiddleware` is the outer middleware; it raises `RuntimeError` like with the other order. The request scope is closed before any task runs, so tasks must open the resources they need.
+- Bumped version to `0.4.0`.
 
 ### Fixed
 - The startup problem for a wrong WebSocket operation signature now says `(self, c, ws)` instead of `(self, c, req)`.

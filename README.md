@@ -171,7 +171,7 @@ as ratios for one machine, not as guarantees.
 
 ## Status and scope
 
-Version 0.3.1, alpha. Not planned: code generation or importing existing specs,
+Version 0.4.0, alpha. Not planned: code generation or importing existing specs,
 OpenAPI 3.0, pydantic, trio/anyio and sync handlers, content negotiation by `Accept`,
 and a DI container in the core (use `lettia.extensions.di` or construct the
 implementation yourself). Typed server-sent events (`EventStream[T]`) are not
