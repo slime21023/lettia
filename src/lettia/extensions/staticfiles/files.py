@@ -3,6 +3,7 @@
 import asyncio
 import email.utils
 import mimetypes
+import re
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Self
@@ -41,6 +42,21 @@ _ASSET_EXTENSIONS = frozenset(
         ".xml",
     }
 )
+
+_ENTITY_TAG = re.compile(r'(?:W/)?"[^"]*"')
+
+
+def _matches_etag(if_none_match: str, etag: str) -> bool:
+    """Whether an ``If-None-Match`` value (``*`` or a list of tags) matches ``etag``.
+
+    The weak comparison of RFC 9110 applies: the ``W/`` prefix is ignored.
+    """
+    if if_none_match.strip() == "*":
+        return True
+    current = etag.removeprefix("W/")
+    return any(
+        tag.removeprefix("W/") == current for tag in _ENTITY_TAG.findall(if_none_match)
+    )
 
 
 class StaticFiles:
@@ -104,8 +120,12 @@ class StaticFiles:
             index_name=index_name,
         )
         clean_prefix = "/" + prefix.strip("/")
-        app.group(clean_prefix).get("/*", handler)
-        app.get(clean_prefix, handler)
+        if clean_prefix == "/":
+            app.get("/*", handler)
+            app.get("/", handler)
+        else:
+            app.group(clean_prefix).get("/*", handler)
+            app.get(clean_prefix, handler)
         return handler
 
     async def __call__(self, c: Context) -> Response:
@@ -187,17 +207,20 @@ class StaticFiles:
 
         # 8. Check Conditional Cache Headers (304 Not Modified)
         req_headers = c.request.headers
-        if req_headers.get("if-none-match") == etag:
-            return Response(304, headers=headers)
-
-        if_modified_since = req_headers.get("if-modified-since")
-        if if_modified_since:
-            try:
-                ims_dt = email.utils.parsedate_to_datetime(if_modified_since)
-                if int(ims_dt.timestamp()) >= int(mtime_sec):
-                    return Response(304, headers=headers)
-            except (TypeError, ValueError, OverflowError):
-                pass
+        if_none_match = req_headers.get_all("if-none-match")
+        if if_none_match:
+            # If-Modified-Since is ignored whenever If-None-Match is present.
+            if _matches_etag(", ".join(if_none_match), etag):
+                return Response(304, headers=headers)
+        else:
+            if_modified_since = req_headers.get("if-modified-since")
+            if if_modified_since:
+                try:
+                    ims_dt = email.utils.parsedate_to_datetime(if_modified_since)
+                    if int(ims_dt.timestamp()) >= int(mtime_sec):
+                        return Response(304, headers=headers)
+                except (TypeError, ValueError, OverflowError):
+                    pass
 
         # 9. Check Range Request (RFC 7233)
         range_header = req_headers.get("range")

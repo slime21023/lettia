@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from lettia import App
+from lettia.core import Context, Response
 from lettia.extensions.staticfiles import StaticFiles, parse_range_header
 from lettia.testing import TestClient
 
@@ -239,3 +240,82 @@ async def test_mount_serves_root_directory_index(tmp_path: Path) -> None:
         resp2 = await client.get("/docs/index.html")
         assert resp2.status_code == 200
         assert resp2.text == "<h1>Home</h1>"
+
+
+@pytest.mark.asyncio
+async def test_mount_at_the_root_serves_files_index_and_spa_routes(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "index.html").write_text("<h1>Root</h1>", encoding="utf-8")
+    (tmp_path / "app.js").write_text("run()", encoding="utf-8")
+
+    app = App()
+    StaticFiles.mount(app, prefix="/", directory=tmp_path, html=True)
+
+    async with TestClient(app) as client:
+        assert (await client.get("/")).text == "<h1>Root</h1>"
+        assert (await client.get("/app.js")).text == "run()"
+        assert (await client.get("/some/client/route")).text == "<h1>Root</h1>"
+        assert (await client.get("/missing.png")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_root_mount_leaves_more_specific_routes_alone(tmp_path: Path) -> None:
+    (tmp_path / "index.html").write_text("<h1>Root</h1>", encoding="utf-8")
+
+    async def hello(c: Context) -> Response:
+        return c.text(200, "hello")
+
+    app = App()
+    app.get("/api/hello", hello)
+    StaticFiles.mount(app, prefix="/", directory=tmp_path)
+
+    async with TestClient(app) as client:
+        assert (await client.get("/api/hello")).text == "hello"
+        assert (await client.get("/")).text == "<h1>Root</h1>"
+
+
+@pytest.mark.asyncio
+async def test_if_none_match_accepts_lists_weak_tags_and_star(tmp_path: Path) -> None:
+    (tmp_path / "info.txt").write_text("cache test content", encoding="utf-8")
+
+    app = App()
+    StaticFiles.mount(app, prefix="/static", directory=tmp_path)
+
+    async with TestClient(app) as client:
+        etag = (await client.get("/static/info.txt")).headers["etag"]
+        strong = etag.removeprefix("W/")
+
+        async def status(value: str) -> int:
+            resp = await client.get(
+                "/static/info.txt", headers={"if-none-match": value}
+            )
+            return resp.status_code
+
+        assert await status(f'"other", {etag}, "another"') == 304
+        assert await status(strong) == 304  # weak comparison: W/ is ignored
+        assert await status("*") == 304
+        assert await status('"other", "another"') == 200
+
+
+@pytest.mark.asyncio
+async def test_if_modified_since_is_ignored_when_if_none_match_is_present(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "info.txt").write_text("cache test content", encoding="utf-8")
+
+    app = App()
+    StaticFiles.mount(app, prefix="/static", directory=tmp_path)
+
+    async with TestClient(app) as client:
+        first = await client.get("/static/info.txt")
+        resp = await client.get(
+            "/static/info.txt",
+            headers={
+                "if-none-match": '"stale"',
+                "if-modified-since": first.headers["last-modified"],
+            },
+        )
+
+        assert resp.status_code == 200
+        assert resp.content == b"cache test content"
