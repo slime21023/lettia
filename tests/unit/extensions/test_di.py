@@ -1,9 +1,11 @@
-from typing import Protocol
+from dataclasses import dataclass
+from typing import ClassVar, Protocol
 
 import pytest
 import rodi
 
 from lettia import App, Context, NoContent, Ok, op, public
+from lettia.core import StartupError
 from lettia.extensions.di import (
     SCOPE_KEY,
     Container,
@@ -11,6 +13,7 @@ from lettia.extensions.di import (
     Injected,
     current_scope,
 )
+from lettia.extensions.di import Injected as InjectedAlias
 from lettia.testing import TestClient
 
 # --- Domain models and services for testing ---
@@ -326,3 +329,217 @@ def test_wire_missing_dependency_raises_startup_error() -> None:
     app = App()
     with pytest.raises(rodi.DIException):
         container.wire(app, [NeedsMissingService])
+
+
+# --- Declaration forms: dataclass, ClassVar, inheritance, string annotations ---
+
+
+class SessionApi(Protocol):
+    @op.get("/session", guard=public)
+    async def session(self, c: Context[None], req: None) -> Ok[int]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class FrozenDataclassService(SessionApi):
+    config: AppConfig
+    db: ClassVar[Injected[AsyncDatabaseSession]]
+
+    async def session(self, c: Context[None], req: None) -> Ok[int]:
+        return Ok(id(self.db))
+
+
+class _InheritedFields:
+    db: Injected[AsyncDatabaseSession]
+
+
+class InheritedFieldService(_InheritedFields, SessionApi):
+    async def session(self, c: Context[None], req: None) -> Ok[int]:
+        return Ok(id(self.db))
+
+
+class StringAnnotatedService(SessionApi):
+    db: "Injected[AsyncDatabaseSession]"
+    cache: "ClassVar[Injected[SyncCacheClient]]"
+
+    async def session(self, c: Context[None], req: None) -> Ok[int]:
+        return Ok(id(self.db) + id(self.cache))
+
+
+@pytest.mark.parametrize(
+    "service",
+    [FrozenDataclassService, InheritedFieldService, StringAnnotatedService],
+)
+@pytest.mark.asyncio
+async def test_injected_declaration_forms_resolve_one_scoped_object_per_request(
+    service: type[SessionApi],
+) -> None:
+    created: list[AsyncDatabaseSession] = []
+
+    def make_db() -> AsyncDatabaseSession:
+        created.append(AsyncDatabaseSession())
+        return created[-1]
+
+    container = Container()
+    container.add_scoped_by_factory(make_db, AsyncDatabaseSession)
+    container.add_scoped(SyncCacheClient)
+    container.add_singleton(AppConfig, AppConfig())
+    app = App()
+    app.use(DIMiddleware(container))
+    container.wire(app, [service])
+
+    async with TestClient(app) as client:
+        first = (await client.get("/session")).json()
+        second = (await client.get("/session")).json()
+
+    assert len(created) == 2
+    assert first != second
+    assert all(db.closed for db in created)
+
+
+# --- Scoped dependencies must not be captured by a shared service ---
+
+
+class CapturingService(SessionApi):
+    def __init__(self, db: AsyncDatabaseSession) -> None:
+        self.db = db
+
+    async def session(self, c: Context[None], req: None) -> Ok[int]:
+        return Ok(id(self.db))
+
+
+class Repository:
+    def __init__(self, db: AsyncDatabaseSession) -> None:
+        self.db = db
+
+
+class TransitivelyCapturingService(SessionApi):
+    def __init__(self, repo: Repository) -> None:
+        self.repo = repo
+
+    async def session(self, c: Context[None], req: None) -> Ok[int]:
+        return Ok(id(self.repo.db))
+
+
+class SafeService(SessionApi):
+    async def session(self, c: Context[None], req: None) -> Ok[int]:
+        return Ok(0)
+
+
+@pytest.mark.parametrize("service", [CapturingService, TransitivelyCapturingService])
+def test_wire_reports_a_scoped_constructor_dependency_and_does_not_mount(
+    service: type[SessionApi],
+) -> None:
+    container = Container()
+    container.add_scoped(AsyncDatabaseSession)
+    container.add_transient(Repository)
+    app = App()
+
+    # SafeService declares the same operation: if the capturing service were
+    # mounted too, the duplicate operationId would be a second problem.
+    container.wire(app, [service, SafeService])
+
+    with pytest.raises(StartupError) as caught:
+        app.build()
+    [problem] = caught.value.problems
+    assert service.__qualname__ in problem
+    assert "scoped AsyncDatabaseSession" in problem
+    assert "Injected[T]" in problem
+
+
+def test_wire_checks_scoped_dependencies_without_running_their_factories() -> None:
+    created: list[AsyncDatabaseSession] = []
+
+    def make_db() -> AsyncDatabaseSession:
+        created.append(AsyncDatabaseSession())
+        return created[-1]
+
+    container = Container()
+    container.add_scoped_by_factory(make_db, AsyncDatabaseSession)
+    container.add_transient(Repository)
+    app = App()
+
+    container.wire(app, [TransitivelyCapturingService])
+
+    assert created == []
+
+
+@pytest.mark.asyncio
+async def test_wire_accepts_singleton_and_transient_constructor_dependencies() -> None:
+    container = Container()
+    container.add_singleton(AsyncDatabaseSession)
+    container.add_transient(Repository)
+    app = App()
+    container.wire(app, [TransitivelyCapturingService])
+
+    async with TestClient(app) as client:
+        assert (await client.get("/session")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_wire_accepts_a_service_that_is_itself_registered_as_scoped() -> None:
+    container = Container()
+    container.add_scoped(SafeService)
+    app = App()
+    container.wire(app, [SafeService])
+
+    async with TestClient(app) as client:
+        assert (await client.get("/session")).status_code == 200
+
+
+# --- Declarations that cannot be resolved are errors, not silent gaps ---
+
+
+class BareAnnotationService(SessionApi):
+    db: Injected  # pyrefly: ignore[implicit-any-type-argument]
+
+    async def session(self, c: Context[None], req: None) -> Ok[int]:
+        return Ok(0)
+
+
+class BareClassVarService(SessionApi):
+    db: ClassVar[Injected]  # pyrefly: ignore[implicit-any-type-argument]
+
+    async def session(self, c: Context[None], req: None) -> Ok[int]:
+        return Ok(0)
+
+
+class UnresolvableAliasService(SessionApi):
+    db: "InjectedAlias[NotDefinedAnywhere]"  # noqa: F821  # pyrefly: ignore[unknown-name]
+
+    async def session(self, c: Context[None], req: None) -> Ok[int]:
+        return Ok(0)
+
+
+class UnrelatedUnresolvableService(SessionApi):
+    amount: "NotDefinedAnywhere"  # noqa: F821  # pyrefly: ignore[unknown-name]
+
+    async def session(self, c: Context[None], req: None) -> Ok[int]:
+        return Ok(0)
+
+
+@pytest.mark.parametrize("service", [BareAnnotationService, BareClassVarService])
+def test_wire_rejects_an_injected_annotation_without_a_type(
+    service: type[SessionApi],
+) -> None:
+    with pytest.raises(TypeError, match="bare Injected"):
+        Container().wire(App(), [service])
+
+
+def test_wire_rejects_an_unresolvable_injected_annotation_even_through_an_alias() -> (
+    None
+):
+    with pytest.raises(TypeError, match="cannot resolve the Injected annotation 'db'"):
+        Container().wire(App(), [UnresolvableAliasService])
+
+
+def test_binding_skips_an_unresolvable_annotation_that_is_not_injected() -> None:
+    # rodi itself would reject the class later; the binding step must not be the
+    # one to fail on annotations that have nothing to do with Injected.
+    Container._bind_injected_descriptors(UnrelatedUnresolvableService)  # pyright: ignore[reportPrivateUsage]
+
+
+def test_a_bare_injected_annotation_with_a_descriptor_value_has_no_type() -> None:
+    class Service:
+        db: Injected = Injected()  # pyrefly: ignore[implicit-any-type-argument]
+
+    assert Service.db.service_type is None

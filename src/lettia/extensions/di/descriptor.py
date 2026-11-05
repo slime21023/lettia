@@ -36,7 +36,7 @@ class Injected[T]:
                     args = typing.get_args(hint)
                     if args and isinstance(args[0], type):
                         self._service_type = args[0]
-                elif isinstance(hint, type):
+                elif isinstance(hint, type) and hint is not Injected:
                     self._service_type = hint
 
     @property
