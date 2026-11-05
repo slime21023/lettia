@@ -490,3 +490,16 @@ def test_inspect_reports_form_or_file_on_methods_without_body() -> None:
 
     assert operations == []
     assert any("GET operations cannot have Form or File fields" in p for p in problems)
+
+
+def test_inspect_response_header_with_an_invalid_name_is_a_problem() -> None:
+    class BadHeader(Created[str], kw_only=True):
+        token: Annotated[str, HeaderName("Bad Name")]
+
+    async def broken(self: Any, c: Context[None], req: None) -> BadHeader: ...
+
+    [problem] = problems_of(broken)
+
+    assert "'token'" in problem
+    assert "BadHeader" in problem
+    assert "'Bad Name'" in problem

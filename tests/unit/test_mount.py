@@ -1,11 +1,21 @@
 """Startup checks 4 to 7 and the shape of what ``mount`` accepts."""
 
 from collections.abc import Callable, Sequence
-from typing import Any, Protocol, override
+from typing import Annotated, Any, Protocol, override
 
 import pytest
 
-from lettia import App, Context, GuardSpec, NoContent, Ok, op, public
+from lettia import (
+    App,
+    Context,
+    Created,
+    GuardSpec,
+    HeaderName,
+    NoContent,
+    Ok,
+    op,
+    public,
+)
 from lettia.contract import MsgspecCodec
 from lettia.core import StartupError
 
@@ -276,3 +286,47 @@ async def test_mount_closes_uploaded_files_after_handler() -> None:
 
     assert len(captured) == 1
     assert captured[0]._file.closed
+
+
+class _BadHeaderReply(Created[str], kw_only=True):
+    token: Annotated[str, HeaderName("Bad Name")]
+
+
+class _BadHeaderApi(Protocol):
+    @op.get("/bad-header", guard=public)
+    async def bad(self, c: Context[None], req: None) -> _BadHeaderReply: ...
+
+
+class _BadHeaderImpl(_BadHeaderApi):
+    async def bad(self, c: Context[None], req: None) -> _BadHeaderReply:
+        return _BadHeaderReply("x", token="y")
+
+
+class _ObjectBodyApi(Protocol):
+    @op.get("/object-body", guard=public)
+    async def body(self, c: Context[None], req: None) -> Ok[dict[str, object]]: ...
+
+
+class _ObjectBodyImpl(_ObjectBodyApi):
+    async def body(self, c: Context[None], req: None) -> Ok[dict[str, object]]:
+        return Ok({})
+
+
+def test_mount_collects_an_invalid_response_header_name_as_a_startup_problem() -> None:
+    app = App()
+    app.mount(_BadHeaderImpl())  # must not raise: problems surface at startup
+
+    with pytest.raises(StartupError) as caught:
+        app.build()
+
+    assert "'Bad Name'" in str(caught.value)
+
+
+def test_a_body_type_without_a_json_schema_is_a_startup_problem() -> None:
+    app = App()
+    app.mount(_ObjectBodyImpl())
+
+    with pytest.raises(StartupError) as caught:
+        app.build()
+
+    assert "cannot generate a JSON schema" in str(caught.value)

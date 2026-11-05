@@ -98,4 +98,10 @@ class MsgspecCodec:
                 f"another schema is also named {name!r}; rename one of the types",
                 "$",
             ) from None
+        except TypeError as exc:
+            if not str(exc).startswith("Generating JSON schema"):
+                raise  # not msgspec saying a type has no JSON Schema
+            raise CodecError(
+                f"cannot generate a JSON schema: {' '.join(str(exc).split())}", "$"
+            ) from None
         return list(schemas), components

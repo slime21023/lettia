@@ -29,6 +29,7 @@ from lettia.contract.markers import (
 )
 from lettia.contract.op import OperationSpec, operation_spec
 from lettia.contract.responses import Reply
+from lettia.core import MutableHeaders
 
 type Source = Literal["path", "query", "header", "cookie", "body", "form", "file"]
 
@@ -396,7 +397,16 @@ def _inspect_response_shape(member: Any, problems: list[str]) -> ResponseShape |
             )
             ok = False
         else:
-            headers.append(header)
+            try:
+                MutableHeaders.validated_name(header.wire_name)
+            except ValueError:
+                problems.append(
+                    f"response field {info.name!r} of {base.__name__} declares "
+                    f"the invalid header name {header.wire_name!r}"
+                )
+                ok = False
+            else:
+                headers.append(header)
     if not ok:
         return None
     return ResponseShape(base, base.status, base.media_type, body_type, tuple(headers))

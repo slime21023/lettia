@@ -654,3 +654,16 @@ def test_multipart_file_upload_request_body_schema() -> None:
         "items": {"type": "string", "format": "binary"},
     }
     assert schema["required"] == ["avatar", "title"]
+
+
+def test_a_type_without_a_json_schema_is_a_problem_not_a_crash() -> None:
+    class Api(Protocol):
+        @op.get("/a", guard=public)
+        async def a(self, c: Context[None], req: None) -> Ok[dict[str, object]]: ...
+
+    result, problems = build_openapi(mounted(Api), info=INFO, codec=codec)
+
+    assert result is None
+    assert len(problems) == 1
+    assert problems[0].startswith("OpenAPI schemas: cannot generate a JSON schema")
+    assert "object" in problems[0]
