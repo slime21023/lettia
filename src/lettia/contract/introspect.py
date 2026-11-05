@@ -130,7 +130,8 @@ def _inspect(
     if len(parameters) != 3 or any(
         p.kind is not p.POSITIONAL_OR_KEYWORD for p in parameters
     ):
-        problems.append("the signature must be (self, c, req)")
+        shape = "(self, c, ws)" if spec.method == "WEBSOCKET" else "(self, c, req)"
+        problems.append(f"the signature must be {shape}")
         return None
     try:
         hints = read_annotations(function)

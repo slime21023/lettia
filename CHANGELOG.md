@@ -7,7 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `Response(after_send=...)`: a synchronous callback the ASGI adapter calls once, after the whole response was sent and a streamed body was closed. It is not called when the handler, the send or the stream fails or the request is cancelled.
+- Documentation: WebSocket `Origin` checking (`docs/websocket.md#security`), sending a declared `Problem` reply as `application/problem+json`, the limits of group middleware (404/405 and WebSocket routes are not covered), and the lifetime of request-scoped resources in background tasks.
+
+### Changed
+- Background tasks now start after the response was sent successfully instead of as soon as the handler returns. They no longer start when the send fails, a streamed body fails or the request is cancelled, nor when an outer middleware replaces the response. Tasks queued before a handler error still run once the resulting 500 was sent.
+- A background task can no longer resolve `Injected` attributes even when `DIMiddleware` is the outer middleware; it raises `RuntimeError` like with the other order. The request scope is closed before any task runs, so tasks must open the resources they need.
+
 ### Fixed
+- The startup problem for a wrong WebSocket operation signature now says `(self, c, ws)` instead of `(self, c, req)`.
 - `StaticFiles.mount(app, "/", directory)` no longer raises `ValueError`; it registers `GET /*` and `GET /`.
 - `StaticFiles` handles `If-None-Match` lists, weak tags and `*`, and ignores `If-Modified-Since` when `If-None-Match` is present (RFC 9110 section 13.1.3).
 - Background tasks given a sync callable that returns an awaitable (lambda, `functools.partial`, object with `async def __call__`) now await it instead of dropping the coroutine.

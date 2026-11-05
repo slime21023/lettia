@@ -105,6 +105,12 @@ admin.get("/stats", stats)
 
 Nested groups concatenate prefixes and accumulate middleware (parent first). `group.prefix` returns the full prefix. WebSocket routes registered on a group take the prefix but not the group middleware.
 
+Group middleware belongs to the routes registered through that group, not to a URL prefix:
+
+- A route registered with `app.get("/api/v1/x", ...)` is not wrapped by the middleware of `app.group("/api/v1", ...)`, however similar its path is.
+- Group middleware does not run for 404 or 405 responses and never for WebSocket routes. A group's authentication middleware therefore does not answer unknown paths or wrong methods under its prefix: an unauthenticated `GET /api/v1/nope` gets `404` and `POST` to a `GET`-only path gets `405` with `Allow`, which reveals which paths exist.
+- If a check must cover those responses (or cross-origin handling such as `cors`), register it with `app.use`. For WebSocket routes use a contract guard or check inside the handler before `ws.accept()` (see [websocket.md](websocket.md#security)); neither `cors` nor group middleware protects a handshake.
+
 ## Context
 
 `Context` is created per request and passed to the handler and every middleware.
@@ -125,7 +131,7 @@ Response helpers (all return a new `Response`):
 | `c.bytes(status, data, media_type="application/octet-stream")` | Raw bytes with the given `content-type`. |
 | `c.stream(status, chunks, media_type)` | `chunks` is an `AsyncIterator[bytes]`; `content-type` set to `media_type`. |
 
-`Response(status=200, body=None, headers=None)`: `status` must be in 100..599 (`ValueError` otherwise); `body` is `bytes`, an `AsyncIterator[bytes]` or `None`; `headers` is a `MutableHeaders`. Attributes `status`, `body` and `headers` are plain and mutable.
+`Response(status=200, body=None, headers=None, *, after_send=None)`: `status` must be in 100..599 (`ValueError` otherwise); `body` is `bytes`, an `AsyncIterator[bytes]` or `None`; `headers` is a `MutableHeaders`; `after_send` is an optional callback, see [After the response is sent](#after-the-response-is-sent). Attributes `status`, `body`, `headers` and `after_send` are plain and mutable.
 
 Serialization by the ASGI adapter:
 
@@ -145,6 +151,16 @@ async def download(c: Context) -> Response:
     response.headers.set("content-disposition", 'attachment; filename="a.pdf"')
     return response
 ```
+
+#### After the response is sent
+
+`response.after_send` is a synchronous `Callable[[], None]`. The ASGI adapter calls it once, after the last body message was sent and a streamed body was closed (also for `HEAD`, 204 and 304). It is meant for cheap, non-blocking notification, for example scheduling a background job; it must not `await` or do slow work.
+
+- It is not called when the handler, the send or the stream raises, or when the request is cancelled. "Sent" means the ASGI `send` calls returned; it does not prove that the client received the response.
+- A callback that raises `Exception` is logged on the `lettia` logger and does not change the response that was already sent. A `BaseException` (for example `CancelledError`) propagates.
+- The callback belongs to the response object that is actually sent. A middleware that returns a different response drops the callback of the one it received.
+- A middleware that sets `after_send` must wrap the existing callback and call it, not overwrite it. The inner middleware's callback runs first.
+- WebSocket handshake denials do not use `after_send`.
 
 ### Key
 

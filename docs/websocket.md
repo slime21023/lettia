@@ -240,10 +240,43 @@ yields an empty `paths`). See [openapi.md](openapi.md).
 | A named guard has no implementation | `guard '<name>' has no implementation` |
 | Return annotation other than `None` | `the return type of a WebSocket operation must be None, got ...` |
 | `*` in the path | `contract paths cannot contain '*'` |
-| Not exactly three positional parameters, or unresolvable annotations | `the signature must be (self, c, req)` / `cannot resolve the annotations: ...` |
+| Not exactly three positional parameters, or unresolvable annotations | `the signature must be (self, c, ws)` / `cannot resolve the annotations: ...` |
 
-The signature message is shared with HTTP operations and mentions `req` even
-for a WebSocket operation; the third parameter is `ws`.
+For HTTP operations the signature message reads `(self, c, req)`. The parameter names are not checked, only that there are three positional-or-keyword parameters.
+
+## Security
+
+A browser opens a WebSocket from any page and sends the user's cookies along, so a cookie-authenticated endpoint is open to cross-site WebSocket hijacking unless the handshake's `Origin` is checked. CORS does not apply to WebSockets, and `cors()` and all app and group middleware are skipped for WebSocket routes. Check `Origin` in the guard (contract routes) or before `accept()` (core routes).
+
+```python
+ALLOWED_ORIGINS = frozenset({"https://app.example"})
+
+
+def require_browser_origin(head: RequestHead) -> None:
+    origins = head.headers.get_all("origin")
+    if len(origins) != 1 or origins[0] not in ALLOWED_ORIGINS:
+        raise Forbidden("origin not allowed")
+
+
+async def verify(head: RequestHead) -> User:
+    require_browser_origin(head)
+    ...  # then the token or cookie check, as above
+```
+
+A core handler does the same before `accept()` and answers with `send_denial_response`:
+
+```python
+async def chat(ws: WebSocket) -> None:
+    origins = ws.headers.get_all("origin")
+    if len(origins) != 1 or origins[0] not in ALLOWED_ORIGINS:
+        await ws.send_denial_response(Response(403, b"origin not allowed"))
+        return
+    await ws.accept()
+```
+
+- Match the origin exactly against an allowlist of `scheme://host[:port]`. A missing `Origin`, more than one `Origin` header, `null` and anything not in the list is denied. Do not match by substring or suffix.
+- This recipe is for endpoints used from browsers. Browsers always send `Origin` on a handshake; other clients may not, and a non-browser client can send any value, so the check never replaces authentication. Give non-browser clients their own authenticated endpoint.
+- Prefer a header or the first message for tokens. A token in the query string appears in server and proxy logs.
 
 ## Testing
 

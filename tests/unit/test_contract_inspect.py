@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import Annotated, Any, Protocol
 
 import msgspec
+import pytest
 
 from lettia import (
     Body,
@@ -395,14 +396,35 @@ def test_inspect_reports_a_missing_request_annotation() -> None:
     assert "req" in problem
 
 
-def test_inspect_reports_a_wrong_parameter_list() -> None:
+@pytest.mark.parametrize("method", ["get", "websocket"])
+def test_inspect_rejects_a_missing_third_parameter(method: str) -> None:
     async def function(self: Any, c: Any) -> Any: ...
 
-    function.__annotations__ = {"return": Ok[int]}
+    function.__annotations__ = {"return": None if method == "websocket" else Ok[int]}
 
-    [problem] = problems_of(function)
+    [problem] = problems_of(function, method=method)
 
-    assert "(self, c, req)" in problem
+    assert "signature" in problem
+
+
+@pytest.mark.parametrize("method", ["get", "websocket"])
+def test_inspect_rejects_a_keyword_only_third_parameter(method: str) -> None:
+    async def function(self: Any, c: Any, *, third: Any) -> Any: ...
+
+    function.__annotations__ = {"return": None if method == "websocket" else Ok[int]}
+
+    [problem] = problems_of(function, method=method)
+
+    assert "signature" in problem
+
+
+def test_inspect_accepts_websocket_parameters_with_any_names() -> None:
+    async def function(this: Any, ctx: Any, socket: Any) -> None: ...
+
+    operations, problems = inspect_contract(contract_with(function, method="websocket"))
+
+    assert problems == []
+    assert [operation.name for operation in operations] == ["broken"]
 
 
 def test_inspect_reports_annotations_that_cannot_be_resolved() -> None:

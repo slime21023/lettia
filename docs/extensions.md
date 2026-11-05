@@ -190,20 +190,41 @@ app.post("/signup", signup)
 ### Semantics
 
 * Each request gets a fresh `BackgroundTasks`. `BackgroundTasks.of(c)` returns it, or raises `RuntimeError` mentioning `BackgroundTasksMiddleware` if the middleware is not mounted.
-* Alternatively, with `lettia.extensions.di`, declare `tasks: Injected[BackgroundTasks]` on a service. `BackgroundTasks.__injected__` returns the current request's collection from a context variable, so no container registration is needed. Outside a request it raises the same `RuntimeError`. The DI scope and the tasks middleware are independent; either may be outer.
-* When the inner handler returns and at least one task is queued, the middleware starts a single `asyncio` task that runs the queued calls in FIFO order, one at a time. A task starts only after the previous one finished. Scheduling does not wait for the response to be written: the batch is started as soon as the handler chain returns, so it runs concurrently with the sending of the response.
-* The batch is started for any response that comes back through the middleware, including error responses produced by the app's error handling (for example a 500 after the handler raised). Tasks queued before the error still run.
+* Alternatively, with `lettia.extensions.di`, declare `tasks: Injected[BackgroundTasks]` on a service. `BackgroundTasks.__injected__` returns the current request's collection from a context variable, so no container registration is needed. Outside a request it raises the same `RuntimeError`. Inside a running task `BackgroundTasks.__injected__()` returns the task's own batch, so a task can queue more tasks on it; they run in the same FIFO batch. The DI scope and the tasks middleware are independent; either may be outer.
+* When the inner handler returns and at least one task is queued, the middleware attaches a start callback to the response's `after_send` (see [core.md](core.md#after-the-response-is-sent)). The batch starts only once the whole response was sent and a streamed body was closed: it then becomes a single `asyncio` task that runs the queued calls in FIFO order, one at a time, and the request does not wait for it. Nothing starts while the response is still being sent.
+* The batch does not start when the handler, the send or the stream fails, when the request is cancelled, or when an outer middleware replaces the response with another one (the callback belongs to the response that was received). Which status the response has does not matter: a 4xx or 5xx response that is sent, including an error response produced by the app's error handling after the handler raised, still starts the tasks queued before the error. "Sent" means the ASGI `send` calls returned; the client may still not have received the response. A server that silently discards sends after the client disconnected (uvicorn does) does not raise, so the batch still starts when a client drops the connection mid-response.
 * Async callables (`inspect.iscoroutinefunction`) are awaited on the event loop. Every other callable is run with `asyncio.to_thread`, so a blocking function does not block the loop. If a sync callable returns an awaitable (a lambda or `functools.partial` around an async function, or an object with `async def __call__`), the awaitable is then awaited on the event loop, so the task still runs.
 * A task that raises `Exception` is logged with `logger.exception` on the `lettia.extensions.tasks` logger and the remaining tasks still run. Nothing is reported to the client.
-* Tasks hold no request state of their own. The DI scope is disposed when the request ends, so do not touch `Injected` attributes inside a task; resolve what you need before calling `add_task` and pass it as arguments.
+* Tasks hold no request state of their own. The DI scope is disposed when the handler chain returns, before the response is sent and so before any task runs, and a task cannot resolve `Injected` attributes (it raises `RuntimeError`). Pass immutable data or identifiers, not objects tied to the request: a request-scoped session or connection that was resolved before `add_task` is already closed when the task runs, and so is any stream or file handle the request owns. Let the task open and close what it needs.
+* The batch is only started if at least one task was queued when the handler returned. Tasks added later, for example from inside a streaming body, are not run on their own; if the batch was started anyway, they join it and run after the earlier ones.
+* If another middleware has set `after_send` on the response, its callback runs first, then the batch starts. An exception from that callback is logged and does not lose the batch.
+
+```python
+from pathlib import Path
+
+
+def append_audit(path: Path, event: str) -> None:       # sync: runs in a thread
+    with path.open("a", encoding="utf-8") as log:        # opened and closed by the task
+        log.write(event + "\n")
+
+
+AUDIT_LOG = Path("audit.log")
+
+
+async def signup(c: Context) -> Response:
+    BackgroundTasks.of(c).add_task(append_audit, AUDIT_LOG, "signup")   # path and text, not an open file
+    return Response(202)
+```
+
+A pool or client shared by several tasks must outlive them. `app.lifespan(...)` contexts are left after the shutdown hooks, so a resource held there is still open while `drain` waits, unless `drain` times out.
 
 ### Shutdown drain
 
-`drain(timeout_sec=None)` waits (`asyncio.wait`) for the batches currently running, up to `timeout_sec`, defaulting to the `shutdown_timeout_sec` given to the constructor (10 s). It returns immediately if nothing is running. When the timeout elapses it simply stops waiting: unfinished tasks are not cancelled and no error is raised. With `app` given (or `attach`), `drain` is registered as a shutdown hook, so `async with TestClient(app)` or an ASGI lifespan shutdown waits for in-flight tasks. `drain` only waits for batches already started; tasks queued after it returns are not covered.
+`drain(timeout_sec=None)` waits (`asyncio.wait`) for the batches currently running, up to `timeout_sec`, defaulting to the `shutdown_timeout_sec` given to the constructor (10 s). It returns immediately if nothing is running. When the timeout elapses it simply stops waiting: unfinished tasks are not cancelled and no error is raised. With `app` given (or `attach`), `drain` is registered as a shutdown hook, so `async with TestClient(app)` or an ASGI lifespan shutdown waits for in-flight tasks. `drain` only waits for batches already started; a response that is still being sent has not started its batch yet, and tasks queued after `drain` returns are not covered. Shutdown hooks run last registered first, so a hook registered after `BackgroundTasksMiddleware(app)` runs before the drain: do not close a shared resource there that tasks still use.
 
 ### Limitations
 
-In-process only: there is no persistence, retry, scheduling, or cross-process queue. Queued tasks are lost if the process crashes or is killed, and tasks still running after the drain timeout are lost when the process exits. Use a real job queue for work that must not be lost.
+In-process only: there is no persistence, retry, scheduling, or cross-process queue. Queued tasks are lost if the process crashes or is killed before or while they run, and tasks still running after the drain timeout are lost when the process exits. A response that is sent does not guarantee that the tasks run, and tasks never run for a response that fails to send. Use a real job queue, or persist the work in the same transaction as the request (an outbox), for work that must not be lost.
 
 ## Static files (`lettia.extensions.staticfiles`)
 

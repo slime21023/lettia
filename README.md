@@ -124,7 +124,7 @@ Optional pieces live in `lettia.extensions` and are not loaded by the core.
 | Module | What it does |
 | --- | --- |
 | `lettia.extensions.di` (`lettia[di]`) | Declarative dependency injection on [rodi](https://github.com/Neoteroi/rodi). Mark service fields `db: Injected[Database]`, then `app.use(DIMiddleware(container))` and `container.wire(app, [UserService])`. Handler signatures stay `(self, c, req)`; a request scope is opened per request and its services are closed afterwards |
-| `lettia.extensions.tasks` | In-process background tasks, started as soon as the handler chain returns (concurrently with sending the response): `app.use(BackgroundTasksMiddleware(app))`, then `BackgroundTasks.of(c).add_task(fn, *args)` in a handler. Pending tasks are drained at shutdown (`shutdown_timeout_sec`). Not a replacement for a durable queue |
+| `lettia.extensions.tasks` | In-process background tasks, started once the response was sent successfully (never when the send fails or the request is cancelled): `app.use(BackgroundTasksMiddleware(app))`, then `BackgroundTasks.of(c).add_task(fn, *args)` in a handler. Tasks run after the request scope is closed, so pass data, not request-scoped resources. Pending tasks are drained at shutdown (`shutdown_timeout_sec`). Not a replacement for a durable queue |
 | `lettia.extensions.staticfiles` | `StaticFiles.mount(app, "/static", "./assets")`: rejects path traversal, symlink escapes and dotfiles; `ETag`/`Last-Modified` with 304; single byte `Range` with 206 and 416; `html=True` for single-page-app fallback |
 
 **Testing.** Handlers are ordinary async methods, so call them directly with

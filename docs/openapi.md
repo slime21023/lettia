@@ -215,7 +215,7 @@ The problem schemas are generated from these structs and are added to `component
 | `ValidationProblem` | the above plus `errors`: list of `ValidationIssue` (default `[]`) |
 | `ValidationIssue` | `in` (location), `path`, `message` |
 
-Declared problem replies such as `NotFound[Problem]` use their own class and media type, as in the 404 entry above.
+Declared problem replies such as `NotFound[Problem]` use their own class and media type, as in the 404 entry above. To document one as `application/problem+json`, declare a subclass with that `media_type` in the return annotation, see [contract.md](contract.md#media-type).
 
 ### Security
 

@@ -255,7 +255,7 @@ Handlers return instances of response classes, all `msgspec.Struct`s deriving fr
 | `NotFound[T]` | 404 | `body: T` |
 | `Reply` | none | base class; cannot be returned itself |
 
-`body` is the first positional argument: `Ok(user)`, `NotFound(Problem(title="user not found"))`. `Problem` is a plain Struct (`title: str`, `detail: str | None = None`), not a `Reply`; it is the usual `T` of `NotFound[Problem]`. It is encoded as ordinary JSON with the `application/json` content type (`{"title": "...", "detail": null}`), unlike the `application/problem+json` documents Core produces for errors.
+`body` is the first positional argument: `Ok(user)`, `NotFound(Problem(title="user not found"))`. `Problem` is a plain Struct (`title: str`, `detail: str | None = None`), not a `Reply`; it is the usual `T` of `NotFound[Problem]`. It is encoded as ordinary JSON with the `application/json` content type (`{"title": "...", "detail": null}`), unlike the `application/problem+json` documents Core produces for errors; [Media type](#media-type) shows how to change that.
 
 The return annotation is a response class or a union of them. Each status code may appear once in the union, and a bare `Ok` (without `[T]`) is a startup problem.
 
@@ -293,6 +293,30 @@ class UserCreated(Created[UserOut], kw_only=True):
 class Page(Ok[str]):
     media_type = "text/plain"      # sent as "text/plain; charset=utf-8"
 ```
+
+`Problem` itself is JSON with `application/json`. To send a declared 404 as `application/problem+json`, subclass the response class and put the subclass in the return annotation:
+
+```python
+from typing import ClassVar, Protocol
+
+from lettia import Context, NotFound, Ok, Problem, op, public
+
+
+class ProblemNotFound(NotFound[Problem]):
+    media_type: ClassVar[str] = "application/problem+json"
+
+
+class ItemsApi(Protocol):
+    @op.get("/item", guard=public)
+    async def get_item(self, c: Context[None], req: None) -> Ok[str] | ProblemNotFound: ...
+
+
+class Items(ItemsApi):
+    async def get_item(self, c: Context[None], req: None) -> Ok[str] | ProblemNotFound:
+        return ProblemNotFound(Problem(title="not found"))
+```
+
+The response is `404` with `content-type: application/problem+json` and the body `{"title":"not found","detail":null}`, and the OpenAPI 404 entry is keyed `application/problem+json` with the `Problem` schema. The encoder and the OpenAPI document both use the classes the return annotation declares. A `ProblemNotFound` returned from an operation that declares only `NotFound[Problem]` is therefore still sent as `application/json`; declare the subclass itself. The body is still a `Problem` (`title`, `detail`), not the full RFC 9457 document Core produces for errors: there is no `type` or `status` member.
 
 ### Encoding rules
 
@@ -342,7 +366,7 @@ The checks:
 
 | Area | Problem |
 | --- | --- |
-| Signature | not exactly `(self, c, req)` of positional-or-keyword parameters; annotations cannot be resolved; the request parameter has no annotation |
+| Signature | not exactly three positional-or-keyword parameters (`(self, c, req)`, or `(self, c, ws)` for `op.websocket`); annotations cannot be resolved; the request parameter has no annotation |
 | Path | `{placeholder}` without a `Path` field, or `Path` field without a placeholder; `*` in the path |
 | Request type | not a `msgspec.Struct` or `None`; a field without a source marker (with a hint when the marker was put inside a union); a field type msgspec cannot handle |
 | Body | more than one `Body`; `Body` mixed with `Form`/`File`; `Body`, `Form` or `File` on `GET` or `DELETE` |

@@ -1,5 +1,6 @@
 """ASGI adapter: builds the request, runs the handler, serializes the response."""
 
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, MutableMapping
 from typing import Any
 
@@ -15,6 +16,8 @@ type Receive = Callable[[], Awaitable[Message]]
 type Send = Callable[[Message], Awaitable[None]]
 type ASGIApp = Callable[[Scope, Receive, Send], Awaitable[None]]
 type LifespanStep = Callable[[], Awaitable[str | None]]
+
+logger = logging.getLogger("lettia")
 
 
 def asgi_app(
@@ -45,6 +48,12 @@ def asgi_app(
         )
         response = await handler(context_class(request))
         await _send_response(response, request.method == "HEAD", send)
+        after_send, response.after_send = response.after_send, None
+        if after_send is not None:
+            try:
+                after_send()
+            except Exception:
+                logger.exception("an after-send callback failed")
 
     return app
 

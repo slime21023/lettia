@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -47,7 +49,8 @@ async def call(
     headers: list[tuple[bytes, bytes]] | None = None,
     incoming: list[Message] | None = None,
     max_body_size: int | None = 1024,
-    send_error: Exception | None = None,
+    send_error: BaseException | None = None,
+    exchange: Exchange | None = None,
 ) -> Exchange:
     scope: dict[str, Any] = {
         "type": "http",
@@ -61,7 +64,8 @@ async def call(
         scope["raw_path"] = raw_path or path.encode()
     default: list[Message] = [{"type": "http.request", "body": b"", "more_body": False}]
     queue = list(incoming or default)
-    exchange = Exchange()
+    if exchange is None:
+        exchange = Exchange()
 
     async def receive() -> Message:
         return queue.pop(0)
@@ -185,6 +189,171 @@ async def test_asgi_closes_the_stream_when_sending_fails() -> None:
         await call(handler, send_error=ConnectionResetError())
 
     assert closed == [True]
+
+
+# --- after_send ---------------------------------------------------------
+
+
+class _CloseFailed(Exception):
+    pass
+
+
+class _Stop(BaseException):
+    pass
+
+
+async def _failing_close_stream() -> AsyncIterator[bytes]:
+    try:
+        yield b"a"
+    finally:
+        raise _CloseFailed
+
+
+@pytest.mark.parametrize("kind", ["bytes", "head", "no-content", "stream"])
+async def test_asgi_calls_after_send_once_the_response_is_complete(kind: str) -> None:
+    exchange = Exchange()
+    closed: list[bool] = []
+    seen: list[tuple[bool, bool, bool]] = []
+    sent: list[Response] = []
+
+    async def handler(c: Context) -> Response:
+        async def parts() -> AsyncIterator[bytes]:
+            try:
+                yield b"a"
+                yield b"b"
+            finally:
+                closed.append(True)
+
+        def after_send() -> None:
+            seen.append(
+                (
+                    exchange.messages[-1]["more_body"] is False,
+                    bool(closed) or kind != "stream",
+                    sent[0].after_send is None,
+                )
+            )
+
+        if kind == "stream":
+            response = c.stream(200, parts(), "text/plain")
+        elif kind == "no-content":
+            response = Response(204)
+        else:
+            response = c.text(200, "ok")
+        response.after_send = after_send
+        sent.append(response)
+        return response
+
+    await call(handler, method="HEAD" if kind == "head" else "GET", exchange=exchange)
+
+    assert seen == [(True, True, True)]
+
+
+@pytest.mark.parametrize(
+    "failure", ["send", "stream-iteration", "stream-close", "disconnect"]
+)
+async def test_asgi_skips_after_send_when_the_response_does_not_complete(
+    failure: str,
+) -> None:
+    called: list[bool] = []
+
+    async def handler(c: Context) -> Response:
+        async def broken() -> AsyncIterator[bytes]:
+            yield b"a"
+            raise _CloseFailed
+
+        if failure == "disconnect":
+            raise ClientDisconnect
+        if failure == "stream-iteration":
+            response = c.stream(200, broken(), "text/plain")
+        elif failure == "stream-close":
+            response = c.stream(200, _failing_close_stream(), "text/plain")
+        else:
+            response = c.text(200, "ok")
+        response.after_send = lambda: called.append(True)
+        return response
+
+    expected: type[BaseException] = {
+        "send": ConnectionResetError,
+        "disconnect": ClientDisconnect,
+    }.get(failure, _CloseFailed)
+    with pytest.raises(expected):
+        await call(
+            handler,
+            send_error=ConnectionResetError() if failure == "send" else None,
+        )
+
+    assert called == []
+
+
+async def test_asgi_skips_after_send_when_the_request_is_cancelled_while_sending() -> (
+    None
+):
+    called: list[bool] = []
+    sending = asyncio.Event()
+
+    async def handler(c: Context) -> Response:
+        response = c.text(200, "ok")
+        response.after_send = lambda: called.append(True)
+        return response
+
+    async def receive() -> Message:
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message: Message) -> None:
+        if message["type"] == "http.response.body":
+            sending.set()
+            await asyncio.Event().wait()
+
+    scope: Mapping[str, Any] = {
+        "type": "http",
+        "method": "GET",
+        "path": "/",
+        "query_string": b"",
+        "headers": [],
+    }
+    request = asyncio.ensure_future(asgi_app(handler)(scope, receive, send))
+    await sending.wait()
+    request.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await request
+
+    assert called == []
+
+
+async def test_asgi_logs_a_failing_after_send_and_keeps_the_sent_response(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    error = RuntimeError("callback failed")
+
+    def after_send() -> None:
+        raise error
+
+    async def handler(c: Context) -> Response:
+        response = c.text(200, "ok")
+        response.after_send = after_send
+        return response
+
+    with caplog.at_level(logging.ERROR, logger="lettia"):
+        out = await call(handler)
+
+    assert out.status == 200
+    assert out.body == b"ok"
+    [record] = caplog.records
+    assert record.exc_info is not None
+    assert record.exc_info[1] is error
+
+
+async def test_asgi_does_not_swallow_a_base_exception_from_after_send() -> None:
+    def after_send() -> None:
+        raise _Stop
+
+    async def handler(c: Context) -> Response:
+        response = c.text(200, "ok")
+        response.after_send = after_send
+        return response
+
+    with pytest.raises(_Stop):
+        await call(handler)
 
 
 # --- request construction -----------------------------------------------

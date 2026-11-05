@@ -246,7 +246,7 @@ Middleware wraps the compiled operation handler, so it runs before the guard; gu
 
 ## WebSocket operations
 
-`op.websocket(path, guard=...)` accepts the same guards. The guard runs before the handshake: if it raises `Unauthorized` or `Forbidden` (any `HTTPError`) the server answers the upgrade request with the problem response (status, headers and body as for HTTP) and the handler is never entered. Otherwise the handler runs with `c.principal` set. The guard sees a `RequestHead` built from the WebSocket scope (method `GET`, path, query string, headers, client), so tokens must come from headers, query or cookies. Details in [websocket.md](websocket.md).
+`op.websocket(path, guard=...)` accepts the same guards. The guard runs before the handshake: if it raises `Unauthorized` or `Forbidden` (any `HTTPError`) the server answers the upgrade request with the problem response (status, headers and body as for HTTP) and the handler is never entered. Otherwise the handler runs with `c.principal` set. The guard sees a `RequestHead` built from the WebSocket scope (method `GET`, path, query string, headers, client), so tokens must come from headers, query or cookies. The guard is also where the handshake's `Origin` header is checked; see [Security in websocket.md](websocket.md#security). Details in [websocket.md](websocket.md).
 
 ```python
 async with TestClient(app) as client:

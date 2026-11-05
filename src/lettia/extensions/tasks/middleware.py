@@ -1,6 +1,7 @@
 """Middleware managing BackgroundTasks lifecycle and background execution."""
 
 import asyncio
+from collections.abc import Callable
 from typing import cast
 
 from lettia.core import App, Context, Handler, Response
@@ -43,12 +44,39 @@ class BackgroundTasksMiddleware:
             token = current_tasks.set(tasks)
             try:
                 response = await next_handler(c)
-                if tasks:
-                    runner = asyncio.create_task(tasks.run())
-                    self._active_tasks.add(runner)
-                    runner.add_done_callback(self._active_tasks.discard)
-                return response
             finally:
                 current_tasks.reset(token)
+            if tasks:
+                response.after_send = self._start_after(response.after_send, tasks)
+            return response
 
         return cast(Handler, run)
+
+    def _start_after(
+        self, previous: Callable[[], None] | None, tasks: BackgroundTasks
+    ) -> Callable[[], None]:
+        """Wrap ``previous`` so the batch starts once the response was sent."""
+
+        def start() -> None:
+            if previous is not None:
+                try:
+                    previous()
+                except Exception:
+                    self._start(tasks)  # the batch must not depend on the callback
+                    raise
+            self._start(tasks)
+
+        return start
+
+    def _start(self, tasks: BackgroundTasks) -> None:
+        runner = asyncio.create_task(self._run(tasks))
+        self._active_tasks.add(runner)
+        runner.add_done_callback(self._active_tasks.discard)
+
+    @staticmethod
+    async def _run(tasks: BackgroundTasks) -> None:
+        token = current_tasks.set(tasks)
+        try:
+            await tasks.run()
+        finally:
+            current_tasks.reset(token)

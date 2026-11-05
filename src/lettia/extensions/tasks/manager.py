@@ -9,7 +9,7 @@ from lettia.extensions.tasks.task import BackgroundTask
 
 
 class BackgroundTasks:
-    """Collects tasks to execute after an HTTP or WebSocket response is returned."""
+    """Collects tasks to execute after an HTTP response was sent."""
 
     __slots__ = ("_tasks",)
 
