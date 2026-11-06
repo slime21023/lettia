@@ -1,9 +1,11 @@
 """Response classes: one class per status code, all msgspec structs."""
 
 from collections.abc import AsyncIterator, Callable
-from typing import ClassVar
+from typing import Annotated, ClassVar
 
 import msgspec
+
+from lettia.contract.markers import HeaderName
 
 
 class Reply(msgspec.Struct):
@@ -49,13 +51,54 @@ class Created[T](Reply):
     body: T
 
 
+class Accepted[T](Reply):
+    status = 202
+    body: T
+
+
 class NoContent(Reply):
     status = 204
+
+
+class BadRequest[T](Reply):
+    status = 400
+    body: T
 
 
 class NotFound[T](Reply):
     status = 404
     body: T
+
+
+class Conflict[T](Reply):
+    status = 409
+    body: T
+
+
+class _Redirect(Reply):
+    """A redirect: no body, and the ``Location`` header is required."""
+
+    location: Annotated[str, HeaderName("Location")]
+
+
+class MovedPermanently(_Redirect):
+    status = 301
+
+
+class Found(_Redirect):
+    status = 302
+
+
+class SeeOther(_Redirect):
+    status = 303
+
+
+class TemporaryRedirect(_Redirect):
+    status = 307
+
+
+class PermanentRedirect(_Redirect):
+    status = 308
 
 
 class Problem(msgspec.Struct):
