@@ -338,6 +338,7 @@ def _compile_websocket(
     )
 
     async def handle_websocket(ws: WebSocket) -> None:
+        server = ws.scope.get("server")
         request = Request(
             method="GET",
             path=ws.path,
@@ -345,6 +346,8 @@ def _compile_websocket(
             query_string=ws.query_string,
             headers=ws.scope.get("headers", ()),
             client=ws.client,
+            scheme=ws.scope.get("scheme", "ws"),
+            server=(server[0], server[1]) if server else None,
             body=_empty_body_stream(),
         )
         c = PrincipalContext[Any](request, path_params=ws.path_params, state=ws.state)

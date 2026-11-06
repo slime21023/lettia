@@ -11,6 +11,7 @@ from lettia.core.asgi import ASGIApp, Receive, Scope, Send, asgi_app, run_lifesp
 from lettia.core.context import Context
 from lettia.core.errors import ClientDisconnect, HTTPError, StartupError
 from lettia.core.handler import Handler, Middleware, WebSocketHandler
+from lettia.core.hosts import HostPolicy
 from lettia.core.problem import ErrorHandler, default_error_handler, problem_response
 from lettia.core.request import DEFAULT_MAX_BODY_SIZE
 from lettia.core.response import Response
@@ -220,10 +221,14 @@ class App(_Routes):
         error_handler: ErrorHandler | None = None,
         context_class: type[Context] = Context,
         max_body_size: int | None = DEFAULT_MAX_BODY_SIZE,
+        allowed_hosts: Sequence[str] | None = None,
     ) -> None:
         self._error_handler = error_handler or default_error_handler(debug=debug)
         self._context_class = context_class
         self._max_body_size = max_body_size
+        self._allowed_hosts = (
+            None if allowed_hosts is None else HostPolicy(allowed_hosts)
+        )
         self._registry = _Registry(debug=debug)
         self._middleware: list[Middleware] = []
         self._startup: list[Hook] = []
@@ -359,6 +364,7 @@ class App(_Routes):
             dispatch,
             max_body_size=self._max_body_size,
             context_class=self._context_class,
+            allowed_hosts=self._allowed_hosts,
         )
 
         async def websocket_app(scope: Scope, receive: Receive, send: Send) -> None:

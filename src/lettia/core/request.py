@@ -7,6 +7,7 @@ from urllib.parse import quote
 from lettia.core.cookies import parse_cookies
 from lettia.core.errors import HTTPError
 from lettia.core.headers import Headers, RawHeaders
+from lettia.core.hosts import HostPolicy, parse_host, server_authority
 from lettia.core.query import QueryParams
 
 type _BodyMode = Literal["unread", "body", "stream", "released"]
@@ -36,11 +37,15 @@ class RequestHead:
     """
 
     __slots__ = (
+        "_allowed_hosts",
         "_cookies",
         "_headers",
+        "_host",
         "_query",
         "_query_string",
         "_raw_headers",
+        "_scheme",
+        "_server",
         "client",
         "method",
         "path",
@@ -56,6 +61,9 @@ class RequestHead:
         query_string: bytes = b"",
         headers: RawHeaders | None = None,
         client: tuple[str, int] | None = None,
+        scheme: str = "http",
+        server: tuple[str, int | None] | None = None,
+        allowed_hosts: HostPolicy | None = None,
     ) -> None:
         self.method = method
         self.path = path
@@ -63,9 +71,13 @@ class RequestHead:
         self.client = client
         self._query_string = query_string
         self._raw_headers: RawHeaders = [] if headers is None else headers
+        self._scheme = scheme
+        self._server = server
+        self._allowed_hosts = allowed_hosts
         self._headers: Headers | None = None
         self._query: QueryParams | None = None
         self._cookies: dict[str, str] | None = None
+        self._host: str | None = None
 
     @property
     def loggable_path(self) -> str:
@@ -93,6 +105,46 @@ class RequestHead:
             self._cookies = parse_cookies(self.headers.get_all("cookie"))
         return self._cookies
 
+    @property
+    def scheme(self) -> str:
+        """``http`` or ``https`` (``ws`` / ``wss`` for a WebSocket), from the scope.
+
+        Behind a proxy it is what the server makes of it: configure the server
+        to trust the proxy, Lettia never reads ``X-Forwarded-*`` itself.
+        """
+        return self._scheme
+
+    @property
+    def host(self) -> str:
+        """The ``Host`` header in lower case, with its port when it has one.
+
+        A missing or malformed header falls back to the address the server
+        listens on. The client chooses this value: with ``allowed_hosts`` on the
+        app, one that is not allowed raises ``HTTPError(400)``; without it the
+        value is unchecked, so do not put it into links you mail to people.
+        """
+        host = self._host
+        if host is None:
+            host = parse_host(self.headers.get("host"))
+            if host is None:
+                host = server_authority(self._server, self._scheme)
+            self._host = host
+        if self._allowed_hosts is not None and not self._allowed_hosts.allows(host):
+            raise HTTPError(400, "Bad Request", "invalid host")
+        return host
+
+    @property
+    def base_url(self) -> str:
+        """``{scheme}://{host}/``, built from :attr:`scheme` and :attr:`host`."""
+        return f"{self._scheme}://{self.host}/"
+
+    @property
+    def url(self) -> str:
+        """The requested URL: scheme, host, the raw path and the query string."""
+        query = self._query_string
+        suffix = f"?{query.decode('latin-1')}" if query else ""
+        return f"{self._scheme}://{self.host}{self.raw_path.decode('latin-1')}{suffix}"
+
 
 class Request(RequestHead):
     """A request whose body is read either whole (``body``) or in chunks (``stream``).
@@ -114,6 +166,9 @@ class Request(RequestHead):
         query_string: bytes = b"",
         headers: RawHeaders | None = None,
         client: tuple[str, int] | None = None,
+        scheme: str = "http",
+        server: tuple[str, int | None] | None = None,
+        allowed_hosts: HostPolicy | None = None,
         max_body_size: int | None = DEFAULT_MAX_BODY_SIZE,
     ) -> None:
         super().__init__(
@@ -123,6 +178,9 @@ class Request(RequestHead):
             query_string=query_string,
             headers=headers,
             client=client,
+            scheme=scheme,
+            server=server,
+            allowed_hosts=allowed_hosts,
         )
         self._source = body
         self._max_body_size = max_body_size

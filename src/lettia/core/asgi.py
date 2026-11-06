@@ -8,6 +8,7 @@ from typing import Any, cast
 from lettia.core.context import Context
 from lettia.core.errors import ClientDisconnect
 from lettia.core.handler import Handler
+from lettia.core.hosts import HostPolicy
 from lettia.core.request import DEFAULT_MAX_BODY_SIZE, Request
 from lettia.core.response import Response
 
@@ -26,6 +27,7 @@ def asgi_app(
     *,
     max_body_size: int | None = DEFAULT_MAX_BODY_SIZE,
     context_class: type[Context] = Context,
+    allowed_hosts: HostPolicy | None = None,
 ) -> ASGIApp:
     """Wrap ``handler`` as an ASGI application for HTTP requests.
 
@@ -44,6 +46,9 @@ def asgi_app(
             query_string=scope.get("query_string", b""),
             headers=scope["headers"],
             client=(client[0], client[1]) if client else None,
+            scheme=scope.get("scheme", "http"),
+            server=scope.get("server"),
+            allowed_hosts=allowed_hosts,
             body=_body_chunks(receive),
             max_body_size=max_body_size,
         )

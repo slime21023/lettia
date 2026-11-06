@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator
 import pytest
 
 from lettia.core import ClientDisconnect, HTTPError, Request, RequestHead
+from lettia.core.hosts import HostPolicy
 from lettia.core.request import DEFAULT_MAX_BODY_SIZE
 
 
@@ -315,3 +316,95 @@ async def test_request_release_fails_while_another_reader_holds_the_source() -> 
     reader.cancel()
     with pytest.raises(asyncio.CancelledError):
         await reader
+
+
+# --- scheme, host and url ----------------------------------------------------
+
+
+def head(
+    host: str | None = "Example.com",
+    *,
+    scheme: str = "http",
+    server: tuple[str, int | None] | None = ("10.0.0.5", 8000),
+    raw_path: bytes = b"/a",
+    query: bytes = b"",
+    allowed: HostPolicy | None = None,
+) -> RequestHead:
+    headers = [] if host is None else [(b"host", host.encode())]
+    return RequestHead(
+        method="GET",
+        path="/a",
+        raw_path=raw_path,
+        query_string=query,
+        headers=headers,
+        scheme=scheme,
+        server=server,
+        allowed_hosts=allowed,
+    )
+
+
+def test_request_scheme_defaults_to_http_and_follows_the_scope() -> None:
+    assert RequestHead(method="GET", path="/").scheme == "http"
+    assert head(scheme="https").scheme == "https"
+    assert head(scheme="wss").scheme == "wss"
+
+
+def test_request_host_is_the_host_header_in_lower_case_with_its_port() -> None:
+    assert head("API.Example.com:8443").host == "api.example.com:8443"
+
+
+@pytest.mark.parametrize("bad", ["", "a b", "a/b", "user@example.com", "x:99999"])
+def test_request_host_falls_back_to_the_server_when_the_header_is_malformed(
+    bad: str,
+) -> None:
+    assert head(bad).host == "10.0.0.5:8000"
+
+
+def test_request_host_without_a_header_is_the_server_address() -> None:
+    assert head(None).host == "10.0.0.5:8000"
+    assert head(None, server=("10.0.0.5", 80)).host == "10.0.0.5"
+    assert head(None, scheme="https", server=("::1", 443)).host == "[::1]"
+    assert head(None, scheme="https", server=("::1", 8443)).host == "[::1]:8443"
+
+
+@pytest.mark.parametrize("server", [None, ("/run/app.sock", None)])
+def test_request_host_without_header_or_tcp_server_is_localhost(
+    server: tuple[str, int | None] | None,
+) -> None:
+    assert head(None, server=server).host == "localhost"
+
+
+def test_request_url_keeps_the_raw_path_and_query_as_received() -> None:
+    request = head(
+        "example.com", scheme="https", raw_path=b"/a%2Fb/c", query=b"x=1&y=%20"
+    )
+
+    assert request.url == "https://example.com/a%2Fb/c?x=1&y=%20"
+    assert request.base_url == "https://example.com/"
+
+
+def test_request_url_without_a_query_has_no_question_mark() -> None:
+    assert head("example.com").url == "http://example.com/a"
+
+
+def test_request_host_is_rejected_when_it_is_not_in_the_allowed_hosts() -> None:
+    request = head("evil.example", allowed=HostPolicy(["example.com"]))
+
+    for read in (lambda: request.host, lambda: request.base_url, lambda: request.url):
+        with pytest.raises(HTTPError) as caught:
+            read()
+        assert caught.value.status == 400
+
+
+def test_request_host_passes_the_allowed_hosts() -> None:
+    request = head("API.example.com:8443", allowed=HostPolicy(["*.example.com"]))
+
+    assert request.host == "api.example.com:8443"
+    assert request.url == "http://api.example.com:8443/a"
+
+
+def test_request_allowed_hosts_judge_the_fallback_address_too() -> None:
+    request = head(None, server=("10.0.0.5", 8000), allowed=HostPolicy(["example.com"]))
+
+    with pytest.raises(HTTPError):
+        assert request.host

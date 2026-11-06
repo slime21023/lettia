@@ -63,6 +63,7 @@ class App(core_app.App):
         error_handler: ErrorHandler | None = None,
         context_class: type[Context[Any]] = Context,
         max_body_size: int | None = DEFAULT_MAX_BODY_SIZE,
+        allowed_hosts: Sequence[str] | None = None,
         guards: Sequence[GuardImpl[Any]] = (),
         codec: Codec | None = None,
         title: str = "API",
@@ -77,6 +78,7 @@ class App(core_app.App):
             error_handler=error_handler,
             context_class=context_class,
             max_body_size=max_body_size,
+            allowed_hosts=allowed_hosts,
         )
         self._contracts = contract_registry(self)
         if codec is not None:

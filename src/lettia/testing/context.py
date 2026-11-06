@@ -16,6 +16,7 @@ def make_context(
     query: str = "",
     body: bytes = b"",
     path_params: Mapping[str, str] | None = None,
+    scheme: str = "http",
 ) -> Context[None]: ...
 @overload
 def make_context[G](
@@ -27,6 +28,7 @@ def make_context[G](
     query: str = "",
     body: bytes = b"",
     path_params: Mapping[str, str] | None = None,
+    scheme: str = "http",
 ) -> Context[G]: ...
 def make_context(
     principal: Any = None,
@@ -37,11 +39,13 @@ def make_context(
     query: str = "",
     body: bytes = b"",
     path_params: Mapping[str, str] | None = None,
+    scheme: str = "http",
 ) -> Context[Any]:
     """A ``Context[G]`` for ``principal``, as a guard would have produced it.
 
     The request is built from the given parts and its body is served from memory
     (without a size limit), so a handler can be exercised like any async method.
+    ``scheme`` and a ``host`` header decide what ``request.url`` reports.
     """
 
     async def chunks() -> AsyncIterator[bytes]:
@@ -57,6 +61,7 @@ def make_context(
         path=path,
         query_string=query.encode(),
         headers=raw_headers,
+        scheme=scheme,
         body=chunks(),
         max_body_size=None,
     )
