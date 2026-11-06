@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-06
+
+### Added
+- `middleware=` on `route`, `get`, `post`, `put`, `patch`, `delete` and `options` (on `App` and `Group`): a sequence of middleware that wraps one route, inside the group middleware, with error conversion at every boundary like any other middleware. A single callable instead of a sequence raises `TypeError`.
+- `mount(implementation, *, codec=None, middleware=None)`: `middleware` maps contract methods (for example `Api.login`) to the middleware that wraps only that operation, outside its guard. A key that is not an operation of a mounted contract, or one for a WebSocket operation, is a startup problem. The contract itself is unchanged.
+
+### Changed
+- Bumped version to `0.5.1`.
+
 ## [0.5.0] - 2026-11-06
 
 The planned 0.4.1, 0.4.2 and 0.4.3 milestones were built and verified together and ship as this release; the extensions below are no longer marked experimental.
