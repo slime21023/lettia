@@ -1,7 +1,9 @@
 """The HTTP response: a mutable value object, unaware of ASGI ``send``."""
 
 from collections.abc import AsyncIterator, Callable
+from datetime import datetime
 
+from lettia.core.cookies import SameSite, format_set_cookie
 from lettia.core.headers import MutableHeaders
 
 type ResponseBody = bytes | AsyncIterator[bytes] | None
@@ -46,3 +48,70 @@ class Response:
         self.headers = MutableHeaders() if headers is None else headers
         self.after_send = after_send
         self.watch_disconnect = watch_disconnect
+
+    def set_cookie(
+        self,
+        name: str,
+        value: str,
+        *,
+        max_age: int | None = None,
+        expires: datetime | None = None,
+        path: str = "/",
+        domain: str | None = None,
+        secure: bool = False,
+        httponly: bool = True,
+        samesite: SameSite | None = "lax",
+    ) -> None:
+        """Add a ``Set-Cookie`` header; other cookies already set are kept.
+
+        ``HttpOnly`` and ``SameSite=Lax`` are on by default; pass ``secure=True``
+        outside local development. ``expires`` must be timezone-aware. The value
+        is written as given, so encode anything that is not cookie-safe first.
+        Raises ``ValueError`` for an invalid name, value or attribute.
+        """
+        if expires is not None and expires.tzinfo is None:
+            raise ValueError("expires must be timezone-aware")
+        self.headers.add(
+            "set-cookie",
+            format_set_cookie(
+                name,
+                value,
+                max_age=max_age,
+                expires=None if expires is None else int(expires.timestamp()),
+                path=path,
+                domain=domain,
+                secure=secure,
+                httponly=httponly,
+                samesite=samesite,
+            ),
+        )
+
+    def delete_cookie(
+        self,
+        name: str,
+        *,
+        path: str = "/",
+        domain: str | None = None,
+        secure: bool = False,
+        httponly: bool = True,
+        samesite: SameSite | None = "lax",
+    ) -> None:
+        """Ask the browser to remove a cookie.
+
+        ``path`` and ``domain`` must match the ones the cookie was set with, or
+        the browser keeps it.
+        """
+        self.headers.add(
+            "set-cookie",
+            format_set_cookie(
+                name,
+                "",
+                max_age=0,
+                expires=0,
+                path=path,
+                domain=domain,
+                secure=secure,
+                httponly=httponly,
+                samesite=samesite,
+            ),
+        )

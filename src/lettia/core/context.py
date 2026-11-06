@@ -14,6 +14,7 @@ _encode_json = msgspec.json.Encoder().encode
 # The media types the helpers use most are encoded once, not on every response.
 _TEXT_TYPE = (b"content-type", b"text/plain; charset=utf-8")
 _JSON_TYPE = (b"content-type", b"application/json")
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
 def _with_content_type(status: int, body: ResponseBody, media_type: str) -> Response:
@@ -55,6 +56,22 @@ class Context:
 
     def no_content(self) -> Response:
         return Response(204)
+
+    def redirect(self, location: str, status: int = 302) -> Response:
+        """A redirect to ``location`` with no body.
+
+        ``status`` is 301, 302, 303, 307 or 308. The location is sent as given:
+        encode non-ASCII characters first.
+        """
+        if status not in _REDIRECT_STATUSES:
+            raise ValueError(
+                f"redirect status must be 301, 302, 303, 307 or 308, got {status}"
+            )
+        if not location:
+            raise ValueError("redirect location must not be empty")
+        headers = MutableHeaders()
+        headers.set("location", location)
+        return Response(status, None, headers)
 
     def stream(
         self, status: int, chunks: AsyncIterator[bytes], media_type: str

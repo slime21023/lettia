@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 
 import msgspec
+import pytest
 
 from lettia.contract.context import Context as ContractContext
 from lettia.core import Context, Request
@@ -98,3 +99,26 @@ def test_contract_context_has_slots_and_no_instance_dict() -> None:
 
     assert not hasattr(c, "__dict__")
     assert c.principal is None
+
+
+def test_context_redirect_is_a_302_with_a_location_and_no_body() -> None:
+    res = make_context().redirect("/login")
+
+    assert (res.status, res.body, res.headers["location"]) == (302, None, "/login")
+
+
+@pytest.mark.parametrize("status", [301, 302, 303, 307, 308])
+def test_context_redirect_accepts_the_redirect_statuses(status: int) -> None:
+    assert make_context().redirect("/x", status).status == status
+
+
+@pytest.mark.parametrize("status", [200, 300, 304, 305, 306, 404])
+def test_context_redirect_rejects_other_statuses(status: int) -> None:
+    with pytest.raises(ValueError, match="status"):
+        make_context().redirect("/x", status)
+
+
+@pytest.mark.parametrize("location", ["", "/a\r\nSet-Cookie: x=y"])
+def test_context_redirect_rejects_an_empty_or_injected_location(location: str) -> None:
+    with pytest.raises(ValueError):
+        make_context().redirect(location)

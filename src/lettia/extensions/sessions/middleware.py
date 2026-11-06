@@ -3,8 +3,13 @@
 from collections.abc import Sequence
 
 from lettia.core import Context, Handler, Response
+from lettia.core.cookies import (
+    SameSite,
+    check_cookie_name,
+    check_cookie_path,
+    format_set_cookie,
+)
 from lettia.extensions.sessions import cookie
-from lettia.extensions.sessions.cookie import SameSite
 from lettia.extensions.sessions.session import SESSION_KEY, Session, SessionValue
 
 _MIN_KEY_BYTES = 32
@@ -68,8 +73,8 @@ class SessionMiddleware:
             raise ValueError(f"same_site must be one of {_SAME_SITE}")
         if same_site == "none" and not secure:
             raise ValueError("same_site='none' requires secure=True")
-        cookie.validate_path(path)
-        cookie.validate_name(cookie_name, secure=secure, path=path)
+        check_cookie_path(path)
+        check_cookie_name(cookie_name, secure=secure, path=path)
         self._name = cookie_name
         self._same_site: SameSite = same_site
         self._secure = secure
@@ -90,25 +95,27 @@ class SessionMiddleware:
         now: int,
     ) -> str:
         token = cookie.encode_token(self._keys[0], self._name, data, flash, iat, exp)
-        return cookie.render(
+        return format_set_cookie(
             self._name,
             token,
-            path=self._path,
-            same_site=self._same_site,
-            secure=self._secure,
             max_age=exp - now,
             expires=exp,
+            path=self._path,
+            secure=self._secure,
+            httponly=True,
+            samesite=self._same_site,
         )
 
     def _deletion(self) -> str:
-        return cookie.render(
+        return format_set_cookie(
             self._name,
             "",
-            path=self._path,
-            same_site=self._same_site,
-            secure=self._secure,
             max_age=0,
             expires=0,
+            path=self._path,
+            secure=self._secure,
+            httponly=True,
+            samesite=self._same_site,
         )
 
     def _check_size(self, header: str) -> None:

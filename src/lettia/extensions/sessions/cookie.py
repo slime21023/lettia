@@ -12,9 +12,7 @@ import hmac
 import re
 import time
 from collections.abc import Sequence
-from email.utils import formatdate
-from http.cookies import CookieError, SimpleCookie
-from typing import Any, Literal, NamedTuple
+from typing import Any, NamedTuple
 
 import msgspec
 
@@ -28,23 +26,6 @@ VERSION = "v1"
 CLOCK_SKEW_SEC = 60
 _MAC_CONTEXT = b"lettia.session.v1\0"
 _SEGMENT = re.compile(r"[A-Za-z0-9_-]+")
-_TOKEN_NAME = re.compile(r"[!#$%&'*+\-.^_`|~0-9A-Za-z]+")
-_RESERVED_NAMES = frozenset(
-    {
-        "comment",
-        "domain",
-        "expires",
-        "httponly",
-        "max-age",
-        "partitioned",
-        "path",
-        "samesite",
-        "secure",
-        "version",
-    }
-)
-
-type SameSite = Literal["lax", "strict", "none"]
 
 
 class _Payload(msgspec.Struct, forbid_unknown_fields=True):
@@ -167,56 +148,3 @@ def decode_token(
     ):
         return None
     return Decoded(payload.data, payload.flash, iat, exp, index)
-
-
-def validate_name(name: str, *, secure: bool, path: str) -> None:
-    if type(name) is not str or not _TOKEN_NAME.fullmatch(name):
-        raise ValueError(f"invalid cookie name: {name!r}")
-    if name.lower() in _RESERVED_NAMES:
-        raise ValueError(f"cookie name {name!r} is a reserved attribute name")
-    lowered = name.lower()
-    if lowered.startswith("__secure-") and not secure:
-        raise ValueError("__Secure- cookies require secure=True")
-    if lowered.startswith("__host-") and not (secure and path == "/"):
-        raise ValueError("__Host- cookies require secure=True and path='/'")
-    try:
-        SimpleCookie()[name] = "x"
-    except CookieError as exc:
-        raise ValueError(f"invalid cookie name: {name!r}") from exc
-
-
-def validate_path(path: str) -> None:
-    if (
-        type(path) is not str
-        or not path.startswith("/")
-        or ";" in path
-        or any(not " " <= ch < "\x7f" for ch in path)
-    ):
-        raise ValueError(f"invalid cookie path: {path!r}")
-
-
-def render(
-    name: str,
-    value: str,
-    *,
-    path: str,
-    same_site: SameSite,
-    secure: bool,
-    max_age: int,
-    expires: int,
-) -> str:
-    """One ``Set-Cookie`` value with HttpOnly and no Domain."""
-    jar: SimpleCookie = SimpleCookie()
-    try:
-        jar[name] = value
-        morsel = jar[name]
-        morsel["path"] = path
-        morsel["httponly"] = True
-        if secure:
-            morsel["secure"] = True
-        morsel["samesite"] = same_site.capitalize()
-        morsel["max-age"] = str(max_age)
-        morsel["expires"] = formatdate(expires, usegmt=True)
-    except CookieError as exc:
-        raise ValueError(f"cannot render cookie: {exc}") from exc
-    return morsel.OutputString()
