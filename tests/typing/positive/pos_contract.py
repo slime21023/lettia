@@ -1,4 +1,4 @@
-"""The full contract / implementation shape from the design document."""
+"""The full contract / implementation shape."""
 
 from dataclasses import dataclass
 from typing import Annotated, Protocol, assert_type

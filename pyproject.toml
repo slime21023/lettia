@@ -62,7 +62,7 @@ dev = [
 [tool.ruff]
 line-length = 88
 target-version = "py312"
-extend-exclude = ["spec", ".agents", ".claude"]
+extend-exclude = [".agents", ".claude"]
 
 [tool.ruff.lint]
 select = ["E", "W", "F", "I", "B", "C4", "UP", "ASYNC", "S"]

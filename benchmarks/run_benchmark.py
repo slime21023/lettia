@@ -5,7 +5,7 @@ response; S3 is the full contract path (guard, request decoding, handler,
 response encoding) compared with an equivalent hand-written Core handler. Each
 application is called directly with a prebuilt scope, so the numbers measure
 framework overhead per request without sockets, HTTP parsing or a load
-generator. It is a regression guard; the design's acceptance numbers come from
+generator. It is a regression guard; the acceptance numbers come from
 ``run_server_benchmark.py``, which goes through a real server.
 
     uv run python benchmarks/run_benchmark.py [--iterations 100000] [--repeat 5]

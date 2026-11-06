@@ -1,7 +1,8 @@
 # Repository Guidelines
 
-`spec/_Design.md` is the source of truth for scope and API shape. Do not edit it
-unless asked; propose changes instead.
+The API is described in `docs/` (start with `docs/index.md`) and enforced by the
+tests and the type-check fixtures; scope and what is not scheduled are in
+`README.md`. Update the docs and the changelog with any change to the public API.
 
 ## Project Structure & Module Organization
 
@@ -31,12 +32,12 @@ uv run ruff check src tests benchmarks examples && uv run ruff format --check sr
 uv run pyrefly check                       # primary type checker
 uv run pyright && uv run mypy              # compatibility targets
 uv run python -m benchmarks.run_benchmark         # in-process S1/S2/S3 regression guard
-uv run python -m benchmarks.run_server_benchmark  # through one uvicorn worker (the design's numbers)
+uv run python -m benchmarks.run_server_benchmark  # through one uvicorn worker (the reference numbers)
 uv run lettia openapi export examples.users_api:app --output examples/openapi.json
 ```
 
 Run `ruff` only on `src`, `tests`, `benchmarks` and `examples`: ruff also formats code blocks in
-Markdown, which rewrites `spec/`.
+Markdown, which rewrites `docs/` and `README.md`.
 
 ## Coding Style & Naming Conventions
 

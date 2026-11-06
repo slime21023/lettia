@@ -112,7 +112,7 @@ def check_all(checker: str) -> Diagnostics:
 
 
 # Fixtures a checker is known not to flag. Each entry needs a reason; the
-# guarantee is still enforced at startup (see "Startup checks" in the design).
+# guarantee is still enforced at startup (see "Startup checks" in docs/contract.md).
 KNOWN_GAPS: dict[tuple[str, str], str] = {
     (
         "pyrefly",

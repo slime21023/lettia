@@ -1,6 +1,8 @@
 """Benchmark through a real server: one uvicorn worker, real HTTP connections.
 
-This is the measurement the design's performance goals refer to. For every
+This is the measurement the performance goals refer to: S1 (static route) and S2
+(path parameter, JSON) at least as fast as Starlette, S3 (the full contract path)
+at most 25% slower than an equivalent hand-written Core handler. For every
 scenario the apps to compare are started side by side, and load is applied to
 them in turn for several rounds, so drift of the machine does not favour the app
 measured first. The load comes from separate processes (keep-alive connections,

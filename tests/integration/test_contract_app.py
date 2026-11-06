@@ -1,4 +1,4 @@
-"""The design document's UserApi example, end to end through ASGI."""
+"""The UserApi example, end to end through ASGI."""
 
 import logging
 from dataclasses import dataclass

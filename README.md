@@ -178,10 +178,21 @@ as ratios for one machine, not as guarantees.
 Version 0.5.5, alpha. Not planned: code generation or importing existing specs,
 OpenAPI 3.0, pydantic, trio/anyio and sync handlers, content negotiation by `Accept`,
 and a DI container in the core (use `lettia.extensions.di` or construct the
-implementation yourself). See
-[`spec/_Design.md`](spec/_Design.md) for the design and the reasons, and
-[`spec/_Roadmap_and_Extensions.md`](spec/_Roadmap_and_Extensions.md) for what comes
-next.
+implementation yourself). See [`docs/index.md`](docs/index.md) for the documentation.
+
+**Principles.** The core stays small: `lettia.core` and `lettia.contract` have one
+runtime dependency, msgspec, and do their work when a contract is mounted rather than
+on every request. What not every API needs, or what teams solve in different ways, is
+an optional extension under `lettia.extensions` (static files, background tasks,
+dependency injection, docs viewers, SSE, sessions, rate limiting). A protocol that
+shares routing and guards with HTTP, such as WebSocket, belongs in the core. Anything
+that needs a database or other external storage (SQL, Redis, server-side sessions,
+durable queues, a rate limit shared between workers) is out of scope.
+
+**Not scheduled.** An optional redirect for trailing slashes; mounting a sub-ASGI app
+(`Mount`); `TestClient` accepting an app wrapped in ASGI middleware (today it fails
+with an unhelpful `AttributeError`); an adapter that runs ASGI middleware inside
+`app.use(...)`; a helper for transforming streamed response bodies.
 
 ## Development
 
