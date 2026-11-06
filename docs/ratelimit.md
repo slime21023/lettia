@@ -39,9 +39,11 @@ api = app.group("/api", rate_limit("5/minute"))  # only routes of this group
 - Memory is bounded by `max_keys` times the limit in timestamps. Both are
   trusted deployment settings.
 - One factory call is one shared quota across its routes; call it again for an
-  independent quota. `app.use` also covers 404/405; groups only cover their own
-  routes; WebSockets are not limited. When limiters are stacked, all apply, and
-  the outermost one's `X-RateLimit-*` values are the ones the client sees.
+  independent quota. `app.use` also covers 404/405; groups, routes
+  (`middleware=`) and mounted operations (`mount(middleware=...)`) only cover
+  their own routes; WebSockets are not limited. When limiters are stacked, all
+  apply, and the outermost one's `X-RateLimit-*` values are the ones the client
+  sees.
 - The rejection is returned directly, so custom error handlers do not alter it.
 
 ## Limits

@@ -236,13 +236,13 @@ An operation with a missing guard implementation is not registered.
 
 | | Guard | Middleware |
 |---|---|---|
-| Declared | Per operation, in the contract (`guard=`) | On the app (`app.use`) or a group |
+| Declared | Per operation, in the contract (`guard=`) | On the app (`app.use`), a group, a route (`middleware=`) or a mounted operation (`mount(middleware=...)`) |
 | Sees | `RequestHead` only (no body) | The whole request context |
 | Produces | A typed principal for the handler (`c.principal`) | Wraps the handler; may change the response |
 | Missing implementation | Startup error | n/a |
 | In OpenAPI | Yes (`security`, automatic 401/403 responses) | No |
 
-Middleware wraps the compiled operation handler, so it runs before the guard; guard errors are converted to responses inside the chain, and middleware sees them as ordinary responses. Use a guard for "who may call this operation and as whom"; use middleware for cross-cutting behavior such as logging or headers. See [core.md](core.md).
+Middleware wraps the compiled operation handler, so it runs before the guard; guard errors are converted to responses inside the chain, and middleware sees them as ordinary responses. Use a guard for "who may call this operation and as whom"; use middleware for cross-cutting behavior such as logging or headers, and [`mount(middleware=...)`](contract.md#middleware-for-single-operations) when it must wrap one operation only. See [core.md](core.md).
 
 ## WebSocket operations
 

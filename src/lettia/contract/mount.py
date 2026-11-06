@@ -30,6 +30,7 @@ from lettia.core import (
     Context,
     Handler,
     HTTPError,
+    Middleware,
     Request,
     Response,
     WebSocket,
@@ -40,6 +41,7 @@ from lettia.core import (
 _CONTRACTS_KEY = "lettia.contracts"
 
 type GuardRegistry = Mapping[GuardSpec[Any], GuardImpl[Any]]
+type OperationMiddleware = Mapping[Callable[..., Any], Sequence[Middleware]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,7 +93,14 @@ class MountTarget(Protocol):
     @property
     def state(self) -> dict[str, object]: ...
 
-    def route(self, method: str, path: str, handler: Handler) -> None: ...
+    def route(
+        self,
+        method: str,
+        path: str,
+        handler: Handler,
+        *,
+        middleware: Sequence[Middleware] = (),
+    ) -> None: ...
 
     def websocket(self, path: str, handler: WebSocketHandler) -> None: ...
 
@@ -108,12 +117,18 @@ def contract_registry(target: MountTarget) -> ContractRegistry:
 
 
 def mount(
-    target: MountTarget, implementation: object, *, codec: Codec | None = None
+    target: MountTarget,
+    implementation: object,
+    *,
+    codec: Codec | None = None,
+    middleware: OperationMiddleware | None = None,
 ) -> None:
     """Register every operation of the contracts ``implementation`` inherits.
 
-    Problems do not raise here: they are recorded on ``target`` so that startup
-    reports them together with everything else that is wrong.
+    ``middleware`` maps contract methods (for example ``Api.login``) to the
+    middleware that wraps only that operation, outside its guard. Problems do
+    not raise here: they are recorded on ``target`` so that startup reports
+    them together with everything else that is wrong.
     """
     registry = contract_registry(target)
     active_codec = codec or registry.codec
@@ -126,11 +141,18 @@ def mount(
         )
         return
 
+    unused = dict(middleware or {})
     for contract in contracts:
+        chosen = {
+            name: _take(unused, member)
+            for name, member in vars(contract).items()
+            if operation_spec(member) is not None
+        }
         operations, problems = inspect_contract(contract)
         for problem in problems:
             target.add_startup_problem(problem)
         for operation in operations:
+            wanted = chosen[operation.name]
             problems = _check(
                 operation,
                 implementation,
@@ -142,6 +164,12 @@ def mount(
                     target.add_startup_problem(problem)
                 continue
             if operation.spec.method == "WEBSOCKET":
+                if wanted:
+                    target.add_startup_problem(
+                        f"{operation.contract.__qualname__}.{operation.name}: "
+                        "middleware cannot be set on a WebSocket operation"
+                    )
+                    continue
                 ws_handler = _compile_websocket(
                     operation,
                     implementation,
@@ -156,10 +184,22 @@ def mount(
                     registry.guards,
                     debug=target.debug,
                 )
-                target.route(operation.spec.method, operation.spec.path, handler)
+                target.route(
+                    operation.spec.method,
+                    operation.spec.path,
+                    handler,
+                    middleware=wanted,
+                )
             registry.mounted.append(
                 MountedOperation(operation, target.prefix + operation.spec.path)
             )
+    for key in unused:
+        name = getattr(key, "__qualname__", repr(key))
+        target.add_startup_problem(
+            f"middleware is set for {name}, which is not an operation of a "
+            f"contract {implementation_type.__qualname__} implements; key the "
+            "mapping by the contract method (for example Api.login)"
+        )
 
 
 def _contracts_of(cls: type) -> list[type]:
@@ -169,6 +209,19 @@ def _contracts_of(cls: type) -> list[type]:
         for base in cls.__mro__
         if any(operation_spec(member) is not None for member in vars(base).values())
     ]
+
+
+def _take(
+    unused: dict[Callable[..., Any], Sequence[Middleware]], member: object
+) -> tuple[Middleware, ...]:
+    """Pop and validate the middleware set for one contract method."""
+    chosen = unused.pop(cast(Callable[..., Any], member), ())
+    if callable(chosen) or isinstance(chosen, (str, bytes)):
+        raise TypeError(
+            "mount(middleware=...) maps a contract method to a sequence of "
+            "middleware, not to one callable"
+        )
+    return tuple(chosen)
 
 
 def _check(

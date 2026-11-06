@@ -7,7 +7,7 @@ from typing import Any, cast, override
 from lettia.contract.codec import Codec
 from lettia.contract.context import Context
 from lettia.contract.guards import GuardImpl
-from lettia.contract.mount import contract_registry, mount
+from lettia.contract.mount import OperationMiddleware, contract_registry, mount
 from lettia.contract.openapi import OpenAPIInfo, build_openapi
 from lettia.core import app as core_app
 from lettia.core.context import Context as CoreContext
@@ -26,9 +26,18 @@ type DocsUI = Provider
 class Group(core_app.Group):
     """A route group that can also mount contract implementations."""
 
-    def mount(self, implementation: object, *, codec: Codec | None = None) -> None:
-        """Register the operations of the contracts ``implementation`` inherits."""
-        mount(self, implementation, codec=codec)
+    def mount(
+        self,
+        implementation: object,
+        *,
+        codec: Codec | None = None,
+        middleware: OperationMiddleware | None = None,
+    ) -> None:
+        """Register the operations of the contracts ``implementation`` inherits.
+
+        ``middleware`` wraps single operations, keyed by contract method.
+        """
+        mount(self, implementation, codec=codec, middleware=middleware)
 
     @override
     def group(self, prefix: str, *middleware: Middleware) -> "Group":
@@ -82,9 +91,20 @@ class App(core_app.App):
         if docs_url is not None:
             mount_docs(self, docs_url, docs_ui)
 
-    def mount(self, implementation: object, *, codec: Codec | None = None) -> None:
-        """Register the operations of the contracts ``implementation`` inherits."""
-        mount(self, implementation, codec=codec)
+    def mount(
+        self,
+        implementation: object,
+        *,
+        codec: Codec | None = None,
+        middleware: OperationMiddleware | None = None,
+    ) -> None:
+        """Register the operations of the contracts ``implementation`` inherits.
+
+        ``middleware`` wraps single operations, keyed by contract method, for
+        example ``{Api.login: [rate_limit("5/minute")]}``; it runs outside the
+        operation's guard, inside app and group middleware.
+        """
+        mount(self, implementation, codec=codec, middleware=middleware)
 
     @override
     def group(self, prefix: str, *middleware: Middleware) -> Group:

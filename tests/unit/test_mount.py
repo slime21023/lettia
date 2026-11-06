@@ -13,11 +13,20 @@ from lettia import (
     HeaderName,
     NoContent,
     Ok,
+    WebSocket,
     op,
     public,
 )
 from lettia.contract import MsgspecCodec
-from lettia.core import StartupError
+from lettia.core import Context as CoreContext
+from lettia.core import (
+    Forbidden,
+    Handler,
+    RequestHead,
+    Response,
+    StartupError,
+)
+from lettia.testing import TestClient
 
 
 class First(Protocol):
@@ -330,3 +339,151 @@ def test_a_body_type_without_a_json_schema_is_a_startup_problem() -> None:
         app.build()
 
     assert "cannot generate a JSON schema" in str(caught.value)
+
+
+# --- per-operation middleware -------------------------------------------------
+
+
+_closed = GuardSpec[None]("closed")
+
+
+async def _refuse(head: RequestHead) -> None:
+    raise Forbidden("closed")
+
+
+class _AccountApi(Protocol):
+    @op.post("/login", guard=public)
+    async def login(self, c: Context[None], req: None) -> NoContent: ...
+
+    @op.get("/me", guard=public)
+    async def me(self, c: Context[None], req: None) -> NoContent: ...
+
+    @op.get("/vault", guard=_closed)
+    async def vault(self, c: Context[None], req: None) -> NoContent: ...
+
+    @op.websocket("/live", guard=public)
+    async def live(self, c: Context[None], ws: WebSocket) -> None: ...
+
+
+class _Account(_AccountApi):
+    def __init__(self, trace: list[str]) -> None:
+        self.trace = trace
+
+    @override
+    async def login(self, c: Context[None], req: None) -> NoContent:
+        self.trace.append("login")
+        return NoContent()
+
+    @override
+    async def me(self, c: Context[None], req: None) -> NoContent:
+        self.trace.append("me")
+        return NoContent()
+
+    @override
+    async def vault(self, c: Context[None], req: None) -> NoContent:
+        self.trace.append("vault")
+        return NoContent()
+
+    @override
+    async def live(self, c: Context[None], ws: WebSocket) -> None:
+        return None
+
+
+def _tracer(name: str, trace: list[str]) -> Callable[[Handler], Handler]:
+    def middleware(next_: Handler) -> Handler:
+        async def run(c: CoreContext) -> Response:
+            trace.append(f"{name}>")
+            response = await next_(c)
+            trace.append(f"<{name}:{response.status}")
+            return response
+
+        return run
+
+    return middleware
+
+
+def _guarded_app() -> App:
+    return App(guards=[_closed.use(_refuse)])
+
+
+def _account_app(trace: list[str], **mount_options: Any) -> App:
+    app = _guarded_app()
+    app.use(_tracer("app", trace))
+    app.mount(_Account(trace), **mount_options)
+    return app
+
+
+async def test_mount_middleware_wraps_only_the_keyed_operation() -> None:
+    trace: list[str] = []
+    app = _account_app(trace, middleware={_AccountApi.login: [_tracer("login", trace)]})
+
+    async with TestClient(app) as http:
+        assert (await http.post("/login")).status_code == 204
+        assert trace == ["app>", "login>", "login", "<login:204", "<app:204"]
+        trace.clear()
+        assert (await http.get("/me")).status_code == 204
+
+    assert trace == ["app>", "me", "<app:204"]
+
+
+async def test_mount_middleware_runs_outside_the_guard_and_sees_its_refusal() -> None:
+    trace: list[str] = []
+    app = _account_app(trace, middleware={_AccountApi.vault: [_tracer("vault", trace)]})
+
+    async with TestClient(app) as http:
+        res = await http.get("/vault")
+
+    assert res.status_code == 403
+    assert trace == ["app>", "vault>", "<vault:403", "<app:403"]
+
+
+async def test_mount_middleware_applies_inside_group_middleware() -> None:
+    trace: list[str] = []
+    app = _guarded_app()
+    group = app.group("/v1", _tracer("group", trace))
+    group.mount(
+        _Account(trace),
+        middleware={_AccountApi.login: [_tracer("login", trace)]},
+    )
+
+    async with TestClient(app) as http:
+        await http.post("/v1/login")
+
+    assert trace == ["group>", "login>", "login", "<login:204", "<group:204"]
+
+
+def test_mount_middleware_keyed_by_an_override_is_a_problem() -> None:
+    app = _guarded_app()
+    # Keyed by the implementation's override, not by the contract method.
+    app.mount(
+        _Account([]),
+        middleware={_Account.login: [_tracer("x", [])]},
+    )
+
+    [problem] = problems_of(app)
+
+    assert "_Account.login" in problem
+    assert "contract method" in problem
+
+
+def test_mount_middleware_cannot_be_set_on_a_websocket_operation() -> None:
+    app = _guarded_app()
+    app.mount(
+        _Account([]),
+        middleware={_AccountApi.live: [_tracer("x", [])]},
+    )
+
+    [problem] = problems_of(app)
+
+    assert "_AccountApi.live" in problem
+    assert "WebSocket" in problem
+
+
+def test_mount_middleware_must_map_to_a_sequence_not_one_callable() -> None:
+    app = _guarded_app()
+
+    with pytest.raises(TypeError, match="sequence"):
+        app.mount(
+            _Account([]),
+            middleware={_AccountApi.login: _tracer("x", [])},  # type: ignore[dict-item]
+        )

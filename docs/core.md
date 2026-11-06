@@ -41,11 +41,13 @@ An `App` is an ASGI 3 callable: `await app(scope, receive, send)`. It handles `h
 
 | Method | Meaning |
 |---|---|
-| `app.get(path, handler)` | `route("GET", ...)` |
+| `app.get(path, handler, *, middleware=())` | `route("GET", ...)` |
 | `app.post`, `put`, `patch`, `delete`, `options` | Same, for the respective method. |
-| `app.route(method, path, handler)` | Generic form. `method` must be ASCII letters only; it is upper-cased. |
+| `app.route(method, path, handler, *, middleware=())` | Generic form. `method` must be ASCII letters only; it is upper-cased. |
 | `app.websocket(path, handler)` | See [websocket.md](websocket.md). |
 | `app.group(prefix, *middleware)` | Returns a `Group` (see below). |
+
+`middleware` is a sequence (not a single callable) that wraps this one route, for example `app.post("/login", login, middleware=[rate_limit("5/minute")])`. It exists on `App` and on every `Group`; websocket routes take none.
 
 All registration methods return `None`. There is no decorator form and no `head` shortcut.
 
@@ -293,8 +295,9 @@ Configuration goes in a factory that returns the middleware (this is how `cors`,
 
 - `app.use(*middleware)` adds global middleware; the first one given is the outermost. Calls accumulate: `use(a); use(b, c)` gives `a(b(c(...)))`.
 - `app.group(prefix, *middleware)` adds group middleware, applied inside all app middleware and after parent-group middleware.
-- Full order for a group route: app middleware, then group middleware (outer group first), then error conversion, then the handler.
-- App middleware also wraps the generated 404 and 405 handlers; group middleware does not. App-level middleware order is fixed at build time, so call `use` before the app starts.
+- `middleware=` on a route adds route middleware, applied inside the group middleware of that route; the first one given is the outermost.
+- Full order for a route: app middleware, then group middleware (outer group first), then route middleware, then error conversion, then the handler.
+- App middleware also wraps the generated 404 and 405 handlers; group and route middleware do not. App-level middleware order is fixed at build time, so call `use` before the app starts.
 
 ### Error conversion
 

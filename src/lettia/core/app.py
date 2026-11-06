@@ -28,7 +28,14 @@ class _Routes(ABC):
     """The route-registration surface shared by ``App`` and ``Group``."""
 
     @abstractmethod
-    def route(self, method: str, path: str, handler: Handler) -> None: ...
+    def route(
+        self,
+        method: str,
+        path: str,
+        handler: Handler,
+        *,
+        middleware: Sequence[Middleware] = (),
+    ) -> None: ...
 
     @abstractmethod
     def websocket(self, path: str, handler: WebSocketHandler) -> None: ...
@@ -36,23 +43,41 @@ class _Routes(ABC):
     @abstractmethod
     def group(self, prefix: str, *middleware: Middleware) -> "Group": ...
 
-    def get(self, path: str, handler: Handler) -> None:
-        self.route("GET", path, handler)
+    def get(
+        self, path: str, handler: Handler, *, middleware: Sequence[Middleware] = ()
+    ) -> None:
+        self.route("GET", path, handler, middleware=middleware)
 
-    def post(self, path: str, handler: Handler) -> None:
-        self.route("POST", path, handler)
+    def post(
+        self, path: str, handler: Handler, *, middleware: Sequence[Middleware] = ()
+    ) -> None:
+        self.route("POST", path, handler, middleware=middleware)
 
-    def put(self, path: str, handler: Handler) -> None:
-        self.route("PUT", path, handler)
+    def put(
+        self, path: str, handler: Handler, *, middleware: Sequence[Middleware] = ()
+    ) -> None:
+        self.route("PUT", path, handler, middleware=middleware)
 
-    def patch(self, path: str, handler: Handler) -> None:
-        self.route("PATCH", path, handler)
+    def patch(
+        self, path: str, handler: Handler, *, middleware: Sequence[Middleware] = ()
+    ) -> None:
+        self.route("PATCH", path, handler, middleware=middleware)
 
-    def delete(self, path: str, handler: Handler) -> None:
-        self.route("DELETE", path, handler)
+    def delete(
+        self, path: str, handler: Handler, *, middleware: Sequence[Middleware] = ()
+    ) -> None:
+        self.route("DELETE", path, handler, middleware=middleware)
 
-    def options(self, path: str, handler: Handler) -> None:
-        self.route("OPTIONS", path, handler)
+    def options(
+        self, path: str, handler: Handler, *, middleware: Sequence[Middleware] = ()
+    ) -> None:
+        self.route("OPTIONS", path, handler, middleware=middleware)
+
+
+def _route_middleware(middleware: Sequence[Middleware]) -> tuple[Middleware, ...]:
+    if callable(middleware):
+        raise TypeError("middleware must be a sequence of middleware, not one callable")
+    return tuple(middleware)
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,7 +135,15 @@ class Group(_Routes):
         self._prefix = prefix
         self._middleware = middleware
 
-    def route(self, method: str, path: str, handler: Handler) -> None:
+    def route(
+        self,
+        method: str,
+        path: str,
+        handler: Handler,
+        *,
+        middleware: Sequence[Middleware] = (),
+    ) -> None:
+        route_middleware = _route_middleware(middleware)
         if not path.startswith("/"):
             # Joined to the prefix it would still look valid ("/api" + "users").
             self._registry.add_problem(
@@ -119,7 +152,12 @@ class Group(_Routes):
             )
             return
         self._registry.register(
-            _RouteSpec(method, self._prefix + path, handler, self._middleware)
+            _RouteSpec(
+                method,
+                self._prefix + path,
+                handler,
+                (*self._middleware, *route_middleware),
+            )
         )
 
     def websocket(self, path: str, handler: WebSocketHandler) -> None:
@@ -198,8 +236,17 @@ class App(_Routes):
 
     # --- registration ---------------------------------------------------
 
-    def route(self, method: str, path: str, handler: Handler) -> None:
-        self._registry.register(_RouteSpec(method, path, handler, ()))
+    def route(
+        self,
+        method: str,
+        path: str,
+        handler: Handler,
+        *,
+        middleware: Sequence[Middleware] = (),
+    ) -> None:
+        self._registry.register(
+            _RouteSpec(method, path, handler, _route_middleware(middleware))
+        )
 
     def websocket(self, path: str, handler: WebSocketHandler) -> None:
         self._registry.register(_RouteSpec("WEBSOCKET", path, handler, ()))

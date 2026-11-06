@@ -355,12 +355,29 @@ app.mount(UserService())                  # at the app's root
 app.group("/v1").mount(UserService())     # under a prefix
 ```
 
-`mount(implementation, *, codec=None)` exists on `App` and on every `Group`, including nested groups (`app.group("/v1").group("/admin").mount(...)`). The paths of the contract are appended to the group prefix, and the group's middleware applies to the mounted routes. The same function is available as `lettia.contract.mount(target, implementation, *, codec=None)`.
+`mount(implementation, *, codec=None, middleware=None)` exists on `App` and on every `Group`, including nested groups (`app.group("/v1").group("/admin").mount(...)`). The paths of the contract are appended to the group prefix, and the group's middleware applies to the mounted routes. The same function is available as `lettia.contract.mount(target, implementation, *, codec=None, middleware=None)`.
 
 - **Lookup by MRO.** Every class in the implementation's MRO that declares `op` methods is a contract of it. One object can inherit and serve several Protocols; all their operations are mounted. A method is found by normal attribute lookup, so a base class between the Protocol and the implementation may provide it.
 - **The same contract cannot be mounted twice on one app**, not even under different prefixes: its `operationId`s would repeat, which is reported at startup. `operation_id=` on `op` renames an operation if you need two copies on purpose.
 - Mounting never raises for contract problems; they are collected (see Startup checks). Calling `mount` or registering routes after the app was built raises `RuntimeError` (`the app is already built; register before it starts`).
 - `HEAD` requests are answered for contract `GET` routes by Core.
+
+### Middleware for single operations
+
+`middleware` maps contract methods to the middleware that wraps only that operation:
+
+```python
+app.mount(
+    AccountService(),
+    middleware={AccountApi.login: [rate_limit("5/minute")]},
+)
+```
+
+- **Keyed by the contract method** (`AccountApi.login`), not by a string and not by the implementation's override. A key that is not an operation of a contract the implementation serves is a startup problem, as is a key for a WebSocket operation. Each value is a sequence; the first middleware is the outermost.
+- **Order:** app middleware, group middleware, then these, then error conversion and the operation (guard, decoding, handler). It runs **before the guard**, so it never sees `c.principal`: use a guard for "who may call this".
+- It sees the operation's refusals (401/403/422) as ordinary responses, like any middleware.
+- It does not run for a 405 on that path, and it does not change the OpenAPI document (a limiter's `429` is not described). The middleware lives in the composition root, not in the contract, so the contract stays a description of the API.
+- One middleware object used for several operations is shared between them; for `rate_limit` that is one quota. Create one per operation for independent quotas.
 
 ### Codec
 

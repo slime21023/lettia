@@ -305,6 +305,91 @@ async def test_app_middleware_wraps_404_and_405_but_group_middleware_does_not() 
     assert trace == ["app>", "<app", "app>", "<app"]
 
 
+async def test_route_middleware_runs_inside_group_middleware_for_its_route_only() -> (
+    None
+):
+    trace: list[str] = []
+
+    async def handler(c: Context) -> Response:
+        trace.append("handler")
+        return c.text(200, "ok")
+
+    app = App()
+    app.use(tracer("app", trace))
+    group = app.group("/g", tracer("group", trace))
+    group.post("/login", handler, middleware=[tracer("a", trace), tracer("b", trace)])
+    group.post("/other", handler)
+
+    async with client(app) as http:
+        await http.post("/g/login")
+        assert trace == [
+            "app>", "group>", "a>", "b>", "handler", "<b", "<a", "<group", "<app"
+        ]  # fmt: skip
+        trace.clear()
+        await http.post("/g/other")
+
+    assert trace == ["app>", "group>", "handler", "<group", "<app"]
+
+
+async def test_route_middleware_applies_to_one_method_of_a_path_only() -> None:
+    trace: list[str] = []
+    app = App()
+    app.get("/x", text("get"), middleware=[tracer("get-only", trace)])
+    app.post("/x", text("post"))
+
+    async with client(app) as http:
+        await http.post("/x")
+        assert trace == []
+        await http.get("/x")
+
+    assert trace == ["get-only>", "<get-only"]
+
+
+async def test_route_middleware_does_not_see_404_or_405() -> None:
+    trace: list[str] = []
+    app = App()
+    app.get("/x", text("ok"), middleware=[tracer("route", trace)])
+
+    async with client(app) as http:
+        assert (await http.post("/x")).status_code == 405
+        assert (await http.get("/missing")).status_code == 404
+
+    assert trace == []
+
+
+async def test_route_middleware_receives_error_responses_instead_of_exceptions() -> (
+    None
+):
+    statuses: list[int] = []
+
+    def observe(next_: Handler) -> Handler:
+        async def run(c: Context) -> Response:
+            response = await next_(c)
+            statuses.append(response.status)
+            return response
+
+        return run
+
+    async def denied(c: Context) -> Response:
+        raise Forbidden("nope")
+
+    app = App()
+    app.get("/denied", denied, middleware=[observe])
+
+    async with client(app) as http:
+        res = await http.get("/denied")
+
+    assert res.status_code == 403
+    assert statuses == [403]
+
+
+def test_route_middleware_must_be_a_sequence_not_one_callable() -> None:
+    app = App()
+
+    with pytest.raises(TypeError, match="sequence"):
+        app.get("/x", text("ok"), middleware=tracer("a", []))  # type: ignore[arg-type]
+
+
 async def test_middleware_can_add_headers_to_the_response() -> None:
     def tag(next_: Handler) -> Handler:
         async def run(c: Context) -> Response:

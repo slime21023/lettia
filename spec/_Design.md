@@ -41,12 +41,12 @@ Measured with `python -m benchmarks.run_server_benchmark` (real HTTP connections
 | OpenAPI 3.0, Swagger 2.0 | Aligned with JSON Schema 2020-12 only |
 | pydantic | A Codec extension point is kept; not implemented in 0.1 |
 | trio / anyio, sync handlers | asyncio and `async def` only |
-| DI container, `Depends`-style mechanisms | Dependencies belong to the implementation, not the contract; provided by the extension lettia-di |
+| DI container, `Depends`-style mechanisms | Dependencies belong to the implementation, not the contract; provided by the optional extension `lettia.extensions.di` |
 | Content negotiation on the same status code (by `Accept`) | Each status code maps to exactly one response class |
-| Typed SSE | Added in 0.4.2 (experimental) as the response type `EventStream[T]` in `lettia.extensions.sse`, built on the generic `StreamReply[T]` hook of the contract layer; before that, use Core's `c.stream()` |
-| WebSocket | Bidirectional messages do not fit the "request → response union" contract shape and OpenAPI cannot describe them; to be designed separately |
+| Typed SSE | Provided by `lettia.extensions.sse` as the response type `EventStream[T]`, built on the generic `StreamReply[T]` hook of the contract layer; outside a contract, use Core's `c.stream()` or `event_stream()` |
+| WebSocket in the OpenAPI document | Bidirectional messages do not fit the "request → response union" contract shape and OpenAPI cannot describe them; WebSocket routes are declared with `op.websocket` and are left out of the document |
 | Client SDK generation, templates, ORM | Not the business of a low-level framework |
-| Server-side sessions, session stores | Needs external storage. Only the optional, experimental `lettia.extensions.sessions` exists (0.4.3): a signed, not encrypted, cookie, never part of Core |
+| Server-side sessions, session stores | Needs external storage. Only the optional `lettia.extensions.sessions` exists: a signed, not encrypted, cookie, never part of Core |
 
 ## Design principles
 
@@ -246,7 +246,7 @@ app = App(guards=[
 - **Optional authentication**: `public` can be a branch of `|`. `bearer | public` is tried in order and falls back to an anonymous caller, its type is `GuardSpec[User | None]`, and `c.principal` is `None` for anonymous requests.
 - **Assembly**: implementations are passed as `App(guards=[...])`. A guard may appear once; implementing it twice, or using a guard that nobody implemented, is a startup problem that names the operation. Guards that no operation uses are allowed. Composite guards (`a | b`, `a & b`) cannot be implemented; implement the guards they are made of.
 - **Reads only the request head**: guards run before decoding, so an unauthenticated request never sees 422 field details. Resource-level authorization (for example, "may only edit your own posts") therefore belongs in the handler.
-- **Versus middleware**: middleware acts on a group, does not change the `Context` type, and is not part of the contract; a guard acts on a single operation, determines `Context[G]`, and is part of the contract.
+- **Versus middleware**: middleware acts on the app, a group, or one route or operation chosen where the app is assembled (`middleware=` on a route, `mount(middleware=...)`); it does not change the `Context` type and is not part of the contract. A guard acts on a single operation, determines `Context[G]`, and is part of the contract. Per-operation middleware runs before the guard.
 
 ## Dependency injection
 
@@ -268,7 +268,7 @@ The core guarantees the following public extension points. A DI library can buil
 | `on_startup`, `on_shutdown` | Dependency completeness checks; initialize and release app-scoped resources |
 | `App(context_class=...)` | Extend `Context` |
 
-The design of the official DI extension `lettia-di` is in lettia-di: Dependency Injection Extension Design Document (English).
+The official DI extension is `lettia.extensions.di` (optional extra `lettia[di]`, built on rodi); its usage is in `docs/extensions.md`.
 
 ## Validation and startup checks
 
@@ -316,7 +316,7 @@ The OpenAPI 3.1 document is derived entirely from the mounted contracts. The out
 - **Security**: `a | b` lists alternatives, `a & b` requires all of its schemes in one requirement object, `public` is `[]`, and `a | public` adds an empty requirement `{}` (anonymous callers allowed). Guards without a scheme are left out; an operation whose guards have no scheme at all declares no `security`. Two guards that share a name but have different schemes are a startup problem.
 - **Determinism**: paths, methods, parameters, responses and schemas are all emitted in a fixed order that does not depend on the order in which contracts were mounted; the same name for different types is an error at startup.
 - **Export**: `lettia openapi export module:attribute [--format json|yaml] [--output FILE]` (also `python -m lettia`) writes the document only: indented JSON by default, YAML with the optional `lettia[yaml]` extra (PyYAML), always with Unix line endings. It exits 1 and lists the problems when the application cannot start, and 2 for a bad reference. CI compares the snapshot with `git diff --exit-code`, so any contract change necessarily appears in the PR; `examples/openapi.json` is that snapshot for the shipped example.
-- **Docs UI**: the core serves only `/openapi.json`. `App(docs_url="/docs", docs_ui="scalar" | "swagger" | "redoc")` adds an interactive viewer (off by default); it shares its implementation with the experimental `lettia.extensions.docs.mount_docs`. Viewers load from a CDN, so no extra dependency and no `lettia[docs]` extra is needed. Every CDN file is pinned to an exact version with a Subresource Integrity hash; changing a version means recomputing the hash. `docs_url` requires `openapi_url`.
+- **Docs UI**: the core serves only `/openapi.json`. `App(docs_url="/docs", docs_ui="scalar" | "swagger" | "redoc")` adds an interactive viewer (off by default); it shares its implementation with `lettia.extensions.docs.mount_docs`, which adds a theme, a favicon and local assets. Viewers load from a CDN, so no extra dependency and no `lettia[docs]` extra is needed. Every CDN file is pinned to an exact version with a Subresource Integrity hash; changing a version means recomputing the hash. `docs_url` requires `openapi_url`.
 - **Escape hatch**: `op(..., openapi_extra={...})` shallow-merges arbitrary fields, and may not override `parameters`, `requestBody` or `responses`.
 
 ## Testing

@@ -1,8 +1,8 @@
 # lettia: 生態擴充、中介軟體與後續版本規劃規範 (Ecosystem Extensions & Roadmap)
 
-日期：2026-10-18  
-狀態：Discussion Summary & Architecture Blueprint  
-關聯文件：[`spec/_Design.md`](file:///E:/Projects/python/lettia/spec/_Design.md)
+日期：2026-11-06  
+狀態：v0.5.0 已釋出；本文件記錄架構原則、已完成項目與尚未排程的 Backlog  
+關聯文件：[`_Design.md`](_Design.md)
 
 ---
 
@@ -12,11 +12,11 @@ lettia 堅持**微核心（Microkernel）**的架構哲學：
 
 1. **核心純粹（Pristine Core）**：
    - `lettia.core` 與 `lettia.contract` 專注於提供極致效能的 ASGI 抽象、Radix Tree 路由、宣告式 Protocol 合約、msgspec 編解碼與 OpenAPI 3.1 規範生成。
-   - 核心保持**單一執行期依賴（僅 `msgspec`）**，零外部額外依賴，嚴格維持「掛載期編譯、請求期零反射」的 18% 以下超低附加損耗。
+   - 核心保持**單一執行期依賴（僅 `msgspec`）**，零外部額外依賴，嚴格維持「掛載期編譯、請求期零反射」的低附加損耗（設計文件的目標：S3 合約路徑相對手寫 Core 處理器的附加損耗 ≤ 25%）。
 2. **周邊場景外掛化（Decoupled Extensions）**：
    - 凡非所有微服務/API 必需、或各團隊存在不同實作偏好的功能（靜態檔案託管、背景非同步任務、宣告式依賴注入），均以**選配擴充套件（Optional Extensions / Extras）**形式提供，不污染微核心。
 3. **原生協定收斂於核心（Native Protocols in Core）**：
-   - WebSocket 屬於 ASGI 3.0 的基石通訊協定（與 HTTP 同級），共享相同的路由尋路、連接埠監聽與前置安全守衛，因此規劃於後續版本（0.3+）由核心原生支援。
+   - WebSocket 屬於 ASGI 3.0 的基石通訊協定（與 HTTP 同級），共享相同的路由尋路、連接埠監聽與前置安全守衛，已於 v0.3.1 由核心原生支援。
 
 ---
 
@@ -25,7 +25,7 @@ lettia 堅持**微核心（Microkernel）**的架構哲學：
 建議以 Monorepo Extras 模式（例如 `pip install lettia[static]` 或獨立模組）維護，使用者依需安裝：
 
 ### 2.1 靜態檔案目錄託管 (Static Files Serving)
-- **套件名稱**：`lettia-static` 或選配 `lettia[static]`
+- **模組名稱**：`lettia.extensions.staticfiles`（無額外依賴）
 - **職責邊界**：
   - 封裝目錄映射、檔案串流、MIME 類型推導（`mimetypes`）。
   - 實作 HTTP 快取協商機制（`Last-Modified`、`ETag` 與 `304 Not Modified`）。
@@ -35,17 +35,17 @@ lettia 堅持**微核心（Microkernel）**的架構哲學：
   作為 Core Route Handler 掛載，利用萬用字元前綴路由：
   ```python
   from lettia import App
-  from lettia.extensions.static import StaticFiles
+  from lettia.extensions.staticfiles import StaticFiles
 
   app = App()
-  app.route("GET", "/static/{file_path*}", StaticFiles(directory="./assets"))
+  StaticFiles.mount(app, "/static", "./assets")
   ```
 - **解耦理由**：現代雲原生或容器化架構多由 CDN、Nginx 或 S3 託管靜態前端資源，核心不應承擔檔案系統快取與權限安全檢查之負擔。
 
 ---
 
 ### 2.2 輕量背景非同步任務 (Background Tasks)
-- **套件名稱**：`lettia-tasks` 或選配 `lettia[tasks]`
+- **模組名稱**：`lettia.extensions.tasks`（無額外依賴）
 - **職責邊界**：
   - 提供輕量的進程內非同步背景作業排程器（如郵件發送、審計日誌非同步寫入）。
   - 確保在 HTTP Response 串流發送完成後，非同步喚起任務協程。
@@ -68,7 +68,7 @@ lettia 堅持**微核心（Microkernel）**的架構哲學：
 ---
 
 ### 2.3 宣告式依賴注入 (Dependency Injection, DI)
-- **套件名稱**：`lettia-di` 或選配 `lettia[di]`
+- **模組名稱**：`lettia.extensions.di`，選配 `lettia[di]`（安裝 `rodi`）
 - **職責邊界**：
   - 提供針對依賴關係容器（IoC Container）的宣告式綁定。
   - 支援類別實例、設定物件或資料庫連線池的階層式解析與生命週期綁定（Singleton / Request-scoped）。
@@ -79,10 +79,10 @@ lettia 堅持**微核心（Microkernel）**的架構哲學：
 
 ---
 
-## 3. 原生協定演進規劃：WebSocket 支援 (0.3+)
+## 3. 原生協定：WebSocket 支援 (v0.3.1 已實現)
 
 ### 3.1 定位與核心優勢
-WebSocket 屬於 ASGI 規範核心協定，後續版本將直接在 `lettia.core` 與 `lettia.contract` 中原生實作。
+WebSocket 屬於 ASGI 規範核心協定，已直接在 `lettia.core` 與 `lettia.contract` 中原生實作（v0.3.1）。
 
 ### 3.2 關鍵架構設計
 1. **L0/L1 Core 層：原生 ASGI WebSocket 支援**：
@@ -116,15 +116,14 @@ WebSocket 屬於 ASGI 規範核心協定，後續版本將直接在 `lettia.core
 - **外層相容**：`App` 本身即為標準 ASGI 3.0 應用，可直接在最外層串接既有 ASGI 生態中介軟體（SentryAsgiMiddleware, GZipMiddleware, PrometheusAsgi 等）。
 
 ### 4.3 後續增強演進方向 (Backlog)
-1. **單一端點合約級中介層**：支援在 `@op` 裝飾器上宣告選配中介層（如 `@op.post("/login", middleware=[rate_limit(5)])`）。
-2. **ASGI-to-Lettia 適配輔助函式**：提供統一的適配器，使標準 ASGI 函式亦可直接置入 `app.use(...)`。
-3. **串流回應體轉換抽象**：為即時串流壓縮或日誌記錄提供更高階的串流迭代器包裝 helper。
+1. **ASGI-to-Lettia 適配輔助函式**：提供統一的適配器，使標準 ASGI 函式亦可直接置入 `app.use(...)`。
+2. **串流回應體轉換抽象**：為即時串流壓縮或日誌記錄提供更高階的串流迭代器包裝 helper。
 
-## 5. 版本演進與擴充套件開發任務規劃 (v0.4.1 ~ v0.4.3，完成後定版 v0.5.0)
+## 5. 已完成的擴充套件（v0.4.1 ~ v0.4.3，隨 v0.5.0 釋出）
 
-依據日常開發體驗（DX）與實務生產落地優先級，將後續 4 項擴充套件劃分為三個 0.4.x 版本推進。0.4.x 期間新增的擴充套件皆為**實驗性質（experimental）**：API 在 0.5.0 之前可能不相容變更，且須於文件中標示。三個版本的全部項目完成後，將版本定為 **v0.5.0**，屆時實驗性標示一併檢視與解除。第 4.3 節的 Backlog 未排入版本，不列為 0.5.0 的條件。
+以下 4 項擴充套件原規劃為三個 0.4.x 實驗版本，全部完成並驗收後合併為 **v0.5.0** 釋出，實驗性標示已解除。第 4.3 節的 Backlog 未排入任何版本，也不是 0.5.0 的條件。
 
-### 5.1 v0.4.1（實驗性）：開發者視覺化與互動除錯體驗 (`lettia.extensions.docs`)
+### 5.1 `lettia.extensions.docs`（已完成）：開發者視覺化與互動除錯體驗
 - **核心目標**：將現有的 OpenAPI 3.1 導出能力轉化為瀏覽器隨開即用的互動式 API 文件 UI，支援 Swagger UI、Scalar 與 Redoc。
 - **主要職責**：
   - 提供 `mount_docs(app, prefix="/docs", provider="scalar")` 一鍵掛載（`provider` 為 `scalar`、`swagger` 或 `redoc`）；既有 `App(docs_url=..., docs_ui=...)` 保留，並與 `mount_docs` 共用同一實作。
@@ -132,7 +131,7 @@ WebSocket 屬於 ASGI 規範核心協定，後續版本將直接在 `lettia.core
   - 零外部依賴：預設透過 CDN 載入前端腳本，亦可搭配 `staticfiles` 支援完全離線部署。
   - 支援客製化標題、Favicon、深色模式主題配置。
 
-### 5.2 v0.4.2（實驗性）：現代即時串流與生成式 AI 整合 (`lettia.extensions.sse`)
+### 5.2 `lettia.extensions.sse`（已完成）：現代即時串流與生成式 AI 整合
 - **核心目標**：提供專為 Server-Sent Events 與 LLM Token 串流打造的高效能事件產生器。
 - **主要職責**：
   - 實作符合 RFC 規範的 `ServerSentEvent(data, event, id, retry)`。
@@ -140,7 +139,7 @@ WebSocket 屬於 ASGI 規範核心協定，後續版本將直接在 `lettia.core
   - 自動心跳保活機制（定期發送 `: keep-alive\n\n` 註解），防止反向代理（Nginx / Cloudflare）逾時斷線。
   - 自動附加 `Cache-Control: no-cache`、`X-Accel-Buffering: no` 最佳實踐標頭。
 
-### 5.3 v0.4.3（實驗性）：生產環境狀態管理與防護 (`sessions` & `ratelimit`)
+### 5.3 `lettia.extensions.sessions` 與 `lettia.extensions.ratelimit`（已完成）：生產環境狀態管理與防護
 - **子任務 A：`lettia.extensions.sessions`（安全 Cookie 狀態管理）**
   - 提供基於 HMAC-SHA256 **簽署**（不加密）的輕量無狀態 Cookie Session：內容用戶端可讀、不可竄改，不得存放機密；不提供伺服端撤銷與重放防護。
   - 透過 `SessionMiddleware` 與 `Session.of(c)` 取得 dict-like 介面（不在 Core `Context` 新增 `c.session`）。
@@ -158,7 +157,6 @@ WebSocket 屬於 ASGI 規範核心協定，後續版本將直接在 `lettia.core
 
 - **v0.3.1 (已釋出)**：Core WebSocket 原生協定、`lettia.extensions.di`、`lettia.extensions.tasks`、`lettia.extensions.staticfiles`。
 - **v0.4.0 (已釋出)**：背景任務改為回應成功傳送後才啟動（`Response(after_send=...)`），並補齊 WebSocket Origin 檢查、Problem 回應與 group middleware 限制等文件。
-- **v0.4.1 (待開發，實驗性)**：`lettia.extensions.docs`（Swagger UI / Scalar / Redoc 互動文件）。
-- **v0.4.2 (待開發，實驗性)**：`lettia.extensions.sse`（Server-Sent Events 串流回應）。
-- **v0.4.3 (待開發，實驗性)**：`lettia.extensions.sessions`（安全狀態）與 `lettia.extensions.ratelimit`（流量限流防禦）。
-- **v0.5.0 (目標)**：v0.4.1 至 v0.4.3 全部完成後定版。
+- **v0.5.0 (已釋出)**：`lettia.extensions.docs`（Swagger UI / Scalar / Redoc 互動文件，含主題、favicon 與離線資產）、`lettia.extensions.sse`（Server-Sent Events 與 `EventStream[T]`、`Response(watch_disconnect=True)`）、`lettia.extensions.sessions`（簽署 Cookie session）與 `lettia.extensions.ratelimit`（單進程記憶體限流）。
+- **v0.5.1 (已釋出)**：單一路由與單一合約操作的 middleware：Core 的 `route/get/post/…(…, middleware=[...])`，以及 `mount(impl, middleware={Api.login: [...]})`（以合約方法為鍵，於 Guard 之前執行，不進入合約本身）。
+- **尚未排程**：僅第 4.3 節的兩項 Backlog（ASGI-to-Lettia 適配輔助函式、串流回應體轉換 helper）。
