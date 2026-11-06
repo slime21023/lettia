@@ -166,7 +166,7 @@ WebSocket 屬於 ASGI 規範核心協定，已直接在 `lettia.core` 與 `letti
 
 ---
 
-## 7. 補強排程（v0.5.2 ~ v0.5.4）
+## 7. 補強排程（v0.5.2 ~ v0.5.5）
 
 依對開發體驗的影響排序。三個版本都只新增 API，不改既有行為；每版各自完成驗證後才釋出。
 
@@ -186,5 +186,13 @@ WebSocket 屬於 ASGI 規範核心協定，已直接在 `lettia.core` 與 `letti
 - **Host 驗證**：`App(allowed_hosts=[...])`，支援精確名稱、`*.example.com` 與 `*`；預設 `None`（不檢查，文件明確警告 Host header injection）。設定後，`host` / `base_url` / `url` 遇到不在清單內的 Host 拋 `HTTPError(400)`，只在使用這些屬性時檢查，直接讀 `headers["host"]` 不受保護。WebSocket Guard 的 `RequestHead` 提供值但不做此檢查，文件寫明。
 - **相容性**：`RequestHead` / `Request` 新增的建構參數皆為選用，既有呼叫不需修改。
 
-### 7.4 尚未排程
-- 依例外類型註冊 handler、結尾斜線的可選轉址、掛載子 ASGI 應用（`Mount`）、`TestClient` 接受外層包過 middleware 的 app。
+### 7.4 v0.5.5：依例外類型註冊 handler
+- **API**：`app.add_exception_handler(exc_type, handler)`，只提供這個方法（與 `add_startup_check` 一致，擴充套件也能註冊）。簽名帶泛型 `[E: Exception]`，handler 為 `async (Context, E) -> Response`，可標註精確的例外型別。
+- **解析順序**：沿例外類別的 MRO 找已註冊的 handler，最具體的類別優先；找不到才用 `error_handler=`（或預設），其語意不變。`default_error_handler` 不需匯出：只註冊需要的型別，其餘維持預設。
+- **記錄**：已註冊型別的例外視為已處理，框架不記 `unhandled exception` 與 traceback，由 handler 自行決定是否記錄；未被認領的非 `HTTPError` 例外維持原有的 ERROR 記錄；`error_handler=` 的現有行為不變。
+- **註冊檢查**：同一型別註冊兩次為 `ValueError`；非 `Exception` 子類別為 `TypeError`；`ClientDisconnect` 為 `ValueError`（它不會被轉成回應）；build 之後註冊為 `RuntimeError`。
+- **行為**：註冊 `HTTPError` 時，生成的 404/405、Guard 的 401/403、413 與 422 都經過該 handler，可依 `exc.status` 分派；handler 自己拋例外時維持現行（記錄 `the error handler failed` 並回 500）；不影響 OpenAPI；套用於所有經過錯誤轉換的路徑，外層 middleware 仍只看到 `Response`。不含整數狀態碼為鍵、Group 層級 handler 與 WebSocket。
+- **相容性**：只新增 API；沒有註冊 handler 的應用，行為與記錄完全不變。
+
+### 7.5 尚未排程
+- 結尾斜線的可選轉址、掛載子 ASGI 應用（`Mount`）、`TestClient` 接受外層包過 middleware 的 app（目前直接傳入會得到不易理解的 `AttributeError`）。
