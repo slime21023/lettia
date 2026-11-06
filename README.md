@@ -187,7 +187,10 @@ an optional extension under `lettia.extensions` (static files, background tasks,
 dependency injection, docs viewers, SSE, sessions, rate limiting). A protocol that
 shares routing and guards with HTTP, such as WebSocket, belongs in the core. Anything
 that needs a database or other external storage (SQL, Redis, server-side sessions,
-durable queues, a rate limit shared between workers) is out of scope.
+durable queues, a rate limit shared between workers) is out of scope. The OpenAPI
+document is derived from the mounted contracts and served as it is; it cannot be
+replaced at runtime. Deployment metadata (servers, contact, license) is added to the
+exported file in your build.
 
 **Not scheduled.** An optional redirect for trailing slashes; mounting a sub-ASGI app
 (`Mount`); `TestClient` accepting an app wrapped in ASGI middleware (today it fails
