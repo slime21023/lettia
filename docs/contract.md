@@ -318,6 +318,26 @@ class Items(ItemsApi):
 
 The response is `404` with `content-type: application/problem+json` and the body `{"title":"not found","detail":null}`, and the OpenAPI 404 entry is keyed `application/problem+json` with the `Problem` schema. The encoder and the OpenAPI document both use the classes the return annotation declares. A `ProblemNotFound` returned from an operation that declares only `NotFound[Problem]` is therefore still sent as `application/json`; declare the subclass itself. The body is still a `Problem` (`title`, `detail`), not the full RFC 9457 document Core produces for errors: there is no `type` or `status` member.
 
+### Streamed responses
+
+`StreamReply[T]` (from `lettia.contract`) is the hook for a response whose `body` is an `AsyncIterator[T]`. It is not returnable by itself: a subclass sets `status` and `media_type` and overrides `frames(encode, *, check=None) -> AsyncIterator[bytes]`, which turns the items into wire bytes (`encode` is the codec's JSON encoder; `check` is given in debug mode and raises `RuntimeError` for an item that does not match its declared type). `default_headers: ClassVar[tuple[tuple[str, str], ...]]` are added to every response and `watch_disconnect: ClassVar[bool]` sets [`Response.watch_disconnect`](core.md#watching-for-a-disconnect). The shipped `lettia.extensions.sse.EventStream[Item]` is the implementation for Server-Sent Events:
+
+```python
+@op.get("/ticks", guard=public)
+async def ticks(self, c: Context[None], req: None) -> EventStream[Tick]: ...
+
+async def ticks(self, c, req):
+    return EventStream[Tick](events())   # events() yields ServerSentEvent[Tick]
+```
+
+- Declare the concrete class, `EventStream[Tick]`. Type checkers need that explicit parameter; a bare `EventStream` is a startup problem.
+- The response is built from the declared class. A subclass that is not declared in the return annotation cannot change the wire media type, headers or `frames`.
+- The body is never serialized as a whole and `Content-Length` is never set. Request-scoped resources (the DI scope, uploads) close when the handler returns; the event source must own what it uses.
+- Guards and request decoding run before the stream starts, so a 401, 403 or 422 is an ordinary problem response. Once the stream has started an error can only end it: the debug check, an encoding error or a source exception stop the stream without a second status.
+- OpenAPI describes the media type as `{"type": "string"}` with the decoded item schema in the vendor extension `x-lettia-item-schema`; it is not a JSON array.
+
+The SSE extension: `ServerSentEvent[T](data, event=None, id=None, retry=None)` is the only item type. `data` is always sent as JSON (a `str` gets quotes), so a client reads `JSON.parse(event.data)`; `None` is `null`. `event`/`id` reject CR and LF, `id` also NUL, `retry` is a non-negative `int`; invalid values raise at construction and again when sent (a `Struct` can be mutated). A comment `: connected` is sent first so an idle stream delivers its headers, and `: keep-alive` every `heartbeat_sec` (default 15 seconds; `None` turns it off; a heartbeat does not cancel the producer and only one read is ever pending). Declare a subclass to change `heartbeat_sec`. `lettia.extensions.sse.event_stream(events, *, heartbeat_sec=15.0)` builds the same stream as a Core `Response`. On disconnect the source is closed (`aclose()` if it has one) and `after_send` does not run; a finite stream that completes does run it. Last-Event-ID is available from the request headers; replaying events is up to the application.
+
 ### Encoding rules
 
 - Only declared classes and their subclasses are accepted. A handler that returns anything else gets a logged `RuntimeError` and the client a 500 problem: `Api.method returned Ok, which the contract does not declare (declared: Page)`. The type checker rejects this at the override; the check is the runtime backstop.
@@ -370,7 +390,7 @@ The checks:
 | Path | `{placeholder}` without a `Path` field, or `Path` field without a placeholder; `*` in the path |
 | Request type | not a `msgspec.Struct` or `None`; a field without a source marker (with a hint when the marker was put inside a union); a field type msgspec cannot handle |
 | Body | more than one `Body`; `Body` mixed with `Form`/`File`; `Body`, `Form` or `File` on `GET` or `DELETE` |
-| Responses | missing return annotation; a member that is not a `Reply` subclass (or is `Reply` itself); `Ok`/`Created`/`NotFound` without a body type; a field that is neither `body` nor an `Annotated[..., HeaderName(...)]` header; a status declared twice |
+| Responses | missing return annotation; a member that is not a `Reply` subclass (or is `Reply` itself); `Ok`/`Created`/`NotFound` without a body type; a field that is neither `body` nor an `Annotated[..., HeaderName(...)]` header; a status declared twice; a `StreamReply` that is the bare base, does not override `frames`, has no concrete item type or no body-capable status, or whose `default_headers` set `Content-Type`/`Content-Length`, repeat a name or collide with a `HeaderName` field |
 | WebSocket | return type not `None`; `*` in the path |
 | Implementation | the object inherits no contract; the method is not overridden (`X does not implement Contract.method`); the method is not `async def` |
 | Guards | a guard has no implementation, or is implemented twice (see [guards](guards.md)) |

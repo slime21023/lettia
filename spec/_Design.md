@@ -43,9 +43,10 @@ Measured with `python -m benchmarks.run_server_benchmark` (real HTTP connections
 | trio / anyio, sync handlers | asyncio and `async def` only |
 | DI container, `Depends`-style mechanisms | Dependencies belong to the implementation, not the contract; provided by the extension lettia-di |
 | Content negotiation on the same status code (by `Accept`) | Each status code maps to exactly one response class |
-| Typed SSE | Added in 0.2 as the response type `EventStream[T]`; in 0.1 use Core's `c.stream()` |
+| Typed SSE | Added in 0.4.2 (experimental) as the response type `EventStream[T]` in `lettia.extensions.sse`, built on the generic `StreamReply[T]` hook of the contract layer; before that, use Core's `c.stream()` |
 | WebSocket | Bidirectional messages do not fit the "request → response union" contract shape and OpenAPI cannot describe them; to be designed separately |
-| Client SDK generation, templates, ORM, sessions | Not the business of a low-level framework |
+| Client SDK generation, templates, ORM | Not the business of a low-level framework |
+| Server-side sessions, session stores | Needs external storage. Only the optional, experimental `lettia.extensions.sessions` exists (0.4.3): a signed, not encrypted, cookie, never part of Core |
 
 ## Design principles
 
@@ -315,7 +316,7 @@ The OpenAPI 3.1 document is derived entirely from the mounted contracts. The out
 - **Security**: `a | b` lists alternatives, `a & b` requires all of its schemes in one requirement object, `public` is `[]`, and `a | public` adds an empty requirement `{}` (anonymous callers allowed). Guards without a scheme are left out; an operation whose guards have no scheme at all declares no `security`. Two guards that share a name but have different schemes are a startup problem.
 - **Determinism**: paths, methods, parameters, responses and schemas are all emitted in a fixed order that does not depend on the order in which contracts were mounted; the same name for different types is an error at startup.
 - **Export**: `lettia openapi export module:attribute [--format json|yaml] [--output FILE]` (also `python -m lettia`) writes the document only: indented JSON by default, YAML with the optional `lettia[yaml]` extra (PyYAML), always with Unix line endings. It exits 1 and lists the problems when the application cannot start, and 2 for a bad reference. CI compares the snapshot with `git diff --exit-code`, so any contract change necessarily appears in the PR; `examples/openapi.json` is that snapshot for the shipped example.
-- **Docs UI**: the core serves only `/openapi.json`. `App(docs_url="/docs", docs_ui="scalar" | "swagger")` adds an interactive viewer (off by default) that loads Scalar or Swagger UI from a CDN, so it needs no extra dependency and no `lettia[docs]` extra. Every CDN file is pinned to an exact version with a Subresource Integrity hash; changing a version means recomputing the hash. `docs_url` requires `openapi_url`.
+- **Docs UI**: the core serves only `/openapi.json`. `App(docs_url="/docs", docs_ui="scalar" | "swagger" | "redoc")` adds an interactive viewer (off by default); it shares its implementation with the experimental `lettia.extensions.docs.mount_docs`. Viewers load from a CDN, so no extra dependency and no `lettia[docs]` extra is needed. Every CDN file is pinned to an exact version with a Subresource Integrity hash; changing a version means recomputing the hash. `docs_url` requires `openapi_url`.
 - **Escape hatch**: `op(..., openapi_extra={...})` shallow-merges arbitrary fields, and may not override `parameters`, `requestBody` or `responses`.
 
 ## Testing

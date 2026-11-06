@@ -131,13 +131,13 @@ Response helpers (all return a new `Response`):
 | `c.bytes(status, data, media_type="application/octet-stream")` | Raw bytes with the given `content-type`. |
 | `c.stream(status, chunks, media_type)` | `chunks` is an `AsyncIterator[bytes]`; `content-type` set to `media_type`. |
 
-`Response(status=200, body=None, headers=None, *, after_send=None)`: `status` must be in 100..599 (`ValueError` otherwise); `body` is `bytes`, an `AsyncIterator[bytes]` or `None`; `headers` is a `MutableHeaders`; `after_send` is an optional callback, see [After the response is sent](#after-the-response-is-sent). Attributes `status`, `body`, `headers` and `after_send` are plain and mutable.
+`Response(status=200, body=None, headers=None, *, after_send=None, watch_disconnect=False)`: `status` must be in 100..599 (`ValueError` otherwise); `body` is `bytes`, an `AsyncIterator[bytes]` or `None`; `headers` is a `MutableHeaders`; `after_send` is an optional callback, see [After the response is sent](#after-the-response-is-sent); `watch_disconnect` opts a streamed body into [disconnect monitoring](#watching-for-a-disconnect). Attributes `status`, `body`, `headers`, `after_send` and `watch_disconnect` are plain and mutable.
 
 Serialization by the ASGI adapter:
 
 - For `bytes`/`None` bodies, `content-length` is added unless the response already has one, or the status is 1xx/204/304.
 - For `HEAD` requests and statuses 1xx/204/304 no body bytes are sent; a streamed body is not iterated, but is still closed (`aclose()`).
-- Streamed bodies are sent chunk by chunk and `aclose()`d afterwards. No `content-length` is added.
+- Streamed bodies are sent chunk by chunk and `aclose()`d afterwards, also when sending the response start fails. No `content-length` is added. An ordinary streamed response does not watch `receive`: a client that leaves is noticed only when a later `send` fails.
 
 ```python
 async def events(c: Context) -> Response:
@@ -152,11 +152,20 @@ async def download(c: Context) -> Response:
     return response
 ```
 
+#### Watching for a disconnect
+
+`Response(..., watch_disconnect=True)` makes the ASGI adapter watch for the client leaving while a streamed body is sent. Core does not know what the stream is (an SSE extension sets the flag); the flag has no effect on `bytes`/`None` bodies, `HEAD` or 1xx/204/304 responses, which are sent as before.
+
+- The adapter owns `receive` for the whole response. Before the response starts it releases the request body: the unread remainder is dropped, not buffered. A body already read stays available through `body()`; an unread `body()`/`stream()`, or one more chunk from a `stream()` iterator obtained earlier, raises `RuntimeError`. Monitored responses therefore do not support full-duplex request/response.
+- If another coroutine is still reading the request body when the handler returns, releasing fails with `RuntimeError` before the response starts and the response body is closed. The error reaches the server (it is raised in the ASGI adapter, outside the handler's error conversion), not the client as a problem document.
+- When the client disconnects before the final body message is being sent, the stream is cancelled and closed and `ClientDisconnect` is raised (the request is dropped, `access_log` records 499). `after_send` is not called. If the disconnect is reported while the final message is already being sent, the adapter waits for that `send` to return and treats a successful send as complete.
+- An error in `receive` is not treated as a disconnect: it propagates after the stream is closed. An error raised by the stream wins over a simultaneous disconnect. Cancelling the request cancels the monitoring tasks and propagates `CancelledError`.
+
 #### After the response is sent
 
 `response.after_send` is a synchronous `Callable[[], None]`. The ASGI adapter calls it once, after the last body message was sent and a streamed body was closed (also for `HEAD`, 204 and 304). It is meant for cheap, non-blocking notification, for example scheduling a background job; it must not `await` or do slow work.
 
-- It is not called when the handler, the send or the stream raises, or when the request is cancelled. "Sent" means the ASGI `send` calls returned; it does not prove that the client received the response.
+- It is not called when the handler, the send or the stream raises, when the request is cancelled, or when a [monitored response](#watching-for-a-disconnect) loses its client before the final message. "Sent" means the ASGI `send` calls returned; it does not prove that the client received the response.
 - A callback that raises `Exception` is logged on the `lettia` logger and does not change the response that was already sent. A `BaseException` (for example `CancelledError`) propagates.
 - The callback belongs to the response object that is actually sent. A middleware that returns a different response drops the callback of the one it received.
 - A middleware that sets `after_send` must wrap the existing callback and call it, not overwrite it. The inner middleware's callback runs first.
@@ -221,7 +230,7 @@ async for chunk in c.request.stream():  # chunks, empty chunks skipped
     ...
 ```
 
-- `body()` and `stream()` are mutually exclusive. `stream()` after `body()` raises `RuntimeError`, as does `body()` after `stream()`, a second `stream()` call, or `body()` after an earlier `body()` that failed. Repeated successful `body()` calls return the cached bytes.
+- `body()` and `stream()` are mutually exclusive. `stream()` after `body()` raises `RuntimeError`, as does `body()` after `stream()`, a second `stream()` call, or `body()` after an earlier `body()` that failed. Repeated successful `body()` calls return the cached bytes. After the ASGI adapter released the body for a [monitored response](#watching-for-a-disconnect), only the cached bytes can still be read.
 - Size limit: if `Content-Length` is present and larger than `max_body_size`, `HTTPError(413, "Payload Too Large", "body exceeds N bytes")` is raised before reading. Chunks are also counted while reading, so a missing or lying `Content-Length` is still caught. For `stream()` the declared-length check happens when `stream()` is called; the running count is checked during iteration.
 - A `Content-Length` that is not ASCII digits raises `HTTPError(400, "Bad Request", "invalid Content-Length header")`.
 - `ClientDisconnect` is raised while reading if the client disconnects. `App` does not convert it: the request is dropped without a response, and `access_log` records it as status 499.

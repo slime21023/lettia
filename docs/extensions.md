@@ -1,12 +1,16 @@
 # Extensions
 
-Three optional extensions ship under `lettia.extensions`: `di` (request-scoped dependency injection on top of rodi), `tasks` (in-process background tasks) and `staticfiles` (static file serving). They plug into an `App` through `app.use(...)`, `app.on_shutdown(...)` and ordinary route registration; nothing in core imports them.
+Seven optional extensions ship under `lettia.extensions`: `di` (request-scoped dependency injection on top of rodi), `tasks` (in-process background tasks), `staticfiles` (static file serving), `docs` (interactive OpenAPI viewers), `sse` (Server-Sent Events), `sessions` (signed-cookie sessions) and `ratelimit` (in-memory rate limiting). They plug into an `App` through `app.use(...)`, `app.on_shutdown(...)` and ordinary route registration; nothing in core imports them.
 
 | Extension | Import | Extra |
 |---|---|---|
 | DI | `lettia.extensions.di` | `lettia[di]` (installs `rodi>=2.0.0`) |
 | Background tasks | `lettia.extensions.tasks` | none |
 | Static files | `lettia.extensions.staticfiles` | none |
+| Docs viewers | `lettia.extensions.docs` | none |
+| Server-Sent Events | `lettia.extensions.sse` | none |
+| Sessions | `lettia.extensions.sessions` | none |
+| Rate limiting | `lettia.extensions.ratelimit` | none |
 
 `app.use(*middleware)` takes global middleware; the first one given is the outermost. Both middleware classes below are plain callables `middleware(next_handler) -> handler`.
 
@@ -328,6 +332,22 @@ Only a single `bytes=` range is honored. Evaluated by `parse_range_header(header
 ### HEAD and bodies
 
 HEAD is served by the GET route: the same status and headers, including `Content-Length`, with the body dropped by the ASGI layer. Large files are streamed (`asyncio.to_thread` reads of `chunk_size_bytes`) and the file is closed when the stream finishes or is aborted.
+
+## Docs viewers (`lettia.extensions.docs`)
+
+`mount_docs(app, prefix="/docs", provider="scalar", *, title=None, favicon=None, theme="auto", assets=None)` serves the app's OpenAPI document in Scalar, Swagger UI or Redoc. `App(docs_url=..., docs_ui=...)` calls the same function. It registers only the viewer page: the document stays at `app.openapi_url`. With `assets=<directory>` the viewer loads the pinned bundles from `{prefix}/assets/*` instead of a CDN, checked against their pinned hashes at startup. See [openapi.md](openapi.md#interactive-docs).
+
+## Server-Sent Events (`lettia.extensions.sse`)
+
+`ServerSentEvent(data, event=None, id=None, retry=None)` is one event; `data` is encoded as JSON, so a browser reads it with `JSON.parse(event.data)`. `EventStream[T]` is a response class for a contract operation: declare it as the return type and return `EventStream[Tick](events())`, where `events()` is an async iterator of `ServerSentEvent[Tick]`. It sends `Cache-Control: no-cache` and `X-Accel-Buffering: no`, a `: connected` comment first and `: keep-alive` comments while idle (`heartbeat_sec`, 15 s by default, `None` turns it off), and stops and closes the source when the client disconnects. For routes outside a contract, `event_stream(events, heartbeat_sec=15.0)` returns a `Response`. The OpenAPI document describes the media type `text/event-stream` and lists the event type under `x-lettia-item-schema`. A streamed source must not use request-scoped resources (the request scope is closed when the handler returns), and background tasks queued by the request start only after a finite stream ended normally. See [contract.md](contract.md#streamed-responses) and `examples/sse_api.py`.
+
+## Sessions (`lettia.extensions.sessions`)
+
+`app.use(SessionMiddleware([secret_key]))`, then `Session.of(c)` in a handler. The cookie is signed with HMAC-SHA256, not encrypted, and there is no server-side storage. See [sessions.md](sessions.md).
+
+## Rate limiting (`lettia.extensions.ratelimit`)
+
+`app.use(rate_limit("5/minute"))`, or `app.group("/login", rate_limit("5/minute"))`. Counts live in one process. See [ratelimit.md](ratelimit.md).
 
 ## See also
 

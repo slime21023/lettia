@@ -333,4 +333,4 @@ Other negative fixtures cover a request type that is not a struct, a signature t
 - [openapi.md](openapi.md): derivation, export CLI, docs UI
 - [testing.md](testing.md): `make_context` and `TestClient`
 - [websocket.md](websocket.md): WebSockets
-- [extensions.md](extensions.md): di, tasks, staticfiles
+- [extensions.md](extensions.md): di, tasks, staticfiles, docs, sse, sessions, ratelimit

@@ -322,4 +322,4 @@ pytest -m "not server"
 - [contract.md](contract.md) — operations and mounting
 - [guards.md](guards.md) — guards
 - [websocket.md](websocket.md) — WebSocket sessions in tests
-- [extensions.md](extensions.md) — di, tasks, staticfiles
+- [extensions.md](extensions.md) — di, tasks, staticfiles, docs, sse, sessions, ratelimit

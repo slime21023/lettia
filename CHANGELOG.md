@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-06
+
+The planned 0.4.1, 0.4.2 and 0.4.3 milestones were built and verified together and ship as this release; the extensions below are no longer marked experimental.
+
+### Added
+- `lettia.extensions.docs`: `mount_docs(app, prefix="/docs", provider="scalar", *, title=None, favicon=None, theme="auto", assets=None)` for Scalar, Swagger UI and the new Redoc, with light/dark/auto themes, a favicon, and an offline mode that serves the pinned bundles from a directory (hash-checked at startup, strict CSP on the page). `App(docs_url=..., docs_ui=...)` now delegates to it and accepts `docs_ui="redoc"`; `App.title` and `App.openapi_url` are public read-only properties.
+- `lettia.extensions.sse`: `ServerSentEvent`, `EventStream[T]` (a contract response class) and `event_stream(...)` for core routes. JSON `data`, validated `event`/`id`/`retry`, `: connected` first comment, `: keep-alive` heartbeats that never cancel the producer, `Cache-Control: no-cache` and `X-Accel-Buffering: no`.
+- `lettia.contract.StreamReply[T]`: the generic hook for a response whose body is an `AsyncIterator[T]` (compiled at mount time, reflected in OpenAPI as a `text/event-stream` string schema plus `x-lettia-item-schema`).
+- `Response(watch_disconnect=True)`: the ASGI adapter watches `receive` while a body streams, cancels the stream and closes the source when the client disconnects, and then skips `after_send`. Off by default; other responses take the old path.
+- `lettia.extensions.sessions`: `SessionMiddleware` and `Session.of(c)`, a cookie signed with HMAC-SHA256 (readable, not encrypted) with flash messages, key rotation, server-checked expiry and strict parsing. No server-side storage, so no revocation.
+- `lettia.extensions.ratelimit`: `rate_limit("5/minute")` middleware with an in-memory sliding window per client IP (or a custom `key=`), `429` problem responses with `Retry-After`, `X-RateLimit-*` headers and a bounded number of identities (`503` rather than eviction when full). One process only.
+- Guides: `docs/sessions.md`, `docs/ratelimit.md`; sections for the new extensions in `docs/extensions.md`, `docs/contract.md`, `docs/core.md` and `docs/openapi.md`.
+
+### Changed
+- Swagger UI is pinned to 5.34.1 (native dark mode); Scalar stays at 1.60.0; Redoc is pinned to 2.5.4. All CDN files carry SRI hashes.
+- `lettia.docs` moved to `lettia.extensions.docs.pages`; the old module is gone.
+- Bumped version to `0.5.0`.
+
 ## [0.4.0] - 2026-11-05
 
 ### Added

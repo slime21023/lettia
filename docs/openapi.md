@@ -1,6 +1,6 @@
 # OpenAPI
 
-lettia derives an OpenAPI 3.1 document from the mounted contracts when the app is built. Nothing is written by hand: paths, parameters, request bodies, responses, security and schemas all come from the `op` declarations, the request and response classes, the guards and the handler docstrings. The document is served by the app, available as a Python dict through `app.openapi()`, and can be exported to a file with the `lettia` command. An optional interactive viewer (Scalar or Swagger UI) can be served too.
+lettia derives an OpenAPI 3.1 document from the mounted contracts when the app is built. Nothing is written by hand: paths, parameters, request bodies, responses, security and schemas all come from the `op` declarations, the request and response classes, the guards and the handler docstrings. The document is served by the app, available as a Python dict through `app.openapi()`, and can be exported to a file with the `lettia` command. An optional interactive viewer (Scalar, Swagger UI or Redoc) can be served too.
 
 Request and response class definitions are covered in [contract.md](contract.md); this page describes how they appear in the document.
 
@@ -261,9 +261,9 @@ App(
 | `description` | `str \| None` | `None` | `info.description` |
 | `openapi_url` | `str \| None` | `"/openapi.json"` | Path where the document is served as `application/json`; `None` disables the endpoint (the document is still derived, `app.openapi()` and the CLI keep working) |
 | `docs_url` | `str \| None` | `None` | Path of the interactive viewer; `None` disables it |
-| `docs_ui` | `"scalar" \| "swagger"` | `"scalar"` | Which viewer `docs_url` serves |
+| `docs_ui` | `"scalar" \| "swagger" \| "redoc"` | `"scalar"` | Which viewer `docs_url` serves |
 
-Constructor errors: `docs_ui` other than `"scalar"`/`"swagger"` raises `ValueError`; `docs_url` with `openapi_url=None` raises `ValueError` (the viewer needs the document).
+Constructor errors: `docs_ui` other than `"scalar"`/`"swagger"`/`"redoc"` raises `ValueError`; `docs_url` with `openapi_url=None` raises `ValueError` (the viewer needs the document).
 
 The endpoint and the docs page are ordinary `GET` routes: app middleware applies to them, `HEAD` is answered, and defining your own route on the same path is a startup conflict.
 
@@ -334,37 +334,78 @@ A contract change then shows up as a reviewable diff in the snapshot. Because ou
 ```python
 app = App(title="Shop", docs_url="/docs")                       # Scalar
 app = App(title="Shop", docs_url="/docs", docs_ui="swagger")    # Swagger UI
+app = App(title="Shop", docs_url="/docs", docs_ui="redoc")      # Redoc
 ```
 
-`GET /docs` returns an HTML page (`text/html; charset=utf-8`) that loads the viewer from the jsDelivr CDN and points it at `openapi_url` (a custom `openapi_url` is followed automatically). The page title is the app `title`; both the title and the URL are escaped so they cannot break out of the page.
+`GET /docs` returns an HTML page (`text/html; charset=utf-8`) that loads the viewer from the jsDelivr CDN and points it at `openapi_url` (a custom `openapi_url` is followed automatically). The page title is the app `title`; the title, the URLs and the favicon are escaped so they cannot break out of the page. The page is rendered once, when the route is registered.
 
-The viewer is fetched by the browser, not by the server, so the browser needs internet access to `cdn.jsdelivr.net`.
+`docs_url`/`docs_ui` call `mount_docs`; use it directly for more options:
+
+```python
+from lettia.extensions.docs import mount_docs
+
+mount_docs(
+    app, prefix="/docs", provider="redoc",   # "scalar" | "swagger" | "redoc"
+    title="Shop API",                        # default: app.title
+    favicon="/static/icon.svg",              # same-origin path or http(s) URL
+    theme="auto",                            # "auto" | "light" | "dark"
+    assets=None,                             # directory of local viewer files
+)
+```
+
+`mount_docs` registers one `GET` route at `prefix` (a trailing slash is kept; `/` works) and never the document itself, which stays at the app's `openapi_url` (`ValueError` if that is `None`). It must run before the app is built (`RuntimeError` after). A route already on `prefix` is a startup conflict reported by `app.build()`; it is never overwritten. Invalid settings raise `ValueError` before anything is registered: unknown provider or theme, a prefix that does not start with `/` or contains a query, fragment, control character, `*` or `{}`, and a favicon that is not a single-slash path or an `http`/`https` URL (`//host`, backslashes, control characters and other schemes such as `javascript:` are rejected).
+
+Themes: `light` and `dark` force the mode and hide the viewer's own toggle where it has one (Scalar). `auto` follows `prefers-color-scheme` and switches live when it changes. Scalar uses its own `forceDarkModeState`; Swagger UI toggles its `html.dark-mode` styles; Redoc has no colour mode, so the page applies a light or dark theme object and re-renders on a change.
+
+### Offline: local assets
+
+By default the browser needs internet access to `cdn.jsdelivr.net`. With `assets="path/to/dir"` the viewer comes from your directory instead, served at `{prefix}/assets/*` (`GET` only, no hidden files, no symlinks; the route sits beside the page, nothing is mounted over `prefix`). Put these exact files in the directory:
+
+| Viewer | File names |
+|---|---|
+| Scalar | `standalone.js` |
+| Swagger UI | `swagger-ui.css`, `swagger-ui-bundle.js` |
+| Redoc | `redoc.standalone.js` |
+
+They must be the pinned versions below, byte for byte (the files at `https://cdn.jsdelivr.net/npm/<package>@<version>/<path>`, see the table). When the app is built, every required file is read and compared with the pinned SHA-384 hash; a missing, unreadable or modified file makes `app.build()` fail with `StartupError`. There is no fallback to the CDN. A missing directory raises `ValueError` from `mount_docs`. lettia does not ship the bundles.
+
+Local pages are served with `Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'self' data:; worker-src 'self' blob:; object-src 'none'; frame-src 'none'` (only on the docs page, not app-wide). So the viewers cannot load external fonts or send telemetry, and no proxy can be used; "Try it out" works against the same origin only. Redoc's decorative logo comes from `cdn.redoc.ly` and is blocked, its text attribution stays. The favicon must be a same-origin path in this mode.
 
 ### Pinned versions and SRI
 
-Every CDN file is pinned to an exact version and carries a Subresource Integrity hash with `crossorigin="anonymous"`, so a tampered CDN file is not executed. The pins live in `lettia/docs.py`:
+Every file is pinned to an exact version. On the CDN each carries a Subresource Integrity hash with `crossorigin="anonymous"`, so a tampered CDN file is not executed; local files carry the same `integrity` attribute. The pins live in `lettia/extensions/docs/pages.py`:
 
-| Viewer | Constant | Files |
+| Viewer | Version constant | Files |
 |---|---|---|
-| Swagger UI | `SWAGGER_UI_VERSION` (`swagger-ui-dist`) | `swagger-ui.css`, `swagger-ui-bundle.js` |
-| Scalar | `SCALAR_VERSION` (`@scalar/api-reference`) | `dist/browser/standalone.js` |
+| Scalar | `SCALAR_VERSION` = 1.60.0 (`@scalar/api-reference`) | `dist/browser/standalone.js` |
+| Swagger UI | `SWAGGER_UI_VERSION` = 5.34.1 (`swagger-ui-dist`) | `swagger-ui.css`, `swagger-ui-bundle.js` |
+| Redoc | `REDOC_VERSION` = 2.5.4 (`redoc`) | `bundles/redoc.standalone.js` |
 
-To bump a version, change the version constant and recompute the SHA-384 hash of every file of that viewer, then replace the matching `sha384-...` value:
+Swagger UI 5.34.1 is the first pin with native `html.dark-mode` styles. Redoc 3.x is not used: it adds telemetry and external icons.
+
+To bump a version, change the version constant and recompute the SHA-384 hash of every file of that viewer from the exact bytes at the pinned URL, then replace the matching `sha384-...` value:
 
 ```
 curl -sL https://cdn.jsdelivr.net/npm/swagger-ui-dist@<version>/swagger-ui-bundle.js \
   | openssl dgst -sha384 -binary | openssl base64 -A
 ```
 
-Prefix the result with `sha384-`. A wrong hash makes the browser refuse to run the file. The unit tests check that every external `<script>`/`<link>` is version-pinned, has an `integrity` attribute and `crossorigin="anonymous"`.
+Prefix the result with `sha384-`. A wrong hash makes the browser refuse to run the file and the offline startup check fail. The unit tests check that every external `<script>`/`<link>` is version-pinned, has an `integrity` attribute and `crossorigin="anonymous"`.
+
+### Reload during development
+
+The document is derived once per built `App`; there is no per-request derivation and no mutable router. `uvicorn module:app --reload` restarts the worker on a source change, which builds a new `App`, so the viewer shows the changed contract after the restart.
 
 ### Errors
 
 | Condition | Result |
 |---|---|
-| `docs_ui` not `"scalar"` or `"swagger"` | `ValueError` from `App(...)` |
-| `docs_url` set while `openapi_url=None` | `ValueError` from `App(...)` |
-| A route already registered on `docs_url` or `openapi_url` | Startup conflict reported by `app.build()` |
+| Unknown provider (`docs_ui`) or theme | `ValueError` |
+| `docs_url`/`mount_docs` while `openapi_url=None` | `ValueError` |
+| Unsafe prefix or favicon, remote favicon with `assets` | `ValueError`, nothing registered |
+| `mount_docs` after the app is built | `RuntimeError` |
+| A route already registered on the docs prefix or `openapi_url` | Startup conflict reported by `app.build()` |
+| Missing or modified local asset file | `StartupError` from `app.build()` |
 
 ## See also
 

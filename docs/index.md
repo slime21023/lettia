@@ -13,7 +13,7 @@ lettia is a contract-first ASGI framework for Python >= 3.12. You declare an HTT
 | [openapi.md](openapi.md)                 | OpenAPI derivation, export CLI, docs UI                        |
 | [websocket.md](websocket.md)             | WebSockets in core and in contracts                            |
 | [testing.md](testing.md)                 | `make_context` and `TestClient`                                |
-| [extensions.md](extensions.md)           | Dependency injection, background tasks, static files           |
+| [extensions.md](extensions.md)           | Dependency injection, background tasks, static files, docs viewers, SSE, sessions, rate limiting |
 
 ## Package map
 
@@ -25,7 +25,7 @@ lettia is a contract-first ASGI framework for Python >= 3.12. You declare an HTT
 | `lettia`              | Public entry point; `lettia.App` is the core `App` plus `mount` and OpenAPI serving.           |
 | `lettia.testing`      | `make_context`, and `TestClient` (needs `httpx`).                                              |
 | `lettia.cli`          | The `lettia` command (`lettia openapi export`).                                                |
-| `lettia.extensions.*` | `di`, `tasks`, `staticfiles`.                                                                  |
+| `lettia.extensions.*` | `di`, `tasks`, `staticfiles`, `docs`, `sse`, `sessions`, `ratelimit`.                         |
 
 ### Top-level exports
 

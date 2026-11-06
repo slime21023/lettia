@@ -81,8 +81,8 @@ and is served at `/openapi.json`. Export it for review or for a CI snapshot:
 lettia openapi export examples.users_api:app --output examples/openapi.json
 ```
 
-`App(docs_url="/docs")` adds an interactive viewer (Scalar, or Swagger UI with
-`docs_ui="swagger"`) loaded from a pinned, integrity-checked CDN file.
+`App(docs_url="/docs")` adds an interactive viewer (Scalar, or Swagger UI / Redoc with
+`docs_ui="swagger"` / `"redoc"`) loaded from a pinned, integrity-checked CDN file.
 
 **A small core.** Routes that do not belong in a contract (health checks,
 webhooks, files) use the Echo-style core directly: `app.get("/x", handler)`,
@@ -126,6 +126,10 @@ Optional pieces live in `lettia.extensions` and are not loaded by the core.
 | `lettia.extensions.di` (`lettia[di]`) | Declarative dependency injection on [rodi](https://github.com/Neoteroi/rodi). Mark service fields `db: Injected[Database]`, then `app.use(DIMiddleware(container))` and `container.wire(app, [UserService])`. Handler signatures stay `(self, c, req)`; a request scope is opened per request and its services are closed afterwards |
 | `lettia.extensions.tasks` | In-process background tasks, started once the response was sent successfully (never when the send fails or the request is cancelled): `app.use(BackgroundTasksMiddleware(app))`, then `BackgroundTasks.of(c).add_task(fn, *args)` in a handler. Tasks run after the request scope is closed, so pass data, not request-scoped resources. Pending tasks are drained at shutdown (`shutdown_timeout_sec`). Not a replacement for a durable queue |
 | `lettia.extensions.staticfiles` | `StaticFiles.mount(app, "/static", "./assets")`: rejects path traversal, symlink escapes and dotfiles; `ETag`/`Last-Modified` with 304; single byte `Range` with 206 and 416; `html=True` for single-page-app fallback |
+| `lettia.extensions.docs` | `mount_docs(app, "/docs", "redoc", theme="dark", assets="./vendor")`: Scalar, Swagger UI or Redoc, light/dark/auto theme, favicon, and an offline mode that serves the pinned bundles from a directory (checked by hash at startup) |
+| `lettia.extensions.sse` | Typed Server-Sent Events: return `EventStream[Tick](events())` from a contract operation (or `event_stream(...)` from a core route). Heartbeats, proxy-friendly headers, and the source is closed when the client disconnects |
+| `lettia.extensions.sessions` | `app.use(SessionMiddleware([key]))` and `Session.of(c)`: a cookie signed with HMAC-SHA256 (readable by the client, not encrypted), flash messages, key rotation. No server-side storage, so no revocation |
+| `lettia.extensions.ratelimit` | `app.use(rate_limit("5/minute"))`: sliding-window limit per client IP (or your `key=`), `429` problem responses with `Retry-After`, `X-RateLimit-*` headers. One process only; not shared between workers |
 
 **Testing.** Handlers are ordinary async methods, so call them directly with
 `make_context(principal=...)`; run the whole stack, lifespan included, with
@@ -171,11 +175,10 @@ as ratios for one machine, not as guarantees.
 
 ## Status and scope
 
-Version 0.4.0, alpha. Not planned: code generation or importing existing specs,
+Version 0.5.0, alpha. Not planned: code generation or importing existing specs,
 OpenAPI 3.0, pydantic, trio/anyio and sync handlers, content negotiation by `Accept`,
 and a DI container in the core (use `lettia.extensions.di` or construct the
-implementation yourself). Typed server-sent events (`EventStream[T]`) are not
-implemented yet; use `c.stream()` in the meantime. See
+implementation yourself). See
 [`spec/_Design.md`](spec/_Design.md) for the design and the reasons, and
 [`spec/_Roadmap_and_Extensions.md`](spec/_Roadmap_and_Extensions.md) for what comes
 next.
