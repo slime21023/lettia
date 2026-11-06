@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from lettia.app import App, Group
     from lettia.contract import (
         Accepted,
+        ApiKeyCookie,
         ApiKeyHeader,
         BadRequest,
         Body,
@@ -60,6 +61,7 @@ _EXPORTS: dict[str, str] = {
     **dict.fromkeys(
         (
             "Accepted",
+            "ApiKeyCookie",
             "ApiKeyHeader",
             "BadRequest",
             "Body",
@@ -95,6 +97,7 @@ _EXPORTS: dict[str, str] = {
 
 __all__ = [
     "Accepted",
+    "ApiKeyCookie",
     "ApiKeyHeader",
     "App",
     "BadRequest",

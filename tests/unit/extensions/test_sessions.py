@@ -5,7 +5,7 @@ from typing import Any
 import httpx
 import pytest
 
-from lettia.core import App, Context, Handler, MutableHeaders, Response
+from lettia.core import App, Context, Handler, MutableHeaders, RequestHead, Response
 from lettia.extensions.sessions import (
     Session,
     SessionMiddleware,
@@ -587,3 +587,92 @@ def _accepts(limit: int) -> bool:
     except ValueError:
         return False
     return True
+
+
+# --- the read-only reader used by guards --------------------------------------
+
+
+def head_with(*cookie_headers: str) -> RequestHead:
+    return RequestHead(
+        method="GET",
+        path="/",
+        headers=[(b"cookie", value.encode()) for value in cookie_headers],
+    )
+
+
+def test_session_read_returns_the_data_of_a_valid_cookie() -> None:
+    reader = SessionMiddleware([KEY])
+    token = forge({"user": "ann", "nested": {"roles": ["a", "b"]}})
+
+    data = reader.read(head_with(f"{NAME}={token}"))
+
+    assert data == {"user": "ann", "nested": {"roles": ["a", "b"]}}
+
+
+def test_session_read_leaves_flash_messages_out() -> None:
+    token = forge({"user": "ann"}, flash=[("info", "hello")])
+
+    data = SessionMiddleware([KEY]).read(head_with(f"{NAME}={token}"))
+
+    assert data == {"user": "ann"}
+
+
+def test_session_read_accepts_a_cookie_signed_with_an_older_key() -> None:
+    reader = SessionMiddleware([KEY, OLD_KEY])
+    token = forge({"user": "ann"}, key=OLD_KEY)
+
+    assert reader.read(head_with(f"{NAME}={token}")) == {"user": "ann"}
+
+
+def test_session_read_follows_the_cookie_name_of_the_middleware() -> None:
+    reader = SessionMiddleware([KEY], cookie_name="app_session")
+    token = cookie.encode_token(KEY, "app_session", {"user": "ann"}, [], NOW, NOW + 100)
+
+    assert reader.read(head_with(f"app_session={token}")) == {"user": "ann"}
+    assert reader.read(head_with(f"{NAME}={token}")) == {}
+
+
+def test_session_read_gives_an_empty_mapping_without_a_cookie() -> None:
+    assert SessionMiddleware([KEY]).read(head_with()) == {}
+    assert SessionMiddleware([KEY]).read(head_with("other=1")) == {}
+
+
+@pytest.mark.parametrize("name", list(MUTATIONS))
+def test_session_read_gives_an_empty_mapping_for_a_defective_cookie(name: str) -> None:
+    token = MUTATIONS[name](forge({"user": "ann"}))
+
+    assert SessionMiddleware([KEY]).read(head_with(f"{NAME}={token}")) == {}
+
+
+def test_session_read_ignores_a_cookie_signed_with_an_unknown_key() -> None:
+    token = forge({"user": "ann"}, key=OLD_KEY)
+
+    assert SessionMiddleware([KEY]).read(head_with(f"{NAME}={token}")) == {}
+
+
+def test_session_read_ignores_an_expired_cookie(clock: list[int]) -> None:
+    token = forge({"user": "ann"}, exp=NOW + 100)
+    clock[0] = NOW + 100
+
+    assert SessionMiddleware([KEY]).read(head_with(f"{NAME}={token}")) == {}
+
+
+def test_session_read_ignores_a_cookie_that_appears_twice() -> None:
+    mine = forge({"user": "ann"})
+    planted = forge({"user": "mallory"})
+
+    reader = SessionMiddleware([KEY])
+
+    assert reader.read(head_with(f"{NAME}={mine}", f"{NAME}={planted}")) == {}
+    assert reader.read(head_with(f"{NAME}={mine}; {NAME}={planted}")) == {}
+
+
+def test_session_read_cannot_be_used_to_change_the_session() -> None:
+    reader = SessionMiddleware([KEY])
+    head = head_with(f"{NAME}={forge({'user': 'ann'})}")
+
+    data = reader.read(head)
+    with pytest.raises(TypeError):
+        data["user"] = "mallory"  # type: ignore[index]
+
+    assert reader.read(head) == {"user": "ann"}

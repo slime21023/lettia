@@ -15,7 +15,13 @@ from typing import Any, cast
 import msgspec
 
 from lettia.contract.codec import Codec, CodecError
-from lettia.contract.guards import ApiKeyHeader, GuardSpec, HttpBearer, public
+from lettia.contract.guards import (
+    ApiKeyCookie,
+    ApiKeyHeader,
+    GuardSpec,
+    HttpBearer,
+    public,
+)
 from lettia.contract.introspect import Operation, RequestField, ResponseShape
 from lettia.contract.mount import MountedOperation
 
@@ -324,8 +330,10 @@ class _Builder:
             definition: dict[str, Any] = {"type": "http", "scheme": "bearer"}
             if leaf.scheme.format is not None:
                 definition["bearerFormat"] = leaf.scheme.format
-        elif isinstance(leaf.scheme, ApiKeyHeader):  # pyright: ignore[reportUnnecessaryIsInstance]
+        elif isinstance(leaf.scheme, ApiKeyHeader):
             definition = {"type": "apiKey", "in": "header", "name": leaf.scheme.name}
+        elif isinstance(leaf.scheme, ApiKeyCookie):  # pyright: ignore[reportUnnecessaryIsInstance]
+            definition = {"type": "apiKey", "in": "cookie", "name": leaf.scheme.name}
         else:
             self._problems.append(f"guard {leaf.name!r} has an unsupported scheme")
             return

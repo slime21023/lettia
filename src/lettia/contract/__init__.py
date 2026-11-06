@@ -4,6 +4,7 @@ from lettia.contract.codec import Codec, CodecError, MsgspecCodec
 from lettia.contract.context import Context
 from lettia.contract.form import UploadFile
 from lettia.contract.guards import (
+    ApiKeyCookie,
     ApiKeyHeader,
     GuardImpl,
     GuardSpec,
@@ -42,6 +43,7 @@ from lettia.contract.responses import (
 
 __all__ = [
     "Accepted",
+    "ApiKeyCookie",
     "ApiKeyHeader",
     "BadRequest",
     "Body",

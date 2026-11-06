@@ -24,7 +24,12 @@ class ApiKeyHeader:
     name: str
 
 
-type SecurityScheme = HttpBearer | ApiKeyHeader
+@dataclass(frozen=True, slots=True)
+class ApiKeyCookie:
+    name: str
+
+
+type SecurityScheme = HttpBearer | ApiKeyHeader | ApiKeyCookie
 type GuardKind = Literal["leaf", "or", "and"]
 
 

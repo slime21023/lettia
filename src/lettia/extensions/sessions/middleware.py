@@ -1,8 +1,9 @@
 """Middleware that loads the session from a signed cookie and commits changes."""
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from types import MappingProxyType
 
-from lettia.core import Context, Handler, Response
+from lettia.core import Context, Handler, RequestHead, Response
 from lettia.core.cookies import (
     SameSite,
     check_cookie_name,
@@ -22,11 +23,11 @@ def _positive_int(name: str, value: object) -> int:
     return value
 
 
-def _cookie_values(c: Context, name: str) -> tuple[int, str]:
+def _cookie_values(head: RequestHead, name: str) -> tuple[int, str]:
     """How often ``name`` appears over all Cookie headers, and the last value."""
     count = 0
     value = ""
-    for header in c.request.headers.get_all("cookie"):
+    for header in head.headers.get_all("cookie"):
         for piece in header.split(";"):
             piece_name, _, piece_value = piece.partition("=")
             if piece_name.strip() == name:
@@ -125,20 +126,40 @@ class SessionMiddleware:
                 f"{self._max_cookie_bytes}"
             )
 
+    def _load(self, head: RequestHead, now: int) -> tuple[int, cookie.Decoded | None]:
+        """The cookie count and the verified state it carries, or ``None``.
+
+        A cookie that appears more than once, is quoted, is malformed, was signed
+        with an unknown key or has expired carries no state.
+        """
+        count, raw = _cookie_values(head, self._name)
+        if count != 1 or raw.startswith('"'):
+            return count, None
+        return count, cookie.decode_token(
+            raw,
+            self._name,
+            self._keys,
+            max_age=self._max_age,
+            max_cookie_bytes=self._max_cookie_bytes,
+            now=now,
+        )
+
+    def read(self, head: RequestHead) -> Mapping[str, SessionValue]:
+        """The session data a request carries, read-only, for use in a guard.
+
+        The request is read as ``SessionMiddleware`` would read it, with the same
+        keys, name and limits, so use the instance you passed to ``app.use``.
+        Nothing is written or committed. The mapping is empty when there is no
+        valid session: no cookie, a forged or expired one, or a repeated name.
+        Flash messages are not part of it.
+        """
+        _, loaded = self._load(head, cookie.current_time())
+        return MappingProxyType({} if loaded is None else loaded.data)
+
     def __call__(self, next_handler: Handler) -> Handler:
         async def run(c: Context) -> Response:
             now = cookie.current_time()
-            count, raw = _cookie_values(c, self._name)
-            loaded = None
-            if count == 1 and not raw.startswith('"'):
-                loaded = cookie.decode_token(
-                    raw,
-                    self._name,
-                    self._keys,
-                    max_age=self._max_age,
-                    max_cookie_bytes=self._max_cookie_bytes,
-                    now=now,
-                )
+            count, loaded = self._load(c.request, now)
             if loaded is None:
                 session = Session()
             else:
