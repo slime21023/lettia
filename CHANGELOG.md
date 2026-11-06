@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.3] - 2026-11-06
+
+### Added
+- `SessionMiddleware.read(head)`: the session data a request carries, as a read-only mapping, for use in a contract guard (a guard sees only the `RequestHead`, so it cannot use `Session.of(c)`). It reads the cookie exactly as the middleware does, with the same keys, name, lifetime and size limit, and writes nothing. The mapping is empty for a missing, forged, expired or repeated cookie; flash messages are not part of it.
+- `ApiKeyCookie(name)`, a security scheme for a guard that reads a cookie; OpenAPI describes it as `{"type": "apiKey", "in": "cookie", "name": name}`.
+
+### Changed
+- Bumped version to `0.5.3`.
+
 ## [0.5.2] - 2026-11-06
 
 ### Added

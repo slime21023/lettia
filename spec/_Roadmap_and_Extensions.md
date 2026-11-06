@@ -160,6 +160,7 @@ WebSocket 屬於 ASGI 規範核心協定，已直接在 `lettia.core` 與 `letti
 - **v0.5.0 (已釋出)**：`lettia.extensions.docs`（Swagger UI / Scalar / Redoc 互動文件，含主題、favicon 與離線資產）、`lettia.extensions.sse`（Server-Sent Events 與 `EventStream[T]`、`Response(watch_disconnect=True)`）、`lettia.extensions.sessions`（簽署 Cookie session）與 `lettia.extensions.ratelimit`（單進程記憶體限流）。
 - **v0.5.1 (已釋出)**：單一路由與單一合約操作的 middleware：Core 的 `route/get/post/…(…, middleware=[...])`，以及 `mount(impl, middleware={Api.login: [...]})`（以合約方法為鍵，於 Guard 之前執行，不進入合約本身）。
 - **v0.5.2 (已釋出)**：合約回應類別 `Accepted`、`BadRequest`、`Conflict` 與五種轉址；Core 的 `Context.redirect()`、`Response.set_cookie()`、`Response.delete_cookie()`；壓縮、主機檢查與 HTTPS 轉址的文件配方；`Container.wire` 轉傳 `middleware=`。
+- **v0.5.3 (已釋出)**：`SessionMiddleware.read(head)`（供合約 Guard 使用的唯讀 session 讀取函式）與 Cookie 型安全方案 `ApiKeyCookie`（OpenAPI `apiKey`、`in: cookie`）。
 - **尚未排程**：僅第 4.3 節的兩項 Backlog（ASGI-to-Lettia 適配輔助函式、串流回應體轉換 helper）。
 
 ---
@@ -174,7 +175,7 @@ WebSocket 屬於 ASGI 規範核心協定，已直接在 `lettia.core` 與 `letti
 - **文件配方**：外層 ASGI 壓縮（SSE 須排除）、主機檢查與 HTTPS 轉址的做法。
 - **`Container.wire`**：轉傳 `middleware=`，讓 DI 掛載的服務也能使用單一操作 middleware。
 
-### 7.2 v0.5.3：Session 用於合約 Guard
+### 7.2 v0.5.3（已釋出）：Session 用於合約 Guard
 - `SessionMiddleware.read(head)`：從 `RequestHead` 解 Cookie 的唯讀讀取函式，不寫入、不提交，供 Guard 驗證身分。
 - 新增 Cookie 型安全方案 `ApiKeyCookie`，OpenAPI 表達為 `apiKey`、`in: cookie`。
 

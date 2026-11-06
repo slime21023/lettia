@@ -232,6 +232,8 @@ Declared problem replies such as `NotFound[Problem]` use their own class and med
 
 Duplicate requirement objects are removed. `components.securitySchemes` defines each guard that has a scheme, keyed by guard name. Two different guards with the same name but different scheme definitions are a startup problem: `security scheme 'x' is declared by guards with different definitions`. See [guards.md](guards.md).
 
+`HttpBearer`, `ApiKeyHeader` and `ApiKeyCookie` are the schemes that exist; the last one is described as `{"type": "apiKey", "in": "cookie", "name": "<cookie name>"}`.
+
 ### `openapi_extra`
 
 `op(..., openapi_extra={...})` merges extra keys into the operation object (for example `deprecated`, `x-internal`, `externalDocs`). Extra keys are applied after the derived ones, so they overwrite `summary`, `description`, `tags`, `operationId` and `security` if you set them. The derived parts `parameters`, `requestBody` and `responses` cannot be set: that is a startup problem (`Api.a: openapi_extra may not set 'parameters'`).

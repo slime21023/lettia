@@ -4,7 +4,7 @@ A guard decides whether a request may reach an operation and, when it does, prod
 
 ```python
 from lettia import (
-    ApiKeyHeader, App, GuardSpec, HttpBearer, RequestHead, public,
+    ApiKeyCookie, ApiKeyHeader, App, GuardSpec, HttpBearer, RequestHead, public,
 )
 from lettia.core import Forbidden, Unauthorized
 ```
@@ -25,12 +25,13 @@ Specs are compared by identity, not by name. The implementation registered for a
 
 ### Security schemes
 
-Two schemes exist. Both are frozen dataclasses importable from `lettia`.
+Three schemes exist. All are frozen dataclasses importable from `lettia`.
 
 | Scheme | OpenAPI output |
 |---|---|
 | `HttpBearer(format: str \| None = None)` | `{"type": "http", "scheme": "bearer"}`, plus `"bearerFormat": format` when `format` is set |
 | `ApiKeyHeader(name: str)` | `{"type": "apiKey", "in": "header", "name": name}` |
+| `ApiKeyCookie(name: str)` | `{"type": "apiKey", "in": "cookie", "name": name}`; for a guard that reads a cookie, for example a [session](sessions.md#using-a-session-in-a-guard) |
 
 The scheme is documentation only. It does not make the guard read any header; the implementation does that. See [openapi.md](openapi.md) for how schemes become `securitySchemes` and `security`.
 

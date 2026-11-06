@@ -70,6 +70,36 @@ max_cookie_bytes=4096)`
   delivery is not guaranteed for parallel requests.
 - WebSocket routes do not get the middleware automatically.
 
+## Using a session in a guard
+
+A guard sees only the `RequestHead`, so it cannot use `Session.of(c)`. `SessionMiddleware.read(head)` reads the session from the head instead: it returns the session data as a read-only mapping, or an empty one when the request carries no valid session.
+
+```python
+from lettia import ApiKeyCookie, App, GuardSpec
+from lettia.core import RequestHead, Unauthorized
+from lettia.extensions.sessions import SessionMiddleware
+
+sessions = SessionMiddleware([b"a-secret-key-of-at-least-32-bytes!"])
+logged_in = GuardSpec[User]("session", scheme=ApiKeyCookie("lettia_session"))
+
+
+async def verify_session(head: RequestHead) -> User:
+    name = sessions.read(head).get("user")
+    if not isinstance(name, str):
+        raise Unauthorized("sign in")
+    return User(name)
+
+
+app = App(guards=[logged_in.use(verify_session)])
+app.use(sessions)  # the same instance: it sets the cookie that the guard reads
+```
+
+- Use the instance you pass to `app.use`: `read` applies its keys, cookie name, lifetime and size limit, so a cookie is accepted by the guard exactly when the middleware would load it.
+- The mapping is empty for a missing cookie, a forged or expired one, a cookie signed with an unknown key, and a cookie name that appears twice. A guard that does not find what it needs raises `Unauthorized`.
+- `read` writes nothing: it does not refresh the cookie, drop an expired one or touch flash messages (they are not in the mapping). The middleware does that on the response.
+- `ApiKeyCookie` is documentation for OpenAPI (`apiKey` in a cookie); the guard still does the reading. Give it the cookie name the middleware uses.
+- The limits of the cookie still apply: a logout only deletes the browser's copy, and a stolen cookie works until it expires.
+
 ## Security boundaries
 
 - **Signed, not encrypted.** The payload is only base64url-encoded JSON:
