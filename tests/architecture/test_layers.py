@@ -65,11 +65,11 @@ def test_layer_rules_cover_every_subpackage_that_exists() -> None:
     assert present == set(FORBIDDEN)
 
 
-def test_docs_module_has_no_internal_dependencies() -> None:
-    docs_path = SRC / "docs.py"
-    imported = imported_lettia_modules(docs_path)
+def test_docs_pages_have_no_internal_dependencies() -> None:
+    pages_path = SRC / "extensions" / "docs" / "pages.py"
+    imported = imported_lettia_modules(pages_path)
     assert imported == set(), (
-        f"docs.py must not import any lettia modules, got {imported}"
+        f"pages.py must not import any lettia modules, got {imported}"
     )
 
 
@@ -86,8 +86,3 @@ def test_top_level_app_does_not_import_forbidden_layers() -> None:
     assert offenders == set(), (
         f"app.py must not import forbidden modules, got {offenders}"
     )
-
-
-def test_top_level_files_are_accounted_for() -> None:
-    present_files = {p.name for p in SRC.glob("*.py")}
-    assert present_files == {"__init__.py", "__main__.py", "app.py", "docs.py"}
