@@ -27,6 +27,7 @@ from lettia.contract.codec import MsgspecCodec
 from lettia.contract.introspect import inspect_contract
 from lettia.contract.mount import MountedOperation
 from lettia.contract.openapi import OpenAPIInfo, build_openapi
+from lettia.extensions.sse import EventStream
 
 
 class User(msgspec.Struct):
@@ -667,3 +668,27 @@ def test_a_type_without_a_json_schema_is_a_problem_not_a_crash() -> None:
     assert len(problems) == 1
     assert problems[0].startswith("OpenAPI schemas: cannot generate a JSON schema")
     assert "object" in problems[0]
+
+
+class Tick(msgspec.Struct):
+    n: int
+
+
+def test_stream_response_is_text_with_the_decoded_event_schema_as_extension() -> None:
+    class StreamApi(Protocol):
+        @op.get("/ticks", guard=public)
+        async def ticks(self, c: Context[None], req: None) -> EventStream[Tick]: ...
+
+    doc = document(StreamApi)
+
+    validate(doc)
+    content = operation_of(doc, "get", "/ticks")["responses"]["200"]["content"]
+    assert content == {
+        "text/event-stream": {
+            "schema": {"type": "string"},
+            "x-lettia-item-schema": ref("ServerSentEvent_Tick_"),
+        }
+    }
+    schemas = doc["components"]["schemas"]
+    assert schemas["ServerSentEvent_Tick_"]["properties"]["data"] == ref("Tick")
+    assert schemas["Tick"]["properties"]["n"] == {"type": "integer"}

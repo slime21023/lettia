@@ -1,8 +1,9 @@
 """ASGI adapter: builds the request, runs the handler, serializes the response."""
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, MutableMapping
-from typing import Any
+from typing import Any, cast
 
 from lettia.core.context import Context
 from lettia.core.errors import ClientDisconnect
@@ -47,7 +48,10 @@ def asgi_app(
             max_body_size=max_body_size,
         )
         response = await handler(context_class(request))
-        await _send_response(response, request.method == "HEAD", send)
+        if response.watch_disconnect and _is_monitorable(response, request.method):
+            await _send_monitored_response(response, send, receive, request)
+        else:
+            await _send_response(response, request.method == "HEAD", send)
         after_send, response.after_send = response.after_send, None
         if after_send is not None:
             try:
@@ -126,10 +130,14 @@ async def _send_response(response: Response, is_head: bool, send: Send) -> None:
         )
         return
 
-    await send(
-        {"type": "http.response.start", "status": response.status, "headers": headers}
-    )
     try:
+        await send(
+            {
+                "type": "http.response.start",
+                "status": response.status,
+                "headers": headers,
+            }
+        )
         if not drop_body:
             async for chunk in body:
                 await send(
@@ -138,6 +146,81 @@ async def _send_response(response: Response, is_head: bool, send: Send) -> None:
         await send({"type": "http.response.body", "body": b"", "more_body": False})
     finally:
         await _aclose(body)
+
+
+def _is_monitorable(response: Response, method: str) -> bool:
+    body = response.body
+    return (
+        body is not None
+        and not isinstance(body, bytes)
+        and method != "HEAD"
+        and not _has_no_body(response.status)
+    )
+
+
+async def _send_monitored_response(
+    response: Response, send: Send, receive: Receive, request: Request
+) -> None:
+    """Send a streamed body while watching ``receive`` for a disconnect.
+
+    Raises ``ClientDisconnect`` when the client leaves before the final body
+    message is being sent. The adapter owns ``receive`` from here on.
+    """
+    body = cast(AsyncIterator[bytes], response.body)  # checked by the caller
+    headers = response.headers.raw
+    finishing = False
+
+    async def pump() -> None:
+        nonlocal finishing
+        await send(
+            {
+                "type": "http.response.start",
+                "status": response.status,
+                "headers": headers,
+            }
+        )
+        async for chunk in body:
+            await send({"type": "http.response.body", "body": chunk, "more_body": True})
+        finishing = True
+        await send({"type": "http.response.body", "body": b"", "more_body": False})
+
+    async def watch() -> None:
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+
+    children: list[asyncio.Future[None]] = []
+    try:
+        await request._release_body()  # pyright: ignore[reportPrivateUsage]
+        pump_task = asyncio.ensure_future(pump())
+        children.append(pump_task)
+        watch_task = asyncio.ensure_future(watch())
+        children.append(watch_task)
+        await asyncio.wait(children, return_when=asyncio.FIRST_COMPLETED)
+        if pump_task.done():
+            pump_task.result()
+        else:
+            watch_task.result()  # a watcher failure is not a disconnect
+            if not finishing:
+                raise ClientDisconnect
+            await pump_task  # the final send decides success
+    finally:
+        try:
+            await _stop_children(children)
+        finally:
+            await _aclose(body)
+
+
+async def _stop_children(children: list[asyncio.Future[None]]) -> None:
+    pending = [child for child in children if not child.done()]
+    for child in pending:
+        child.cancel()
+    if pending:
+        await asyncio.wait(pending)
+    for child in children:
+        if child.done() and not child.cancelled():
+            child.exception()
 
 
 async def _aclose(body: AsyncIterator[bytes]) -> None:

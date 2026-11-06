@@ -231,9 +231,15 @@ def _compile(
         if run_guard is not None:
             # Guards read only the head, so they run before anything is decoded.
             cast(PrincipalContext[Any], c).principal = await run_guard(c.request)
+        reply: Reply | None = None
         try:
             request = None if decode is None else await decode(c)
-            return encode(await call(c, request))
+            reply = await call(c, request)
+            return encode(reply)
+        except BaseException as exc:
+            if reply is not None:
+                await _close_stream_body(reply, exc)
+            raise
         finally:
             files = c.state.get("_lettia.upload_files")
             if isinstance(files, list):
@@ -241,6 +247,17 @@ def _compile(
                     await f.close()
 
     return handle
+
+
+async def _close_stream_body(reply: Reply, error: BaseException) -> None:
+    """Release the source of a stream reply that could not become a response."""
+    aclose = getattr(getattr(reply, "body", None), "aclose", None)
+    if aclose is None:
+        return
+    try:
+        await aclose()
+    except Exception as close_error:
+        raise error from close_error
 
 
 async def _empty_body_stream() -> AsyncIterator[bytes]:

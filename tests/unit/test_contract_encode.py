@@ -1,4 +1,5 @@
-from typing import Annotated, Any, Protocol
+from collections.abc import AsyncIterator, Callable
+from typing import Annotated, Any, Protocol, override
 
 import msgspec
 import pytest
@@ -18,6 +19,7 @@ from lettia import (
 from lettia.contract.codec import MsgspecCodec
 from lettia.contract.encode import compile_responses
 from lettia.contract.introspect import Operation, inspect_contract
+from lettia.extensions.sse import EventStream, ServerSentEvent
 
 
 class UserOut(msgspec.Struct):
@@ -239,3 +241,102 @@ def test_encode_does_not_add_a_charset_to_binary_media_types() -> None:
     assert encoder("blob")(Blob(b"x")).headers["content-type"] == (
         "application/octet-stream"
     )
+
+
+# --- stream responses ---------------------------------------------------
+
+
+class Tick(msgspec.Struct):
+    n: int
+
+
+class StreamApi(Protocol):
+    @op.get("/ticks", guard=public)
+    async def ticks(self, c: Context[None], req: None) -> EventStream[Tick]: ...
+
+
+class SlowTicks[T](EventStream[T]):
+    heartbeat_sec = 0.01
+    media_type = "text/plain"
+    default_headers = (("x-other", "1"),)
+
+    @override
+    def frames(
+        self,
+        encode: Callable[[object], bytes],
+        *,
+        check: Callable[[object], None] | None = None,
+    ) -> AsyncIterator[bytes]:
+        raise AssertionError("an undeclared subclass must not replace the frames")
+
+
+def stream_encoder(*, debug: bool = False) -> Any:
+    operations, problems = inspect_contract(StreamApi)
+    assert problems == []
+    return compile_responses(operations[0], MsgspecCodec(), debug=debug)
+
+
+class Source:
+    def __init__(self, *items: object) -> None:
+        self.items = list(items)
+        self.reads = 0
+
+    def __aiter__(self) -> "Source":
+        return self
+
+    async def __anext__(self) -> ServerSentEvent[Tick]:
+        self.reads += 1
+        if not self.items:
+            raise StopAsyncIteration
+        return self.items.pop(0)  # type: ignore[return-value]
+
+
+async def drain(body: Any) -> list[bytes]:
+    return [frame async for frame in body]
+
+
+async def test_encode_stream_reply_builds_a_watched_streaming_response() -> None:
+    source = Source(ServerSentEvent(Tick(1), event="tick"))
+
+    res = stream_encoder()(EventStream[Tick](source))
+
+    assert source.reads == 0  # nothing is consumed or serialized up front
+    assert res.status == 200
+    assert res.watch_disconnect is True
+    assert res.headers["content-type"] == "text/event-stream"
+    assert res.headers["cache-control"] == "no-cache"
+    assert res.headers["x-accel-buffering"] == "no"
+    assert await drain(res.body) == [
+        b": connected\n\n",
+        b'event: tick\ndata: {"n":1}\n\n',
+    ]
+
+
+async def test_encode_undeclared_stream_subclass_cannot_change_the_wire_plan() -> None:
+    res = stream_encoder()(SlowTicks[Tick](Source(ServerSentEvent(Tick(1)))))
+
+    assert res.headers["content-type"] == "text/event-stream"
+    assert "x-other" not in res.headers
+    assert (await drain(res.body))[-1] == b'data: {"n":1}\n\n'
+
+
+async def test_encode_debug_stream_ends_on_an_item_that_breaks_the_declared_type() -> (
+    None
+):
+    bad = ServerSentEvent(Tick("x"))  # type: ignore[arg-type]
+    res = stream_encoder(debug=True)(EventStream[Tick](Source(bad)))
+    frames = aiter(res.body)
+    assert await anext(frames) == b": connected\n\n"
+
+    with pytest.raises(RuntimeError, match=r"StreamApi\.ticks.*declared"):
+        await anext(frames)
+
+    with pytest.raises(StopAsyncIteration):
+        await anext(frames)
+
+
+async def test_encode_normal_mode_does_not_check_stream_items() -> None:
+    bad = ServerSentEvent(Tick("x"))  # type: ignore[arg-type]
+    res = stream_encoder()(EventStream[Tick](Source(bad)))
+
+    assert (await drain(res.body))[-1] == b'data: {"n":"x"}\n\n'

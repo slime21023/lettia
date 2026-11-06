@@ -22,7 +22,15 @@ from lettia.contract.markers import (
 )
 from lettia.contract.mount import MountTarget, mount
 from lettia.contract.op import op
-from lettia.contract.responses import Created, NoContent, NotFound, Ok, Problem, Reply
+from lettia.contract.responses import (
+    Created,
+    NoContent,
+    NotFound,
+    Ok,
+    Problem,
+    Reply,
+    StreamReply,
+)
 
 __all__ = [
     "ApiKeyHeader",
@@ -48,6 +56,7 @@ __all__ = [
     "Problem",
     "Query",
     "Reply",
+    "StreamReply",
     "UploadFile",
     "mount",
     "op",

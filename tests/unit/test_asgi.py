@@ -548,3 +548,279 @@ async def test_run_lifespan_stops_and_sends_failed_when_start_returns_message() 
 
     assert sent == [{"type": "lifespan.startup.failed", "message": "boom"}]
     assert (ASGIApp, Receive, Scope, Send) is not None
+
+
+# --- watched (disconnect-aware) responses -------------------------------
+
+_SCOPE: dict[str, Any] = {
+    "type": "http",
+    "method": "GET",
+    "path": "/",
+    "query_string": b"",
+    "headers": [],
+}
+_REQUEST_DONE: Message = {"type": "http.request", "body": b"", "more_body": False}
+
+
+class Wire:
+    """A server side whose receive blocks until the test feeds it a message."""
+
+    def __init__(self, *, initial: list[Message] | None = None) -> None:
+        self.incoming: asyncio.Queue[Message | Exception] = asyncio.Queue()
+        for message in [_REQUEST_DONE] if initial is None else initial:
+            self.incoming.put_nowait(message)
+        self.sent: list[Message] = []
+        self.start_error: BaseException | None = None
+        self.final_error: BaseException | None = None
+        self.final_gate: asyncio.Event | None = None
+        self.final_reached = asyncio.Event()
+
+    async def receive(self) -> Message:
+        item = await self.incoming.get()
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    async def send(self, message: Message) -> None:
+        if message["type"] == "http.response.start" and self.start_error:
+            raise self.start_error
+        if message["type"] == "http.response.body" and not message["more_body"]:
+            self.final_reached.set()
+            if self.final_gate is not None:
+                await self.final_gate.wait()
+            if self.final_error is not None:
+                raise self.final_error
+        self.sent.append(message)
+
+    def run(
+        self, handler: Callable[[Context], Awaitable[Response]]
+    ) -> "asyncio.Task[None]":
+        app = asgi_app(handler)
+        return asyncio.ensure_future(app(_SCOPE, self.receive, self.send))
+
+
+class Source:
+    """A response body that records how often it was closed."""
+
+    def __init__(self, *parts: bytes, then_idle: bool = False, fail: bool = False):
+        self.parts = list(parts)
+        self.then_idle = then_idle
+        self.fail = fail
+        self.closed = 0
+
+    def __aiter__(self) -> "Source":
+        return self
+
+    async def __anext__(self) -> bytes:
+        if self.parts:
+            return self.parts.pop(0)
+        if self.then_idle:
+            await asyncio.Event().wait()
+        if self.fail:
+            raise ValueError("producer failed")
+        raise StopAsyncIteration
+
+    async def aclose(self) -> None:
+        self.closed += 1
+
+
+async def _settle(condition: Callable[[], bool]) -> None:
+    for _ in range(200):
+        if condition():
+            return
+        await asyncio.sleep(0)
+    raise AssertionError("condition was not reached")
+
+
+def _watched(
+    source: Source, after_send: list[str] | None = None
+) -> Callable[[Context], Awaitable[Response]]:
+    async def handler(c: Context) -> Response:
+        callback = None if after_send is None else lambda: after_send.append("ran")
+        return Response(200, source, after_send=callback, watch_disconnect=True)
+
+    return handler
+
+
+def _no_stray_tasks() -> bool:
+    return asyncio.all_tasks() == {asyncio.current_task()}
+
+
+async def test_asgi_watched_stream_completes_and_runs_after_send() -> None:
+    wire, source = Wire(), Source(b"a", b"b")
+    after: list[str] = []
+
+    await wire.run(_watched(source, after))
+
+    assert [m.get("body") for m in wire.sent[1:]] == [b"a", b"b", b""]
+    assert (source.closed, after) == (1, ["ran"])
+    assert _no_stray_tasks()
+
+
+async def test_asgi_watched_stream_stops_on_disconnect_without_after_send() -> None:
+    wire, source = Wire(), Source(b"a", then_idle=True)
+    after: list[str] = []
+    task = wire.run(_watched(source, after))
+    await _settle(lambda: len(wire.sent) == 2)
+
+    wire.incoming.put_nowait({"type": "http.disconnect"})
+
+    with pytest.raises(ClientDisconnect):
+        await task
+    assert (source.closed, after) == (1, [])
+    assert _no_stray_tasks()
+
+
+async def test_asgi_watched_stream_disconnect_during_final_send_still_succeeds() -> (
+    None
+):
+    wire, source = Wire(), Source(b"a")
+    after: list[str] = []
+    wire.final_gate = asyncio.Event()
+    task = wire.run(_watched(source, after))
+    await wire.final_reached.wait()
+
+    wire.incoming.put_nowait({"type": "http.disconnect"})
+    await _settle(lambda: wire.incoming.empty())
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert not task.done()
+    wire.final_gate.set()
+    await task
+
+    assert (source.closed, after) == (1, ["ran"])
+    assert _no_stray_tasks()
+
+
+async def test_asgi_watched_stream_failed_final_send_skips_after_send() -> None:
+    wire, source = Wire(), Source(b"a")
+    after: list[str] = []
+    wire.final_gate = asyncio.Event()
+    wire.final_error = ConnectionResetError()
+    task = wire.run(_watched(source, after))
+    await wire.final_reached.wait()
+    wire.incoming.put_nowait({"type": "http.disconnect"})
+    for _ in range(5):
+        await asyncio.sleep(0)
+
+    wire.final_gate.set()
+
+    with pytest.raises(ConnectionResetError):
+        await task
+    assert (source.closed, after) == (1, [])
+
+
+async def test_asgi_watched_stream_cancel_propagates_and_stops_children() -> None:
+    wire, source = Wire(), Source(b"a", then_idle=True)
+    task = wire.run(_watched(source))
+    await _settle(lambda: len(wire.sent) == 2)
+
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert source.closed == 1
+    assert _no_stray_tasks()
+
+
+async def test_asgi_watched_stream_receive_failure_is_not_a_disconnect() -> None:
+    wire, source = Wire(), Source(b"a", then_idle=True)
+    after: list[str] = []
+    task = wire.run(_watched(source, after))
+    await _settle(lambda: len(wire.sent) == 2)
+
+    wire.incoming.put_nowait(RuntimeError("receive broke"))
+
+    with pytest.raises(RuntimeError, match="receive broke"):
+        await task
+    assert (source.closed, after) == (1, [])
+    assert _no_stray_tasks()
+
+
+async def test_asgi_watched_stream_producer_error_wins_over_disconnect() -> None:
+    wire, source = Wire(), Source(b"a", fail=True)
+    wire.incoming.put_nowait({"type": "http.disconnect"})
+
+    with pytest.raises(ValueError, match="producer failed"):
+        await wire.run(_watched(source))
+
+    assert source.closed == 1
+
+
+async def test_asgi_watched_stream_start_failure_closes_the_source() -> None:
+    wire, source = Wire(), Source(b"a")
+    wire.start_error = ConnectionResetError()
+
+    with pytest.raises(ConnectionResetError):
+        await wire.run(_watched(source))
+
+    assert source.closed == 1
+    assert _no_stray_tasks()
+
+
+async def test_asgi_unwatched_stream_start_failure_closes_the_source() -> None:
+    wire, source = Wire(), Source(b"a")
+    wire.start_error = ConnectionResetError()
+
+    async def handler(c: Context) -> Response:
+        return Response(200, source)
+
+    with pytest.raises(ConnectionResetError):
+        await wire.run(handler)
+
+    assert source.closed == 1
+
+
+async def test_asgi_watched_head_response_sends_no_body_and_closes_the_source() -> None:
+    wire, source = Wire(), Source(b"a")
+    scope = {**_SCOPE, "method": "HEAD"}
+
+    await asgi_app(_watched(source))(scope, wire.receive, wire.send)
+
+    assert [m.get("body") for m in wire.sent[1:]] == [b""]
+    assert source.closed == 1
+
+
+async def test_asgi_watched_flag_on_a_bytes_response_sends_it_unwatched() -> None:
+    wire = Wire(initial=[])
+
+    async def handler(c: Context) -> Response:
+        return Response(200, b"hi", watch_disconnect=True)
+
+    await wire.run(handler)
+
+    assert wire.sent[-1]["body"] == b"hi"
+
+
+async def test_asgi_watched_stream_with_a_live_body_reader_fails_before_start() -> None:
+    wire, source = Wire(initial=[]), Source(b"a")
+    readers: list[asyncio.Future[bytes]] = []
+
+    async def handler(c: Context) -> Response:
+        readers.append(asyncio.ensure_future(c.request.body()))
+        await asyncio.sleep(0)
+        return Response(200, source, watch_disconnect=True)
+
+    with pytest.raises(RuntimeError):
+        await wire.run(handler)
+
+    assert (wire.sent, source.closed) == ([], 1)
+    readers[0].cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await readers[0]
+
+
+async def test_asgi_watched_stream_keeps_a_body_read_by_the_handler() -> None:
+    wire, source = Wire(initial=[]), Source(b"x")
+    wire.incoming.put_nowait(
+        {"type": "http.request", "body": b"in", "more_body": False}
+    )
+    seen: list[bytes] = []
+
+    async def handler(c: Context) -> Response:
+        seen.append(await c.request.body())
+        return Response(200, source, watch_disconnect=True)
+
+    await wire.run(handler)
+
+    assert (seen, wire.sent[-1]["body"]) == ([b"in"], b"")

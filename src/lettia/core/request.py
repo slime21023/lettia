@@ -9,7 +9,7 @@ from lettia.core.errors import HTTPError
 from lettia.core.headers import Headers, RawHeaders
 from lettia.core.query import QueryParams
 
-type _BodyMode = Literal["unread", "body", "stream"]
+type _BodyMode = Literal["unread", "body", "stream", "released"]
 
 DEFAULT_MAX_BODY_SIZE = 5 * 1024 * 1024
 
@@ -133,6 +133,8 @@ class Request(RequestHead):
         """Read the whole body; later calls return the cached bytes."""
         if self._cached is not None:
             return self._cached
+        if self._mode == "released":
+            raise RuntimeError("the request body was released")
         if self._mode == "stream":
             raise RuntimeError("body() cannot be used after stream()")
         if self._mode == "body":
@@ -144,6 +146,8 @@ class Request(RequestHead):
 
     def stream(self) -> AsyncIterator[bytes]:
         """Iterate over the body in chunks, without holding it all in memory."""
+        if self._mode == "released":
+            raise RuntimeError("the request body was released")
         if self._mode == "body":
             raise RuntimeError("stream() cannot be used after body()")
         if self._mode == "stream":
@@ -161,8 +165,23 @@ class Request(RequestHead):
         if self._max_body_size is not None and int(declared) > self._max_body_size:
             raise self._too_large()
 
+    async def _release_body(self) -> None:
+        """Stop reading the body so the ASGI adapter can own ``receive``.
+
+        Idempotent. Does not buffer the unread remainder; already cached bytes
+        stay readable. Raises ``RuntimeError`` when another coroutine is still
+        reading the source.
+        """
+        self._mode = "released"
+        aclose = getattr(self._source, "aclose", None)
+        if aclose is not None:
+            await aclose()
+
     async def _chunks(self) -> AsyncIterator[bytes]:
         received_bytes = 0
+        # Checked before every read of the source, so a reader resumed after the
+        # body was released cannot race the ASGI adapter for ``receive``.
+        self._check_not_released()
         async for chunk in self._source:
             if not chunk:
                 continue
@@ -170,6 +189,11 @@ class Request(RequestHead):
             if self._max_body_size is not None and received_bytes > self._max_body_size:
                 raise self._too_large()
             yield chunk
+            self._check_not_released()
+
+    def _check_not_released(self) -> None:
+        if self._mode == "released":
+            raise RuntimeError("the request body was released")
 
     def _too_large(self) -> HTTPError:
         return HTTPError(

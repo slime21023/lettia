@@ -1,5 +1,6 @@
-from collections.abc import Callable
-from typing import Annotated, Any, Protocol
+import types
+from collections.abc import AsyncIterator, Callable
+from typing import Annotated, Any, Protocol, override
 
 import msgspec
 import pytest
@@ -24,7 +25,9 @@ from lettia import (
     op,
     public,
 )
+from lettia.contract import StreamReply
 from lettia.contract.introspect import Operation, RequestField, inspect_contract
+from lettia.extensions.sse import EventStream, ServerSentEvent
 
 
 class User(msgspec.Struct):
@@ -525,3 +528,134 @@ def test_inspect_response_header_with_an_invalid_name_is_a_problem() -> None:
     assert "'token'" in problem
     assert "BadHeader" in problem
     assert "'Bad Name'" in problem
+
+
+# --- stream responses ---------------------------------------------------
+
+
+class Tick(msgspec.Struct):
+    n: int
+
+
+class _Lines[T](StreamReply[T]):
+    status = 200
+    media_type = "text/plain"
+
+    @override
+    def frames(
+        self,
+        encode: Callable[[object], bytes],
+        *,
+        check: Callable[[object], None] | None = None,
+    ) -> AsyncIterator[bytes]:
+        raise NotImplementedError
+
+
+def test_inspect_stream_response_records_the_item_type() -> None:
+    class Api(Protocol):
+        @op.get("/ticks", guard=public)
+        async def ticks(self, c: Context[None], req: None) -> EventStream[Tick]: ...
+
+    [operation], problems = inspect_contract(Api)
+
+    [shape] = operation.responses
+    assert problems == []
+    assert shape.stream_item == ServerSentEvent[Tick]
+    assert shape.status == 200
+    assert shape.media_type == "text/event-stream"
+
+
+def test_inspect_regular_response_has_no_stream_item() -> None:
+    [operation], _ = inspect_contract(protocol(a=op.get("/a", guard=public)(ok_text)))
+
+    assert operation.responses[0].stream_item is None
+
+
+async def ok_text(self: Any, c: Context[None], req: None) -> Ok[str]: ...
+
+
+@pytest.mark.parametrize("declared", [StreamReply, StreamReply[Tick]])
+def test_inspect_bare_stream_reply_is_a_problem(declared: Any) -> None:
+    async def broken(self: Any, c: Context[None], req: None) -> declared: ...
+
+    [problem] = problems_of(broken)
+
+    assert "StreamReply" in problem
+    assert "frames" in problem
+
+
+def test_inspect_stream_class_without_frames_override_is_a_problem() -> None:
+    class NoFrames(StreamReply[Tick]):
+        status = 200
+
+    async def broken(self: Any, c: Context[None], req: None) -> NoFrames: ...
+
+    [problem] = problems_of(broken)
+
+    assert "NoFrames" in problem
+    assert "frames" in problem
+
+
+def test_inspect_stream_class_with_free_item_type_is_a_problem() -> None:
+    async def broken(self: Any, c: Context[None], req: None) -> _Lines[Any]: ...
+
+    async def unbound(self: Any, c: Context[None], req: None) -> EventStream: ...  # type: ignore[type-arg]
+
+    assert problems_of(unbound, path="/u") != []
+    [accepted] = inspect_contract(contract_with(broken))[0]
+    assert accepted.responses[0].stream_item is Any
+
+
+@pytest.mark.parametrize("status", [204, 205, 304, 100, 600])
+def test_inspect_stream_class_needs_a_status_that_allows_a_body(status: int) -> None:
+    odd = types.new_class(
+        "Odd", (_Lines[Tick],), exec_body=lambda ns: ns.update(status=status)
+    )
+
+    async def broken(self: Any, c: Context[None], req: None) -> odd: ...  # type: ignore[valid-type]
+
+    [problem] = problems_of(broken)
+
+    assert "status" in problem
+
+
+def test_inspect_stream_class_without_a_status_is_a_problem() -> None:
+    class NoStatus(StreamReply[Tick]):
+        @override
+        def frames(
+            self,
+            encode: Callable[[object], bytes],
+            *,
+            check: Callable[[object], None] | None = None,
+        ) -> AsyncIterator[bytes]:
+            raise NotImplementedError
+
+    async def broken(self: Any, c: Context[None], req: None) -> NoStatus: ...
+
+    [problem] = problems_of(broken)
+
+    assert "status" in problem
+
+
+def test_inspect_stream_default_headers_report_every_problem() -> None:
+    class Bad(_Lines[Tick], kw_only=True):
+        default_headers = (
+            ("Content-Type", "x"),
+            ("content-length", "1"),
+            ("x-a", "1"),
+            ("X-A", "2"),
+            ("x-field", "3"),
+            ("bad name", "4"),
+            ("x-nl", "a\nb"),
+        )
+        field: Annotated[str, HeaderName("X-Field")]
+
+    async def broken(self: Any, c: Context[None], req: None) -> Bad: ...
+
+    problems = problems_of(broken)
+
+    assert len(problems) == 6
+    joined = "\n".join(problems)
+    for expected in ("content-type", "content-length", "x-a", "x-field", "bad name"):
+        assert expected in joined
+    assert "x-nl" in joined

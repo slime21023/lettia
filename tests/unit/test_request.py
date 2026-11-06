@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 
 import pytest
@@ -243,3 +244,74 @@ def test_request_head_without_raw_path_percent_encodes_the_decoded_path(
     path: str, raw: bytes
 ) -> None:
     assert RequestHead(method="GET", path=path).raw_path == raw
+
+
+# --- released body ------------------------------------------------------
+
+
+async def test_request_released_body_keeps_serving_cached_bytes() -> None:
+    request = make(chunks(b"ab", b"c"))
+    assert await request.body() == b"abc"
+
+    await request._release_body()
+
+    assert await request.body() == b"abc"
+
+
+async def test_request_released_unread_body_cannot_be_read() -> None:
+    request = make(chunks(b"abc"))
+
+    await request._release_body()
+
+    with pytest.raises(RuntimeError, match="released"):
+        await request.body()
+    with pytest.raises(RuntimeError, match="released"):
+        request.stream()
+
+
+async def test_request_release_stops_a_stream_that_was_already_handed_out() -> None:
+    request = make(chunks(b"a", b"b"))
+    stream = request.stream()
+    assert await anext(stream) == b"a"
+
+    await request._release_body()
+
+    with pytest.raises(RuntimeError, match="released"):
+        await anext(stream)
+
+
+async def test_request_release_closes_the_source_once_and_is_idempotent() -> None:
+    closed: list[bool] = []
+
+    async def source() -> AsyncIterator[bytes]:
+        try:
+            yield b"a"
+        finally:
+            closed.append(True)
+
+    request = make(source())
+    await anext(request.stream())
+
+    await request._release_body()
+    await request._release_body()
+
+    assert closed == [True]
+
+
+async def test_request_release_fails_while_another_reader_holds_the_source() -> None:
+    gate = asyncio.Event()
+
+    async def source() -> AsyncIterator[bytes]:
+        await gate.wait()
+        yield b"late"
+
+    request = make(source())
+    reader = asyncio.ensure_future(request.body())
+    await asyncio.sleep(0)
+
+    with pytest.raises(RuntimeError):
+        await request._release_body()
+
+    reader.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await reader

@@ -6,12 +6,21 @@ operation is reported and left out; well-formed siblings are still returned, so
 all problems of a contract are found in one pass.
 """
 
+import collections.abc
 import inspect
 import re
 import types
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Annotated, Any, Literal, TypeVar, Union, get_args, get_origin
+from typing import (
+    Annotated,
+    Any,
+    Literal,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+)
 
 import msgspec
 import msgspec.inspect as mi
@@ -28,7 +37,7 @@ from lettia.contract.markers import (
     Query,
 )
 from lettia.contract.op import OperationSpec, operation_spec
-from lettia.contract.responses import Reply
+from lettia.contract.responses import Reply, StreamReply
 from lettia.core import MutableHeaders
 
 type Source = Literal["path", "query", "header", "cookie", "body", "form", "file"]
@@ -86,6 +95,7 @@ class ResponseShape:
     media_type: str
     body_type: Any | None
     headers: tuple[ResponseHeader, ...]
+    stream_item: Any | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -378,13 +388,19 @@ def _inspect_response_shape(member: Any, problems: list[str]) -> ResponseShape |
         problems.append(f"{name} is not a response class (a subclass of Reply)")
         return None
 
+    stream_base = stream_class(base)
     body_type: Any | None = None
+    stream_item: Any | None = None
     headers: list[ResponseHeader] = []
-    ok = True
+    ok = stream_base is None or _check_stream_class(stream_base, problems)
     for info in msgspec.structs.fields(member):
         if info.name == "body":
             body_type = info.type
-            if isinstance(body_type, TypeVar):
+            if stream_base is not None:
+                if ok:
+                    stream_item = _stream_item(stream_base, body_type, problems)
+                    ok = stream_item is not None
+            elif isinstance(body_type, TypeVar):
                 problems.append(
                     f"{base.__name__} needs a body type, e.g. {base.__name__}[T]"
                 )
@@ -408,9 +424,102 @@ def _inspect_response_shape(member: Any, problems: list[str]) -> ResponseShape |
                 ok = False
             else:
                 headers.append(header)
+    if stream_base is not None:
+        ok = _check_default_headers(stream_base, headers, problems) and ok
     if not ok:
         return None
-    return ResponseShape(base, base.status, base.media_type, body_type, tuple(headers))
+    return ResponseShape(
+        base, base.status, base.media_type, body_type, tuple(headers), stream_item
+    )
+
+
+def stream_class(cls: type[Reply]) -> type[StreamReply[Any]] | None:
+    """``cls`` as a stream response class, or ``None`` for any other reply."""
+    if issubclass(cls, StreamReply):
+        return cls  # pyright: ignore[reportUnknownVariableType]
+    return None
+
+
+def _check_stream_class(base: type[StreamReply[Any]], problems: list[str]) -> bool:
+    name = base.__name__
+    if base is StreamReply or base.frames is StreamReply.frames:  # pyright: ignore[reportUnknownMemberType]
+        problems.append(
+            f"{name} does not override frames(); a StreamReply subclass must "
+            "implement it (for example use EventStream)"
+        )
+        return False
+    status: object = getattr(base, "status", None)
+    if (
+        not isinstance(status, int)
+        or isinstance(status, bool)
+        or not 200 <= status <= 599
+        or status in (204, 205, 304)
+    ):
+        problems.append(
+            f"{name} must declare a status that allows a body (200..599, "
+            f"not 204, 205 or 304), got {status!r}"
+        )
+        return False
+    return True
+
+
+def _stream_item(base: type, body_type: Any, problems: list[str]) -> Any | None:
+    args = get_args(body_type)
+    if get_origin(body_type) is not collections.abc.AsyncIterator or len(args) != 1:
+        problems.append(
+            f"{base.__name__} must declare its body as AsyncIterator[<item type>], "
+            f"got {body_type!r}"
+        )
+        return None
+    if _has_free_typevar(args[0]):
+        problems.append(
+            f"{base.__name__} needs a concrete item type, "
+            f"e.g. {base.__name__}[Item]; got {args[0]!r}"
+        )
+        return None
+    return args[0]
+
+
+def _has_free_typevar(tp: Any) -> bool:
+    if isinstance(tp, TypeVar):
+        return True
+    args = get_args(tp)
+    if args:
+        return any(_has_free_typevar(arg) for arg in args)
+    # A generic class used without parameters leaves its type variables free.
+    return bool(getattr(tp, "__parameters__", ())) and isinstance(tp, type)
+
+
+def _check_default_headers(
+    base: type[StreamReply[Any]], headers: list[ResponseHeader], problems: list[str]
+) -> bool:
+    name = base.__name__
+    ok = True
+    seen: set[str] = set()
+    declared = {header.wire_name.lower() for header in headers}
+    for pair in base.default_headers:
+        try:
+            header_name, value = pair
+            MutableHeaders().add(header_name, value)
+        except (TypeError, ValueError, AttributeError, UnicodeError):
+            problems.append(f"{name}.default_headers has an invalid entry: {pair!r}")
+            ok = False
+            continue
+        key = header_name.lower()
+        if key in ("content-type", "content-length"):
+            problems.append(f"{name}.default_headers must not set {key}")
+            ok = False
+        elif key in seen:
+            problems.append(f"{name}.default_headers sets {key} more than once")
+            ok = False
+        elif key in declared:
+            problems.append(
+                f"{name}.default_headers sets {key}, which a HeaderName field of "
+                "the same class also writes"
+            )
+            ok = False
+        seen.add(key)
+    return ok
 
 
 def _response_header(attribute: str, hint: Any) -> ResponseHeader | None:

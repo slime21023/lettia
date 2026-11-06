@@ -6,115 +6,25 @@ request path (an encoded slash must stay inside one path segment) and chunked
 request bodies.
 """
 
-import importlib.util
 import json
-import socket
-import subprocess
-import sys
-import tempfile
-import time
 from collections.abc import Iterator
-from pathlib import Path
 
 import httpx
 import pytest
 
+from tests.integration.server_harness import ROOT, SERVERS, serve
+
 pytestmark = pytest.mark.server
 
-ROOT = Path(__file__).parents[2]
 APP = "examples.users_api:app"
 USER = {"authorization": "Bearer user-token"}
 ADMIN = {"authorization": "Bearer admin-token"}
 
 
-def commands(port: int) -> dict[str, tuple[str, list[str]]]:
-    """server name -> (module that must be installed, command line)."""
-    py = sys.executable
-    return {
-        "uvicorn": (
-            "uvicorn",
-            [py, "-m", "uvicorn", APP, "--port", str(port), "--log-level", "warning"],
-        ),
-        "hypercorn": (
-            "hypercorn",
-            [
-                py,
-                "-m",
-                "hypercorn",
-                APP,
-                "--bind",
-                f"127.0.0.1:{port}",
-                "--log-level",
-                "warning",
-            ],
-        ),
-        "granian": (
-            "granian",
-            [
-                py,
-                "-m",
-                "granian",
-                "--interface",
-                "asgi",
-                "--host",
-                "127.0.0.1",
-                "--port",
-                str(port),
-                "--log-level",
-                "warning",
-                APP,
-            ],
-        ),
-    }
-
-
-def free_port() -> int:
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        return probe.getsockname()[1]
-
-
-def stop(process: subprocess.Popen[bytes]) -> None:
-    if sys.platform == "win32":  # take the server's worker processes down with it
-        subprocess.run(  # noqa: S603
-            ["taskkill", "/PID", str(process.pid), "/T", "/F"],  # noqa: S607
-            capture_output=True,
-            check=False,
-        )
-    else:
-        process.terminate()
-    process.wait(timeout=15)
-
-
-@pytest.fixture(scope="module", params=["uvicorn", "hypercorn", "granian"])
+@pytest.fixture(scope="module", params=SERVERS)
 def base_url(request: pytest.FixtureRequest) -> Iterator[str]:
-    name: str = request.param
-    port = free_port()
-    module, command = commands(port)[name]
-    if importlib.util.find_spec(module) is None:
-        pytest.skip(f"{module} is not installed")
-
-    with tempfile.TemporaryFile() as log:
-        process = subprocess.Popen(  # noqa: S603
-            command, cwd=ROOT, stdout=log, stderr=subprocess.STDOUT
-        )
-        url = f"http://127.0.0.1:{port}"
-        try:
-            deadline = time.monotonic() + 40
-            while True:
-                if process.poll() is not None:
-                    log.seek(0)
-                    pytest.fail(f"{name} exited early:\n{log.read().decode()}")
-                try:
-                    httpx.get(f"{url}/healthz", timeout=1)
-                    break
-                except httpx.TransportError:
-                    if time.monotonic() > deadline:
-                        pytest.fail(f"{name} did not start in time")
-                    time.sleep(0.25)
-            yield url
-        finally:
-            stop(process)
+    with serve(request.param, APP, "/healthz") as url:
+        yield url
 
 
 @pytest.fixture

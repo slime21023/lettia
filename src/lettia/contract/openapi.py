@@ -286,7 +286,16 @@ class _Builder:
                 h.wire_name: {"required": h.required, "schema": self._slot(h.type)}
                 for h in sorted(shape.headers, key=lambda h: h.wire_name)
             }
-        if shape.body_type is not None:
+        if shape.stream_item is not None:
+            media = shape.media_type.split(";", 1)[0].strip().lower()
+            # The wire body is text; the decoded event wrapper is a vendor extension.
+            result["content"] = {
+                media: {
+                    "schema": {"type": "string"},
+                    "x-lettia-item-schema": self._slot(shape.stream_item),
+                }
+            }
+        elif shape.body_type is not None:
             media = shape.media_type.split(";", 1)[0].strip().lower()
             result["content"] = {media: {"schema": self._body_schema(shape, media)}}
         return result

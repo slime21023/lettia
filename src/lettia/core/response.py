@@ -20,9 +20,15 @@ class Response:
     is cancelled, and it only travels with the response that is actually sent: a
     middleware that returns a different response drops it. A middleware that sets
     it must wrap an existing callback, not replace it.
+
+    ``watch_disconnect`` opts a streamed body into disconnect monitoring: the ASGI
+    adapter then owns ``receive`` for the whole response, stops the stream when the
+    client goes away (raising ``ClientDisconnect``) and does not call
+    ``after_send``. It does not support a request body that is still being read
+    while the response streams. Without it, streamed bodies are sent unmonitored.
     """
 
-    __slots__ = ("after_send", "body", "headers", "status")
+    __slots__ = ("after_send", "body", "headers", "status", "watch_disconnect")
 
     def __init__(
         self,
@@ -31,6 +37,7 @@ class Response:
         headers: MutableHeaders | None = None,
         *,
         after_send: Callable[[], None] | None = None,
+        watch_disconnect: bool = False,
     ) -> None:
         if not 100 <= status <= 599:
             raise ValueError(f"status must be in 100..599, got {status}")
@@ -38,3 +45,4 @@ class Response:
         self.body = body
         self.headers = MutableHeaders() if headers is None else headers
         self.after_send = after_send
+        self.watch_disconnect = watch_disconnect

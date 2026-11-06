@@ -57,6 +57,12 @@
       "reportIncompatibleMethodOverride"
     ]
   ],
+  "tests/typing/negative/neg_sse_wrong_item.py": [
+    [
+      17,
+      "reportArgumentType"
+    ]
+  ],
   "tests/typing/negative/neg_undeclared_response.py": [
     [
       31,
