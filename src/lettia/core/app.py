@@ -224,6 +224,7 @@ class App(_Routes):
         allowed_hosts: Sequence[str] | None = None,
     ) -> None:
         self._error_handler = error_handler or default_error_handler(debug=debug)
+        self._exception_handlers: dict[type[Exception], ErrorHandler] = {}
         self._context_class = context_class
         self._max_body_size = max_body_size
         self._allowed_hosts = (
@@ -285,6 +286,29 @@ class App(_Routes):
         """Add global middleware; the first one given is the outermost."""
         self._registry.ensure_open()
         self._middleware.extend(middleware)
+
+    def add_exception_handler[E: Exception](
+        self,
+        exc_type: type[E],
+        handler: Callable[[Context, E], Awaitable[Response]],
+    ) -> None:
+        """Answer exceptions of ``exc_type`` (and its subclasses) with ``handler``.
+
+        The most specific registered class wins; an exception no handler claims
+        goes to ``error_handler`` (or the default one). A claimed exception is
+        not logged by Core: log it in the handler if you want it recorded.
+        ``ClientDisconnect`` is never converted, so it cannot be registered.
+        """
+        self._registry.ensure_open()
+        if not (isinstance(exc_type, type) and issubclass(exc_type, Exception)):  # pyright: ignore[reportUnnecessaryIsInstance]
+            raise TypeError(f"exc_type must be an Exception class, got {exc_type!r}")
+        if issubclass(exc_type, ClientDisconnect):
+            raise ValueError("ClientDisconnect is not converted to a response")
+        if exc_type in self._exception_handlers:
+            raise ValueError(
+                f"a handler for {exc_type.__qualname__} is already registered"
+            )
+        self._exception_handlers[exc_type] = cast(ErrorHandler, handler)
 
     def on_startup(self, hook: Hook) -> None:
         self._registry.ensure_open()
@@ -439,16 +463,28 @@ class App(_Routes):
 
         return run
 
+    def _handler_for(self, exc: Exception) -> ErrorHandler | None:
+        """The registered handler for the most specific class of ``exc``."""
+        if self._exception_handlers:
+            for cls in type(exc).__mro__:
+                found = self._exception_handlers.get(cls)
+                if found is not None:
+                    return found
+        return None
+
     async def _to_response(self, c: Context, exc: Exception) -> Response:
-        if not isinstance(exc, HTTPError):
-            logger.error(
-                "unhandled exception on %s %s",
-                c.request.method,
-                c.request.loggable_path,
-                exc_info=exc,
-            )
+        handler = self._handler_for(exc)
+        if handler is None:
+            handler = self._error_handler
+            if not isinstance(exc, HTTPError):
+                logger.error(
+                    "unhandled exception on %s %s",
+                    c.request.method,
+                    c.request.loggable_path,
+                    exc_info=exc,
+                )
         try:
-            return await self._error_handler(c, exc)
+            return await handler(c, exc)
         except Exception:
             logger.exception("the error handler failed")
             return problem_response(500, "Internal Server Error")

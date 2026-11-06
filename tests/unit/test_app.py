@@ -1118,3 +1118,230 @@ async def test_a_cancelled_startup_still_closes_the_contexts_already_open() -> N
         await task
 
     assert log == ["open db", "open slow", "close db"]
+
+
+# --- exception handlers ---------------------------------------------------------
+
+
+class MissingUser(KeyError):
+    """A KeyError of the application's own."""
+
+
+def raising(exc: Exception) -> Handler:
+    async def handler(c: Context) -> Response:
+        raise exc
+
+    return handler
+
+
+async def as_not_found(c: Context, exc: KeyError) -> Response:
+    return c.json(404, {"missing": str(exc)})
+
+
+async def as_bad_request(c: Context, exc: LookupError) -> Response:
+    return c.json(400, {"lookup": type(exc).__name__})
+
+
+async def test_exception_handler_answers_a_registered_type() -> None:
+    app = App()
+    app.add_exception_handler(KeyError, as_not_found)
+    app.get("/k", raising(KeyError("user")))
+
+    async with client(app) as http:
+        res = await http.get("/k")
+
+    assert (res.status_code, res.json()) == (404, {"missing": "'user'"})
+
+
+async def test_exception_handler_leaves_other_exceptions_to_the_default() -> None:
+    app = App()
+    app.add_exception_handler(KeyError, as_not_found)
+    app.get("/boom", raising(RuntimeError("secret")))
+
+    async with client(app) as http:
+        res = await http.get("/boom")
+
+    assert res.status_code == 500
+    assert res.headers["content-type"] == "application/problem+json"
+    assert "secret" not in res.text
+
+
+async def test_exception_handler_prefers_the_most_specific_class() -> None:
+    app = App()
+    app.add_exception_handler(LookupError, as_bad_request)
+    app.add_exception_handler(KeyError, as_not_found)
+    app.get("/key", raising(KeyError("k")))
+    app.get("/mine", raising(MissingUser("u")))
+    app.get("/index", raising(IndexError("i")))
+
+    async with client(app) as http:
+        key = await http.get("/key")
+        mine = await http.get("/mine")
+        index = await http.get("/index")
+
+    assert (key.status_code, mine.status_code, index.status_code) == (404, 404, 400)
+    assert index.json() == {"lookup": "IndexError"}
+
+
+async def test_exception_handler_of_a_base_class_claims_its_subclasses() -> None:
+    app = App()
+    app.add_exception_handler(LookupError, as_bad_request)
+    app.get("/key", raising(KeyError("k")))
+
+    async with client(app) as http:
+        res = await http.get("/key")
+
+    assert (res.status_code, res.json()) == (400, {"lookup": "KeyError"})
+
+
+async def test_exception_handler_claimed_exceptions_are_not_logged_as_unhandled(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = App()
+    app.add_exception_handler(KeyError, as_not_found)
+    app.get("/claimed", raising(KeyError("k")))
+    app.get("/bug", raising(RuntimeError("bug")))
+
+    async with client(app) as http:
+        with caplog.at_level(logging.ERROR, logger="lettia"):
+            await http.get("/claimed")
+            assert caplog.records == []
+            await http.get("/bug")
+
+    [record] = caplog.records
+    assert record.getMessage() == "unhandled exception on GET /bug"
+
+
+async def test_exception_handler_for_http_error_sees_generated_and_raised_errors() -> (
+    None
+):
+    async def via(c: Context, exc: HTTPError) -> Response:
+        return c.json(exc.status, {"via": "custom", "title": exc.title})
+
+    async def denied(c: Context) -> Response:
+        raise Forbidden("no")
+
+    app = App()
+    app.add_exception_handler(HTTPError, via)
+    app.get("/denied", denied)
+    app.get("/only-get", text("ok"))
+
+    async with client(app) as http:
+        missing = await http.get("/nope")
+        wrong = await http.post("/only-get")
+        refused = await http.get("/denied")
+
+    assert [r.status_code for r in (missing, wrong, refused)] == [404, 405, 403]
+    assert all(r.json()["via"] == "custom" for r in (missing, wrong, refused))
+
+
+async def test_exception_handler_failure_is_logged_and_answered_with_a_500(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def broken(c: Context, exc: KeyError) -> Response:
+        raise RuntimeError("handler bug")
+
+    app = App()
+    app.add_exception_handler(KeyError, broken)
+    app.get("/k", raising(KeyError("k")))
+
+    async with client(app) as http:
+        with caplog.at_level(logging.ERROR, logger="lettia"):
+            res = await http.get("/k")
+
+    assert res.status_code == 500
+    assert res.headers["content-type"] == "application/problem+json"
+    assert [r.getMessage() for r in caplog.records] == ["the error handler failed"]
+
+
+async def test_exception_handler_response_still_passes_through_app_middleware() -> None:
+    def stamp(next_: Handler) -> Handler:
+        async def run(c: Context) -> Response:
+            response = await next_(c)
+            response.headers.set("x-stamp", str(response.status))
+            return response
+
+        return run
+
+    app = App()
+    app.use(stamp)
+    app.add_exception_handler(KeyError, as_not_found)
+    app.get("/k", raising(KeyError("k")))
+
+    async with client(app) as http:
+        res = await http.get("/k")
+
+    assert (res.status_code, res.headers["x-stamp"]) == (404, "404")
+
+
+async def test_exception_handler_leaves_the_error_handler_option_in_charge_of_the_rest(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def fallback(c: Context, exc: Exception) -> Response:
+        return c.json(599, {"fallback": type(exc).__name__})
+
+    app = App(error_handler=fallback)
+    app.add_exception_handler(KeyError, as_not_found)
+    app.get("/claimed", raising(KeyError("k")))
+    app.get("/bug", raising(RuntimeError("bug")))
+
+    async with client(app) as http:
+        with caplog.at_level(logging.ERROR, logger="lettia"):
+            claimed = await http.get("/claimed")
+            bug = await http.get("/bug")
+
+    assert claimed.status_code == 404
+    assert (bug.status_code, bug.json()) == (599, {"fallback": "RuntimeError"})
+    assert [r.getMessage() for r in caplog.records] == [
+        "unhandled exception on GET /bug"
+    ]
+
+
+async def test_exception_handler_for_exception_claims_everything_unlogged(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    async def everything(c: Context, exc: Exception) -> Response:
+        return c.json(418, {"seen": type(exc).__name__})
+
+    app = App()
+    app.add_exception_handler(Exception, everything)
+    app.get("/bug", raising(RuntimeError("bug")))
+
+    async with client(app) as http:
+        with caplog.at_level(logging.ERROR, logger="lettia"):
+            res = await http.get("/bug")
+
+    assert (res.status_code, res.json()) == (418, {"seen": "RuntimeError"})
+    assert caplog.records == []
+
+
+def test_exception_handler_cannot_be_registered_twice_for_one_type() -> None:
+    app = App()
+    app.add_exception_handler(KeyError, as_not_found)
+
+    with pytest.raises(ValueError, match="KeyError"):
+        app.add_exception_handler(KeyError, as_not_found)
+
+
+@pytest.mark.parametrize("not_an_exception_class", [int, KeyError("x"), "KeyError"])
+def test_exception_handler_needs_an_exception_class(
+    not_an_exception_class: object,
+) -> None:
+    with pytest.raises(TypeError, match="Exception class"):
+        App().add_exception_handler(not_an_exception_class, as_not_found)  # type: ignore[arg-type]
+
+
+def test_exception_handler_cannot_be_registered_for_a_client_disconnect() -> None:
+    class Gone(ClientDisconnect): ...
+
+    for cls in (ClientDisconnect, Gone):
+        with pytest.raises(ValueError, match="ClientDisconnect"):
+            App().add_exception_handler(cls, as_not_found)  # type: ignore[arg-type]
+
+
+def test_exception_handler_cannot_be_registered_after_the_build() -> None:
+    app = App()
+    app.build()
+
+    with pytest.raises(RuntimeError, match="already built"):
+        app.add_exception_handler(KeyError, as_not_found)
