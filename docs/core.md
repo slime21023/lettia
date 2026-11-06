@@ -130,10 +130,22 @@ Response helpers (all return a new `Response`):
 | `c.text(status, text)` | `text.encode()` body (UTF-8), `content-type: text/plain; charset=utf-8`. |
 | `c.json(status, data)` | `msgspec.json` encoding of `data`, `content-type: application/json`. |
 | `c.no_content()` | `Response(204)`, no body. |
+| `c.redirect(location, status=302)` | Empty response with a `location` header. `status` is 301, 302, 303, 307 or 308 (`ValueError` otherwise, as for an empty location or one with a line break). The location is sent as given: encode non-ASCII characters first. |
 | `c.bytes(status, data, media_type="application/octet-stream")` | Raw bytes with the given `content-type`. |
 | `c.stream(status, chunks, media_type)` | `chunks` is an `AsyncIterator[bytes]`; `content-type` set to `media_type`. |
 
 `Response(status=200, body=None, headers=None, *, after_send=None, watch_disconnect=False)`: `status` must be in 100..599 (`ValueError` otherwise); `body` is `bytes`, an `AsyncIterator[bytes]` or `None`; `headers` is a `MutableHeaders`; `after_send` is an optional callback, see [After the response is sent](#after-the-response-is-sent); `watch_disconnect` opts a streamed body into [disconnect monitoring](#watching-for-a-disconnect). Attributes `status`, `body`, `headers`, `after_send` and `watch_disconnect` are plain and mutable.
+
+### Cookies
+
+```python
+response.set_cookie("theme", "dark", max_age=3600, secure=True)
+response.delete_cookie("theme")
+```
+
+`response.set_cookie(name, value, *, max_age=None, expires=None, path="/", domain=None, secure=False, httponly=True, samesite="lax")` appends one `Set-Cookie` header and keeps the cookies already set. `HttpOnly` and `SameSite=Lax` are on by default; pass `secure=True` outside local development (`samesite="none"` requires it, and `samesite=None` omits the attribute). `expires` must be a timezone-aware `datetime`. The value is written as given, so it must consist of cookie-safe characters (no whitespace, quotes, commas, semicolons or backslashes): encode anything else, for example with `urllib.parse.quote`. A name, value, path or domain that is invalid, a name that reads like an attribute (`Path`, `Secure`), a `__Secure-`/`__Host-` name without the attributes it demands, and a cookie over 4096 bytes raise `ValueError` and add nothing.
+
+`response.delete_cookie(name, *, path="/", domain=None, secure=False, httponly=True, samesite="lax")` sends an expired empty cookie. `path` and `domain` must match the ones the cookie was set with, or the browser keeps it.
 
 Serialization by the ASGI adapter:
 
@@ -490,6 +502,29 @@ uvicorn main:app
 ```
 
 Uvicorn sends the lifespan scope, so startup checks run before the server accepts connections, and a `StartupError` makes the server exit. `app` can also be wrapped by other ASGI middleware, since it follows the standard `(scope, receive, send)` interface.
+
+### Wrapping with ASGI middleware
+
+Compression, host checks and HTTPS redirects belong in front of the app, and any ASGI middleware can provide them. This example uses Starlette's, which Lettia does not depend on; install it yourself:
+
+```python
+from starlette.middleware.gzip import GZipMiddleware
+from starlette.middleware.httpsredirect import HTTPSRedirectMiddleware
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+
+application = GZipMiddleware(app, minimum_size=1000)
+application = TrustedHostMiddleware(application, allowed_hosts=["api.example.com"])
+application = HTTPSRedirectMiddleware(application)  # outermost: runs first
+```
+
+```text
+uvicorn main:application
+```
+
+- Serve `application`, not `app`. The lifespan scope passes through, so the startup checks still run.
+- Starlette's `GZipMiddleware` skips `text/event-stream` by default, which an SSE stream needs: compressing it would hold the events back. Keep that exclusion with any other compressor.
+- Behind a reverse proxy the proxy usually terminates TLS and checks the host; do the redirect or the check there instead, and tell the server which proxies to trust (for uvicorn `--proxy-headers` and `--forwarded-allow-ips`).
+- `TestClient` takes the `App` itself, so tests exercise `app`, not the wrapper.
 
 ## See also
 

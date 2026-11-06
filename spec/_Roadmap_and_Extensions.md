@@ -159,6 +159,7 @@ WebSocket 屬於 ASGI 規範核心協定，已直接在 `lettia.core` 與 `letti
 - **v0.4.0 (已釋出)**：背景任務改為回應成功傳送後才啟動（`Response(after_send=...)`），並補齊 WebSocket Origin 檢查、Problem 回應與 group middleware 限制等文件。
 - **v0.5.0 (已釋出)**：`lettia.extensions.docs`（Swagger UI / Scalar / Redoc 互動文件，含主題、favicon 與離線資產）、`lettia.extensions.sse`（Server-Sent Events 與 `EventStream[T]`、`Response(watch_disconnect=True)`）、`lettia.extensions.sessions`（簽署 Cookie session）與 `lettia.extensions.ratelimit`（單進程記憶體限流）。
 - **v0.5.1 (已釋出)**：單一路由與單一合約操作的 middleware：Core 的 `route/get/post/…(…, middleware=[...])`，以及 `mount(impl, middleware={Api.login: [...]})`（以合約方法為鍵，於 Guard 之前執行，不進入合約本身）。
+- **v0.5.2 (已釋出)**：合約回應類別 `Accepted`、`BadRequest`、`Conflict` 與五種轉址；Core 的 `Context.redirect()`、`Response.set_cookie()`、`Response.delete_cookie()`；壓縮、主機檢查與 HTTPS 轉址的文件配方；`Container.wire` 轉傳 `middleware=`。
 - **尚未排程**：僅第 4.3 節的兩項 Backlog（ASGI-to-Lettia 適配輔助函式、串流回應體轉換 helper）。
 
 ---
@@ -167,7 +168,7 @@ WebSocket 屬於 ASGI 規範核心協定，已直接在 `lettia.core` 與 `letti
 
 依對開發體驗的影響排序。三個版本都只新增 API，不改既有行為；每版各自完成驗證後才釋出。
 
-### 7.1 v0.5.2：常用回應與輔助函式
+### 7.1 v0.5.2（已釋出）：常用回應與輔助函式
 - **回應類別（`lettia.contract`）**：`Accepted[T]`（202）、`BadRequest[T]`（400）、`Conflict[T]`（409），以及五種轉址 `MovedPermanently`（301）、`Found`（302）、`SeeOther`（303）、`TemporaryRedirect`（307）、`PermanentRedirect`（308）。轉址類別沒有 body，必填 `Location` 標頭欄位。只收這一組；其他狀態碼仍以 `Reply` 子類別自訂。
 - **Core 輔助函式**：`Context.redirect(location, status=302)`；`Response.set_cookie(...)` 與 `Response.delete_cookie(...)`，預設 `HttpOnly`、`SameSite=Lax`，名稱、值與屬性驗證以防標頭注入。
 - **文件配方**：外層 ASGI 壓縮（SSE 須排除）、主機檢查與 HTTPS 轉址的做法。

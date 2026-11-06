@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-11-06
+
+### Added
+- Contract response classes `Accepted[T]` (202), `BadRequest[T]` (400), `Conflict[T]` (409) and the redirects `MovedPermanently` (301), `Found` (302), `SeeOther` (303), `TemporaryRedirect` (307) and `PermanentRedirect` (308). A redirect takes its `location` as the required `Location` header and has no body; OpenAPI lists the status, its reason and the header.
+- `Context.redirect(location, status=302)` for Core handlers; a status other than 301, 302, 303, 307 or 308, an empty location or one with a line break is a `ValueError`.
+- `Response.set_cookie(...)` and `Response.delete_cookie(...)`: `HttpOnly` and `SameSite=Lax` by default, several cookies side by side, validation of name, value, path and domain against header injection, the `__Secure-` and `__Host-` rules, and a refusal of cookies browsers would drop (over 4096 bytes).
+- `Container.wire(app, services, *, middleware=None)` forwards the `mount(middleware=...)` mapping to the service that implements each contract method; an entry no wired service implements is a startup problem.
+- Documentation for putting compression, host checks and HTTPS redirects in front of the app as ASGI middleware, including keeping server-sent events out of compression.
+
+### Changed
+- `lettia.extensions.sessions` writes its cookie with the new Core serializer instead of `http.cookies`; the cookie has the same meaning, with the attributes in a fixed order, and a cookie over 4096 bytes is refused with a `ValueError` from the serializer.
+- Bumped version to `0.5.2`.
+
 ## [0.5.1] - 2026-11-06
 
 ### Added

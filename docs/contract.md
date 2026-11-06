@@ -251,8 +251,12 @@ Handlers return instances of response classes, all `msgspec.Struct`s deriving fr
 | --- | --- | --- |
 | `Ok[T]` | 200 | `body: T` |
 | `Created[T]` | 201 | `body: T` |
+| `Accepted[T]` | 202 | `body: T` |
 | `NoContent` | 204 | none |
+| `MovedPermanently`, `Found`, `SeeOther`, `TemporaryRedirect`, `PermanentRedirect` | 301, 302, 303, 307, 308 | `location: str`, sent as the required `Location` header; no body |
+| `BadRequest[T]` | 400 | `body: T` |
 | `NotFound[T]` | 404 | `body: T` |
+| `Conflict[T]` | 409 | `body: T` |
 | `Reply` | none | base class; cannot be returned itself |
 
 `body` is the first positional argument: `Ok(user)`, `NotFound(Problem(title="user not found"))`. `Problem` is a plain Struct (`title: str`, `detail: str | None = None`), not a `Reply`; it is the usual `T` of `NotFound[Problem]`. It is encoded as ordinary JSON with the `application/json` content type (`{"title": "...", "detail": null}`), unlike the `application/problem+json` documents Core produces for errors; [Media type](#media-type) shows how to change that.
@@ -267,11 +271,15 @@ Subclass `Reply` and set `status`:
 from lettia import Reply
 
 
-class Accepted(Reply):
-    status = 202
+class Gone(Reply):
+    status = 410
 ```
 
 Add a `body: T` field for a body. A response class may have only the `body` field plus header fields.
+
+### Redirects
+
+The five redirect classes take the target as their one argument: `Found("/login")` or `Found(location="/login")`. The target is sent as given, so percent-encode non-ASCII characters first. A `None` location is a `RuntimeError`, not a redirect without a target. `Found` and `SeeOther` suit a redirect after a form or login, `TemporaryRedirect` and `PermanentRedirect` keep the request method. The OpenAPI document lists the status with a required `Location` header and no body.
 
 ### Response headers
 
