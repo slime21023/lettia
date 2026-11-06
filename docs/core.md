@@ -355,7 +355,7 @@ Configuration goes in a factory that returns the middleware (this is how `cors`,
 
 ### Error conversion
 
-Exceptions raised by a handler or middleware are turned into responses by the app's error handler at the layer where they occur. If an error handler itself raises, the error is logged (`lettia` logger) and a plain `500 Internal Server Error` problem response is returned. Non-`HTTPError` exceptions are logged with traceback by the `lettia` logger (`"unhandled exception on METHOD PATH"`) before the handler runs.
+Exceptions raised by a handler or middleware are turned into responses by the app's error handler at the layer where they occur. If an error handler itself raises, the error is logged (`lettia` logger) and a plain `500 Internal Server Error` problem response is returned. Non-`HTTPError` exceptions are logged with traceback by the `lettia` logger (`"unhandled exception on METHOD PATH"`) before the handler runs, unless a [registered exception handler](#exception-handlers-by-type) claims them.
 
 ## Built-in middleware
 
@@ -463,6 +463,28 @@ app = App(error_handler=on_error)
 ```
 
 The handler sees every `Exception` (including generated 404/405 `HTTPError`s) except `ClientDisconnect`. It replaces the default handler entirely, so handle `HTTPError` yourself if you want its status and headers honored.
+
+### Exception handlers by type
+
+```python
+from lettia.core import App, Context, Response
+
+async def on_missing(c: Context, exc: KeyError) -> Response:
+    return c.json(404, {"title": "Not Found", "detail": str(exc)})
+
+app = App()
+app.add_exception_handler(KeyError, on_missing)
+```
+
+`app.add_exception_handler(exc_type, handler)` answers exceptions of `exc_type` and its subclasses with `handler`, an `async (Context, exc) -> Response` whose second parameter can be annotated with `exc_type`. The rest keeps going to the default handler (or to `error_handler=`), so a custom mapping for one exception does not mean rewriting the handling of `HTTPError`.
+
+- **The most specific class wins.** Along the exception's MRO the first registered class is used: a handler for `KeyError` beats one for `LookupError`, which in turn handles every other `LookupError`.
+- **A claimed exception is not logged by Core.** There is no `unhandled exception` record and no traceback; log inside the handler when you want one. Exceptions nobody claims are logged as before, whichever handler answers them.
+- **`HTTPError` can be registered too.** The handler then answers every `HTTPError`: the generated 404 and 405, the 401 and 403 of guards, 413 and 422. Look at `exc.status` to tell them apart.
+- **`Exception` claims everything**, so no unhandled exception is logged any more. Prefer `error_handler=` for a catch-all.
+- The response goes through the middleware around the route like any other. A handler that raises is logged (`the error handler failed`) and answered with a plain 500.
+- Registering the same class twice, something that is not an `Exception` subclass, or `ClientDisconnect` (it is never turned into a response) is an error (`ValueError` or `TypeError`); registering after the app was built raises `RuntimeError`.
+- WebSocket routes keep their own handling (the connection closes with 1011), and the OpenAPI document does not change.
 
 ## Lifecycle
 

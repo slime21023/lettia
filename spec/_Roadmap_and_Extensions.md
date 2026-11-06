@@ -162,6 +162,7 @@ WebSocket 屬於 ASGI 規範核心協定，已直接在 `lettia.core` 與 `letti
 - **v0.5.2 (已釋出)**：合約回應類別 `Accepted`、`BadRequest`、`Conflict` 與五種轉址；Core 的 `Context.redirect()`、`Response.set_cookie()`、`Response.delete_cookie()`；壓縮、主機檢查與 HTTPS 轉址的文件配方；`Container.wire` 轉傳 `middleware=`。
 - **v0.5.3 (已釋出)**：`SessionMiddleware.read(head)`（供合約 Guard 使用的唯讀 session 讀取函式）與 Cookie 型安全方案 `ApiKeyCookie`（OpenAPI `apiKey`、`in: cookie`）。
 - **v0.5.4 (已釋出)**：Request 網址資訊：`RequestHead` 的 `scheme`、`host`、`base_url`、`url`，以及選用的 `App(allowed_hosts=[...])`；轉發標頭由 server 改寫 scope，Lettia 不讀 `X-Forwarded-*`。
+- **v0.5.5 (已釋出)**：`app.add_exception_handler(exc_type, handler)`：依例外類型註冊 handler（最具體的類別優先），被認領的例外不再記 `unhandled exception`；未被認領的仍走 `error_handler=` 或預設。
 - **尚未排程**：僅第 4.3 節的兩項 Backlog（ASGI-to-Lettia 適配輔助函式、串流回應體轉換 helper）。
 
 ---
@@ -186,7 +187,7 @@ WebSocket 屬於 ASGI 規範核心協定，已直接在 `lettia.core` 與 `letti
 - **Host 驗證**：`App(allowed_hosts=[...])`，支援精確名稱、`*.example.com` 與 `*`；預設 `None`（不檢查，文件明確警告 Host header injection）。設定後，`host` / `base_url` / `url` 遇到不在清單內的 Host 拋 `HTTPError(400)`，只在使用這些屬性時檢查，直接讀 `headers["host"]` 不受保護。WebSocket Guard 的 `RequestHead` 提供值但不做此檢查，文件寫明。
 - **相容性**：`RequestHead` / `Request` 新增的建構參數皆為選用，既有呼叫不需修改。
 
-### 7.4 v0.5.5：依例外類型註冊 handler
+### 7.4 v0.5.5（已釋出）：依例外類型註冊 handler
 - **API**：`app.add_exception_handler(exc_type, handler)`，只提供這個方法（與 `add_startup_check` 一致，擴充套件也能註冊）。簽名帶泛型 `[E: Exception]`，handler 為 `async (Context, E) -> Response`，可標註精確的例外型別。
 - **解析順序**：沿例外類別的 MRO 找已註冊的 handler，最具體的類別優先；找不到才用 `error_handler=`（或預設），其語意不變。`default_error_handler` 不需匯出：只註冊需要的型別，其餘維持預設。
 - **記錄**：已註冊型別的例外視為已處理，框架不記 `unhandled exception` 與 traceback，由 handler 自行決定是否記錄；未被認領的非 `HTTPError` 例外維持原有的 ERROR 記錄；`error_handler=` 的現有行為不變。

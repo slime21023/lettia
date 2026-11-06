@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-11-06
+
+### Added
+- `app.add_exception_handler(exc_type, handler)`: answers exceptions of `exc_type` and its subclasses with `handler`, an `async (Context, exc) -> Response` whose `exc` can be annotated with `exc_type`. The most specific registered class wins, and an exception no handler claims still goes to `error_handler=` or the default handler, so one custom mapping no longer means rewriting the handling of `HTTPError`. Registering the same class twice, a class that is not an `Exception`, or `ClientDisconnect` is an error, and so is registering after the app was built.
+
+### Changed
+- An exception that a registered handler claims is no longer logged as `unhandled exception`, with a traceback; log it in the handler if you want a record. Apps that register no handler see no change, and exceptions nobody claims are logged as before.
+- Bumped version to `0.5.5`.
+
 ## [0.5.4] - 2026-11-06
 
 ### Added
