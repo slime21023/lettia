@@ -180,7 +180,10 @@ WebSocket 屬於 ASGI 規範核心協定，已直接在 `lettia.core` 與 `letti
 - 新增 Cookie 型安全方案 `ApiKeyCookie`，OpenAPI 表達為 `apiKey`、`in: cookie`。
 
 ### 7.3 v0.5.4：Request 網址資訊
-- `scheme`、`host`、`url`、`base_url`，搭配明確的信任代理設定；預設不採用轉發標頭。設定方式於該版開始前另行設計。
+- **屬性（`RequestHead` 的唯讀字串屬性，惰性計算並快取）**：`scheme`（取自 ASGI scope，HTTP 為 `http` / `https`，WebSocket Guard 為 `ws` / `wss`，缺少時為 `http`）、`host`（`Host` 標頭轉小寫並保留 port；標頭缺少或格式不合法時退回 scope 的 `server`，Unix socket 退回 `localhost`）、`base_url`（`{scheme}://{host}/`）、`url`（`{scheme}://{host}` 加 `raw_path` 原編碼與查詢字串）。不處理 `root_path`，也不提供 `url_for`。
+- **信任模型**：Lettia 不讀任何 `Forwarded` / `X-Forwarded-*`。`scheme` 與 `client` 一律來自 scope，在 proxy 後面時由 server 改寫 scope（uvicorn 內建 `--proxy-headers` 與 `--forwarded-allow-ips`，只改寫 `client` 與 `scheme`，不動 `Host`；hypercorn 另包 `ProxyFixMiddleware`）。信任設定只在 server 一處；文件寫出做法。
+- **Host 驗證**：`App(allowed_hosts=[...])`，支援精確名稱、`*.example.com` 與 `*`；預設 `None`（不檢查，文件明確警告 Host header injection）。設定後，`host` / `base_url` / `url` 遇到不在清單內的 Host 拋 `HTTPError(400)`，只在使用這些屬性時檢查，直接讀 `headers["host"]` 不受保護。WebSocket Guard 的 `RequestHead` 提供值但不做此檢查，文件寫明。
+- **相容性**：`RequestHead` / `Request` 新增的建構參數皆為選用，既有呼叫不需修改。
 
 ### 7.4 尚未排程
 - 依例外類型註冊 handler、結尾斜線的可選轉址、掛載子 ASGI 應用（`Mount`）、`TestClient` 接受外層包過 middleware 的 app。
