@@ -5,7 +5,8 @@ import pytest
 import rodi
 
 from lettia import App, Context, NoContent, Ok, op, public
-from lettia.core import StartupError
+from lettia.core import Context as CoreContext
+from lettia.core import Handler, Response, StartupError
 from lettia.extensions.di import (
     SCOPE_KEY,
     Container,
@@ -543,3 +544,58 @@ def test_a_bare_injected_annotation_with_a_descriptor_value_has_no_type() -> Non
         db: Injected = Injected()  # pyrefly: ignore[implicit-any-type-argument]
 
     assert Service.db.service_type is None
+
+
+def _stamp(next_: Handler) -> Handler:
+    async def run(c: CoreContext) -> Response:
+        response = await next_(c)
+        response.headers.set("x-stamped", "1")
+        return response
+
+    return run
+
+
+class _PingApi(Protocol):
+    @op.get("/ping", guard=public)
+    async def ping(self, c: Context[None], req: None) -> NoContent: ...
+
+
+class _PingService(_PingApi):
+    async def ping(self, c: Context[None], req: None) -> NoContent:
+        return NoContent()
+
+
+async def test_wire_gives_middleware_to_the_service_that_implements_the_method() -> (
+    None
+):
+    container = Container()
+    container.add_singleton(AppConfig, AppConfig(env="x"))
+    app = App()
+    app.use(DIMiddleware(container))
+
+    container.wire(
+        app,
+        [UserService, _PingService],
+        middleware={UserApi.get_env: [_stamp]},
+    )
+
+    async with TestClient(app) as client:
+        env = await client.get("/env")
+        ping = await client.get("/ping")
+
+    assert env.headers["x-stamped"] == "1"
+    assert "x-stamped" not in ping.headers
+
+
+def test_wire_reports_middleware_for_a_method_no_wired_service_implements() -> None:
+    container = Container()
+    container.add_singleton(AppConfig, AppConfig(env="x"))
+    app = App()
+
+    container.wire(app, [UserService], middleware={_PingApi.ping: [_stamp]})
+
+    with pytest.raises(StartupError) as caught:
+        app.build()
+
+    assert "_PingApi.ping" in str(caught.value)
+    assert "not an operation" in str(caught.value)

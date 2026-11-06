@@ -9,7 +9,7 @@ from typing import Any, Self, cast, override
 
 import rodi
 
-from lettia.contract.mount import MountTarget, mount
+from lettia.contract.mount import MountTarget, OperationMiddleware, contracts_of, mount
 from lettia.extensions.di.descriptor import Injected
 
 
@@ -37,8 +37,18 @@ class Container(rodi.Container):
         super().add_singleton(base_type, concrete_type)
         return self
 
-    def wire(self, app: MountTarget, services: Sequence[type]) -> None:
+    def wire(
+        self,
+        app: MountTarget,
+        services: Sequence[type],
+        *,
+        middleware: OperationMiddleware | None = None,
+    ) -> None:
         """Bind Injected descriptors, resolve services, and mount into App.
+
+        ``middleware`` is the mapping of ``mount(..., middleware=...)``: each
+        entry goes to the service that implements that contract method, and an
+        entry no service implements is a startup problem.
 
         A service is built once and shared by every request, so its constructor
         may only depend on singletons and transients. A scoped dependency would be
@@ -47,10 +57,31 @@ class Container(rodi.Container):
         a dependency as ``Injected[T]``. The check stops resolution before the
         scoped dependency is created, so no factory runs.
         """
+        wanted = middleware or {}
+        claimed: set[int] = set()
+        owned: dict[type, OperationMiddleware] = {}
         for service_cls in services:
+            # Class attributes are not all hashable, so compare by identity.
+            members = {
+                id(member)
+                for contract in contracts_of(service_cls)
+                for member in vars(contract).values()
+            }
+            owned[service_cls] = {
+                key: value for key, value in wanted.items() if id(key) in members
+            }
+            claimed.update(id(key) for key in owned[service_cls])
             self._bind_injected_descriptors(service_cls)
             if service_cls not in self._map:
                 self.register(service_cls)
+        for key in wanted:
+            if id(key) not in claimed:
+                name = getattr(key, "__qualname__", repr(key))
+                app.add_startup_problem(
+                    f"middleware is set for {name}, which is not an operation of "
+                    "a contract implemented by the wired services; key the "
+                    "mapping by the contract method (for example Api.login)"
+                )
 
         provider = self.build_provider()
         for service_cls in services:
@@ -68,7 +99,7 @@ class Container(rodi.Container):
                 continue
             finally:
                 scope.dispose()  # type: ignore[no-untyped-call]
-            mount(app, instance)
+            mount(app, instance, middleware=owned[service_cls])
 
     @staticmethod
     def _bind_injected_descriptors(target_cls: type) -> None:

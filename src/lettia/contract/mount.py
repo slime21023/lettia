@@ -133,7 +133,7 @@ def mount(
     registry = contract_registry(target)
     active_codec = codec or registry.codec
     implementation_type = type(implementation)
-    contracts = _contracts_of(implementation_type)
+    contracts = contracts_of(implementation_type)
     if not contracts:
         target.add_startup_problem(
             f"{implementation_type.__qualname__} does not implement any contract "
@@ -202,7 +202,7 @@ def mount(
         )
 
 
-def _contracts_of(cls: type) -> list[type]:
+def contracts_of(cls: type) -> list[type]:
     """Classes in ``cls``'s MRO that declare ``op`` methods, most derived first."""
     return [
         base
