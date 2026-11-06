@@ -25,6 +25,7 @@ App(
     error_handler: ErrorHandler | None = None,
     context_class: type[Context] = Context,
     max_body_size: int | None = 5 * 1024 * 1024,
+    allowed_hosts: Sequence[str] | None = None,
 )
 ```
 
@@ -34,6 +35,7 @@ App(
 | `error_handler` | default handler | `async (Context, Exception) -> Response`. Replaces the default handler (see [Errors](#errors)). When given, `debug` no longer affects error rendering. |
 | `context_class` | `Context` | Class instantiated per request as `context_class(request)`. |
 | `max_body_size` | 5 MiB (5242880) | Largest request body in bytes. `None` disables the limit. |
+| `allowed_hosts` | `None` | Host names the app answers to, for [`request.host`, `url` and `base_url`](#url-scheme-and-host). `None` checks nothing. An invalid pattern or an empty list is a `ValueError`. |
 
 An `App` is an ASGI 3 callable: `await app(scope, receive, send)`. It handles `http`, `websocket` and `lifespan` scopes; any other scope type raises `NotImplementedError`. WebSocket handling is described in [websocket.md](websocket.md).
 
@@ -224,6 +226,9 @@ async def me(c):
 | `headers` | `Headers` | Parsed lazily, cached. |
 | `query` | `QueryParams` | Parsed lazily, cached. |
 | `cookies` | `Mapping[str, str]` | Parsed lazily from all `Cookie` headers, cached. |
+| `scheme` | `str` | `http` or `https` (`ws` / `wss` for a WebSocket guard), from the ASGI scope. |
+| `host` | `str` | The `Host` header, see [URL, scheme and host](#url-scheme-and-host). |
+| `base_url`, `url` | `str` | `{scheme}://{host}/` and the full requested URL. |
 
 ```python
 async def info(c: Context) -> Response:
@@ -279,6 +284,43 @@ Names must be HTTP tokens and values must not contain `\r` or `\n`; otherwise `s
 ### Cookies
 
 `request.cookies` is a plain dict. All `Cookie` headers are split on `;`; pieces without `=` or without a name are ignored; surrounding double quotes on a value are removed; the first value of a repeated name wins. Cookie values are not percent-decoded.
+
+### URL, scheme and host
+
+```python
+async def where(c: Context) -> Response:
+    r = c.request
+    return c.json(200, {"scheme": r.scheme, "host": r.host, "url": r.url})
+# GET https://api.example.com:8443/items/a%2Fb?page=2
+# {"scheme": "https", "host": "api.example.com:8443",
+#  "url": "https://api.example.com:8443/items/a%2Fb?page=2"}
+```
+
+| Attribute | Value |
+|---|---|
+| `scheme` | The scope's `scheme`; `http` when it has none. |
+| `host` | The `Host` header in lower case, port included when sent. A missing or malformed header (spaces, `/`, `@`, a bad port) falls back to the address the server listens on, written without the port when it is the default of the scheme; a Unix socket or an unknown address gives `localhost`. |
+| `base_url` | `{scheme}://{host}/`. |
+| `url` | `{scheme}://{host}`, the raw path exactly as received (`%2F` stays encoded) and `?` plus the query string when there is one. |
+
+`root_path` is not part of any of them, and there is no `url_for`.
+
+**Behind a proxy.** Lettia never reads `Forwarded` or `X-Forwarded-*`. `scheme` and `client` come from the ASGI scope, so let the server rewrite the scope for a proxy you trust:
+
+- uvicorn does it by default for `X-Forwarded-Proto` and `X-Forwarded-For`, but only when the connection comes from `127.0.0.1` or `::1`; name your proxy with `--forwarded-allow-ips` (or `FORWARDED_ALLOW_IPS`). It rewrites only `client` and `scheme`: `Host` and `X-Forwarded-Host` are left alone, so make the proxy pass the public `Host` through.
+- hypercorn needs `hypercorn.middleware.ProxyFixMiddleware` around the app, with `trusted_hops` set to the number of proxies in front. It also takes `X-Forwarded-Host` into account.
+- Other servers: see their own proxy-header options.
+
+**The `Host` header is chosen by the client.** Do not put `request.url` or `base_url` into a password-reset mail, a `Location` header or any other link people will follow unless the host was checked: an attacker can send any `Host` to a server that does not verify it. Pass `allowed_hosts` to the app:
+
+```python
+app = App(allowed_hosts=["api.example.com", "*.example.com"])
+```
+
+- A pattern is an exact name (`api.example.com`, `[::1]`), `*.example.com` for any subdomain (not the bare domain), or `*` for every host (an explicit way to switch the check off). Case and the port are ignored; a pattern with a port, a scheme or a path is a `ValueError`.
+- A request whose host is not allowed gets `400` (problem+json) when its code reads `host`, `base_url` or `url`. Nothing else is checked: a route that never reads them, and any code that reads `request.headers["host"]` directly, still sees the raw header. The fallback address is judged too.
+- Without `allowed_hosts` the host is not checked at all.
+- WebSocket guards get `scheme` and `host` values, but the allow-list is not applied to them. Keep an explicit `Origin` allow-list there (see [websocket.md](websocket.md#security)).
 
 ## Middleware
 

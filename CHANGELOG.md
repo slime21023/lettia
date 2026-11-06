@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.4] - 2026-11-06
+
+### Added
+- `scheme`, `host`, `base_url` and `url` on `RequestHead` (so on `c.request` and on a guard's head). `scheme` comes from the ASGI scope; `host` is the `Host` header in lower case with its port, falling back to the address the server listens on when the header is missing or malformed (`localhost` for a Unix socket); `url` keeps the raw path and the query string as received. `root_path` is not part of them.
+- `App(allowed_hosts=[...])`: exact names, `*.example.com` and `*`. When set, reading `host`, `base_url` or `url` for a host that is not allowed raises `HTTPError(400)`. It is off by default; the `Host` header is chosen by the client, so check it before using it in links people will follow. WebSocket guards get the values without the check.
+- `make_context(..., scheme="http")` for testing handlers that read the URL.
+- Documentation of how to run behind a proxy: Lettia never reads `Forwarded` or `X-Forwarded-*`; configure the server (uvicorn `--forwarded-allow-ips`, hypercorn `ProxyFixMiddleware`) so that it rewrites the scope.
+
+### Changed
+- Bumped version to `0.5.4`.
+
 ## [0.5.3] - 2026-11-06
 
 ### Added

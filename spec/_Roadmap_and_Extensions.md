@@ -161,6 +161,7 @@ WebSocket 屬於 ASGI 規範核心協定，已直接在 `lettia.core` 與 `letti
 - **v0.5.1 (已釋出)**：單一路由與單一合約操作的 middleware：Core 的 `route/get/post/…(…, middleware=[...])`，以及 `mount(impl, middleware={Api.login: [...]})`（以合約方法為鍵，於 Guard 之前執行，不進入合約本身）。
 - **v0.5.2 (已釋出)**：合約回應類別 `Accepted`、`BadRequest`、`Conflict` 與五種轉址；Core 的 `Context.redirect()`、`Response.set_cookie()`、`Response.delete_cookie()`；壓縮、主機檢查與 HTTPS 轉址的文件配方；`Container.wire` 轉傳 `middleware=`。
 - **v0.5.3 (已釋出)**：`SessionMiddleware.read(head)`（供合約 Guard 使用的唯讀 session 讀取函式）與 Cookie 型安全方案 `ApiKeyCookie`（OpenAPI `apiKey`、`in: cookie`）。
+- **v0.5.4 (已釋出)**：Request 網址資訊：`RequestHead` 的 `scheme`、`host`、`base_url`、`url`，以及選用的 `App(allowed_hosts=[...])`；轉發標頭由 server 改寫 scope，Lettia 不讀 `X-Forwarded-*`。
 - **尚未排程**：僅第 4.3 節的兩項 Backlog（ASGI-to-Lettia 適配輔助函式、串流回應體轉換 helper）。
 
 ---
@@ -179,7 +180,7 @@ WebSocket 屬於 ASGI 規範核心協定，已直接在 `lettia.core` 與 `letti
 - `SessionMiddleware.read(head)`：從 `RequestHead` 解 Cookie 的唯讀讀取函式，不寫入、不提交，供 Guard 驗證身分。
 - 新增 Cookie 型安全方案 `ApiKeyCookie`，OpenAPI 表達為 `apiKey`、`in: cookie`。
 
-### 7.3 v0.5.4：Request 網址資訊
+### 7.3 v0.5.4（已釋出）：Request 網址資訊
 - **屬性（`RequestHead` 的唯讀字串屬性，惰性計算並快取）**：`scheme`（取自 ASGI scope，HTTP 為 `http` / `https`，WebSocket Guard 為 `ws` / `wss`，缺少時為 `http`）、`host`（`Host` 標頭轉小寫並保留 port；標頭缺少或格式不合法時退回 scope 的 `server`，Unix socket 退回 `localhost`）、`base_url`（`{scheme}://{host}/`）、`url`（`{scheme}://{host}` 加 `raw_path` 原編碼與查詢字串）。不處理 `root_path`，也不提供 `url_for`。
 - **信任模型**：Lettia 不讀任何 `Forwarded` / `X-Forwarded-*`。`scheme` 與 `client` 一律來自 scope，在 proxy 後面時由 server 改寫 scope（uvicorn 內建 `--proxy-headers` 與 `--forwarded-allow-ips`，只改寫 `client` 與 `scheme`，不動 `Host`；hypercorn 另包 `ProxyFixMiddleware`）。信任設定只在 server 一處；文件寫出做法。
 - **Host 驗證**：`App(allowed_hosts=[...])`，支援精確名稱、`*.example.com` 與 `*`；預設 `None`（不檢查，文件明確警告 Host header injection）。設定後，`host` / `base_url` / `url` 遇到不在清單內的 Host 拋 `HTTPError(400)`，只在使用這些屬性時檢查，直接讀 `headers["host"]` 不受保護。WebSocket Guard 的 `RequestHead` 提供值但不做此檢查，文件寫明。

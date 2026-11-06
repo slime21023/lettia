@@ -29,7 +29,7 @@ with no decorator. Without it, mark tests with `@pytest.mark.asyncio`.
 
 ```python
 make_context(principal=None, *, method="GET", path="/", headers=None,
-             query="", body=b"", path_params=None) -> Context[G]
+             query="", body=b"", path_params=None, scheme="http") -> Context[G]
 ```
 
 | Parameter | Type | Default | Meaning |
@@ -41,6 +41,7 @@ make_context(principal=None, *, method="GET", path="/", headers=None,
 | `query` | `str` | `""` | Raw query string, without `?`. |
 | `body` | `bytes` | `b""` | Served from memory; `await c.request.body()` returns it. |
 | `path_params` | `Mapping[str, str] \| None` | `None` | Copied into `c.path_params`. |
+| `scheme` | `str` | `"http"` | What `c.request.scheme` and `url` report; set the host with a `host` header. |
 
 The request has no body-size limit (`max_body_size=None`) and no ASGI scope is
 involved. Nothing is mounted: no guard runs, no middleware, no decoding. The

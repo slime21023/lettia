@@ -276,6 +276,7 @@ async def chat(ws: WebSocket) -> None:
 
 - Match the origin exactly against an allowlist of `scheme://host[:port]`. A missing `Origin`, more than one `Origin` header, `null` and anything not in the list is denied. Do not match by substring or suffix.
 - This recipe is for endpoints used from browsers. Browsers always send `Origin` on a handshake; other clients may not, and a non-browser client can send any value, so the check never replaces authentication. Give non-browser clients their own authenticated endpoint.
+- The guard's `RequestHead` has `scheme` (`ws` or `wss`) and `host`, but `allowed_hosts` is not applied to them and the `Host` header is chosen by the client. Do not build the origin allow-list from `host`; keep the explicit list.
 - Prefer a header or the first message for tokens. A token in the query string appears in server and proxy logs.
 
 ## Testing
