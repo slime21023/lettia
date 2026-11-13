@@ -31,7 +31,7 @@ lettia is a contract-first ASGI framework for Python >= 3.12. You declare an HTT
 
 `lettia.__all__` is exactly:
 
-`ApiKeyHeader`, `App`, `Body`, `Context`, `Cookie`, `Created`, `File`, `Form`, `Group`, `GuardSpec`, `Header`, `HeaderName`, `HttpBearer`, `Key`, `NoContent`, `NotFound`, `Ok`, `Path`, `Problem`, `Query`, `Reply`, `RequestHead`, `UploadFile`, `WebSocket`, `WebSocketDisconnect`, `WebSocketError`, `op`, `public`.
+`Accepted`, `ApiKeyCookie`, `ApiKeyHeader`, `App`, `BadRequest`, `Body`, `Conflict`, `Context`, `Cookie`, `Created`, `File`, `Form`, `Found`, `Group`, `GuardSpec`, `Header`, `HeaderName`, `HttpBearer`, `Key`, `MovedPermanently`, `NoContent`, `NotFound`, `Ok`, `Path`, `PermanentRedirect`, `Problem`, `Query`, `Reply`, `RequestHead`, `SeeOther`, `TemporaryRedirect`, `UploadFile`, `WebSocket`, `WebSocketDisconnect`, `WebSocketError`, `op`, `public`.
 
 They are resolved lazily on first attribute access, so `import lettia` alone loads no submodule.
 

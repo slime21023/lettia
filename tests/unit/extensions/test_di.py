@@ -366,9 +366,21 @@ class StringAnnotatedService(SessionApi):
         return Ok(id(self.db) + id(self.cache))
 
 
+class StringAnnotatedDescriptorService(SessionApi):
+    db: "Injected[AsyncDatabaseSession]" = Injected()
+
+    async def session(self, c: Context[None], req: None) -> Ok[int]:
+        return Ok(id(self.db))
+
+
 @pytest.mark.parametrize(
     "service",
-    [FrozenDataclassService, InheritedFieldService, StringAnnotatedService],
+    [
+        FrozenDataclassService,
+        InheritedFieldService,
+        StringAnnotatedService,
+        StringAnnotatedDescriptorService,
+    ],
 )
 @pytest.mark.asyncio
 async def test_injected_declaration_forms_resolve_one_scoped_object_per_request(

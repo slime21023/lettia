@@ -114,12 +114,17 @@ class Container(rodi.Container):
             if klass is object:
                 continue
             for name, hint in inspect.get_annotations(klass).items():
-                if name in klass.__dict__:
+                existing = klass.__dict__.get(name)
+                if name in klass.__dict__ and not (
+                    isinstance(existing, Injected) and existing.service_type is None
+                ):
                     continue
                 service = _injected_service(klass, name, hint)
                 if service is _NOT_INJECTED:
                     continue
                 if service is None:
+                    if name in klass.__dict__:
+                        continue
                     raise TypeError(
                         f"{klass.__qualname__}.{name} is annotated with a bare "
                         "Injected; write Injected[T] so the service type is known"

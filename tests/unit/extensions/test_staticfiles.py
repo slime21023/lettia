@@ -319,3 +319,67 @@ async def test_if_modified_since_is_ignored_when_if_none_match_is_present(
 
         assert resp.status_code == 200
         assert resp.content == b"cache test content"
+
+
+def _symlink_or_skip(link: Path, target: Path) -> None:
+    try:
+        link.symlink_to(target, target_is_directory=target.is_dir())
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"symlinks unavailable: {exc}")
+
+
+@pytest.mark.asyncio
+async def test_symlinks_are_404_unless_follow_symlinks_is_set(tmp_path: Path) -> None:
+    pub = tmp_path / "pub"
+    sub = pub / "sub"
+    sub.mkdir(parents=True)
+    real_file = pub / "real.txt"
+    real_file.write_text("ok", encoding="utf-8")
+    sub_file = sub / "a.txt"
+    sub_file.write_text("sub", encoding="utf-8")
+    _symlink_or_skip(pub / "link.txt", real_file)
+    _symlink_or_skip(pub / "linkdir", sub)
+
+    app = App()
+    StaticFiles.mount(app, prefix="/static", directory=pub)
+    async with TestClient(app) as client:
+        assert (await client.get("/static/link.txt")).status_code == 404
+        assert (await client.get("/static/linkdir/a.txt")).status_code == 404
+        assert (await client.get("/static/real.txt")).status_code == 200
+
+    allowed_app = App()
+    StaticFiles.mount(
+        allowed_app, prefix="/static", directory=pub, follow_symlinks=True
+    )
+    async with TestClient(allowed_app) as client:
+        assert (await client.get("/static/link.txt")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_a_symlinked_directory_is_404_unless_follow_symlinks_is_set(
+    tmp_path: Path,
+) -> None:
+    pub = tmp_path / "pub"
+    pub.mkdir()
+    (pub / "real.txt").write_text("ok", encoding="utf-8")
+    rootlink = tmp_path / "rootlink"
+    _symlink_or_skip(rootlink, pub)
+
+    app = App()
+    StaticFiles.mount(app, prefix="/static", directory=rootlink)
+    async with TestClient(app) as client:
+        assert (await client.get("/static/real.txt")).status_code == 404
+
+    allowed_app = App()
+    StaticFiles.mount(
+        allowed_app, prefix="/static", directory=rootlink, follow_symlinks=True
+    )
+    async with TestClient(allowed_app) as client:
+        assert (await client.get("/static/real.txt")).status_code == 200
+
+
+def test_parse_range_header_ignores_malformed_ranges_on_an_empty_file() -> None:
+    assert parse_range_header("bytes=-", 0) == "ignore"
+    assert parse_range_header("bytes=abc-def", 0) == "ignore"
+    assert parse_range_header("bytes=0-abc", 0) == "ignore"
+    assert parse_range_header("bytes=-5", 0) == "unsatisfiable"

@@ -164,8 +164,10 @@ async def _parse_multipart(
 
         if bytes(buffer[:2]) == b"--":
             return {}, []
-        if bytes(buffer[:2]) == b"\r\n":
+        elif bytes(buffer[:2]) == b"\r\n":
             del buffer[:2]
+        else:
+            raise HTTPError(400, "Bad Request", "malformed multipart boundary line")
 
         while True:
             while True:
@@ -252,7 +254,7 @@ async def _parse_multipart(
             raise HTTPError(400, "Bad Request", "malformed multipart boundary line")
 
         return form_data, files
-    except Exception:
+    except BaseException:
         for upload_file in files:
             await upload_file.close()
         raise

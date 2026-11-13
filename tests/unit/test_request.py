@@ -408,3 +408,21 @@ def test_request_allowed_hosts_judge_the_fallback_address_too() -> None:
 
     with pytest.raises(HTTPError):
         assert request.host
+
+
+async def test_request_body_after_a_rejected_declared_length_is_an_error() -> None:
+    request = make(exploding(), headers=length(11), max_body_size=10)
+
+    with pytest.raises(HTTPError):
+        await request.body()
+    with pytest.raises(RuntimeError, match="failed to read"):
+        await request.body()
+
+
+def test_request_stream_after_a_rejected_declared_length_is_an_error() -> None:
+    request = make(exploding(), headers=length(11), max_body_size=10)
+
+    with pytest.raises(HTTPError):
+        request.stream()
+    with pytest.raises(RuntimeError, match="already called"):
+        request.stream()

@@ -133,8 +133,6 @@ def _form_reader(
                                     f"$.{field.name}",
                                 ),
                             )
-                        elif field.nullable:
-                            values[field.name] = None
                         else:
                             info = declared[field.name]
                             if info.default is not msgspec.NODEFAULT:

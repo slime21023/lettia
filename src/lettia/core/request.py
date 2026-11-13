@@ -18,7 +18,7 @@ DEFAULT_MAX_BODY_SIZE = 5 * 1024 * 1024
 _PATH_SAFE = "/:@!$&'()*+,;=-._~"
 
 
-def _raw_path_from(path: str) -> bytes:
+def raw_path_from(path: str) -> bytes:
     """Rebuild a raw path from a decoded one, for servers that send no raw_path.
 
     The router splits the raw path and then percent-decodes each segment, so the
@@ -67,7 +67,7 @@ class RequestHead:
     ) -> None:
         self.method = method
         self.path = path
-        self.raw_path = _raw_path_from(path) if raw_path is None else raw_path
+        self.raw_path = raw_path_from(path) if raw_path is None else raw_path
         self.client = client
         self._query_string = query_string
         self._raw_headers: RawHeaders = [] if headers is None else headers
@@ -197,8 +197,8 @@ class Request(RequestHead):
             raise RuntimeError("body() cannot be used after stream()")
         if self._mode == "body":
             raise RuntimeError("the body is already being read or failed to read")
-        self._check_declared_length()
         self._mode = "body"
+        self._check_declared_length()
         self._cached = b"".join([chunk async for chunk in self._chunks()])
         return self._cached
 
@@ -210,8 +210,8 @@ class Request(RequestHead):
             raise RuntimeError("stream() cannot be used after body()")
         if self._mode == "stream":
             raise RuntimeError("stream() was already called")
-        self._check_declared_length()
         self._mode = "stream"
+        self._check_declared_length()
         return self._chunks()
 
     def _check_declared_length(self) -> None:

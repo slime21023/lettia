@@ -100,7 +100,7 @@ class A:
     db: Injected[Session]            # annotation only; bound by Container.wire()
 
 class B:
-    db: Injected[Session] = Injected()   # type taken from the annotation at class creation
+    db: Injected[Session] = Injected()   # type taken from the annotation; a string annotation (from __future__ import annotations) is resolved by Container.wire()
 
 class C:
     db = Injected(Session)           # explicit type; works with no annotation and no wire()

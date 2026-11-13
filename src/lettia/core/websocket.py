@@ -14,6 +14,7 @@ from typing import Any, cast, overload
 import msgspec
 
 from lettia.core.headers import Headers
+from lettia.core.request import raw_path_from
 from lettia.core.response import Response
 
 type Scope = Mapping[str, Any]
@@ -94,9 +95,9 @@ class WebSocket:
 
     @property
     def raw_path(self) -> bytes:
-        """Percent-encoded URL path from the ASGI server, or ASCII-encoded path."""
+        """Percent-encoded URL path from the ASGI server, or rebuilt from ``path``."""
         raw = self._scope.get("raw_path")
-        return cast(bytes, raw) if raw is not None else self.path.encode("ascii")
+        return cast(bytes, raw) if raw is not None else raw_path_from(self.path)
 
     @property
     def query_string(self) -> bytes:
@@ -183,9 +184,17 @@ class WebSocket:
 
     async def send_denial_response(self, response: Response) -> None:
         """Reject connection during upgrade using ASGI HTTP response or close."""
+        if self._application_state != WebSocketState.CONNECTING:
+            raise WebSocketError(
+                "Cannot deny a WebSocket that is already accepted or closed"
+            )
         if "websocket.http.response" in self._scope.get("extensions", {}):
             body_bytes = response.body if isinstance(response.body, bytes) else b""
-            headers = list(response.headers.raw)
+            headers = [
+                (name, value)
+                for name, value in response.headers.raw
+                if name != b"content-length"
+            ]
             headers.append((b"content-length", str(len(body_bytes)).encode("ascii")))
             if self._client_state == WebSocketState.CONNECTING:
                 message = await self._receive()

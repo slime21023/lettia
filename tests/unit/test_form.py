@@ -1,3 +1,6 @@
+import asyncio
+from collections.abc import AsyncIterator
+
 import pytest
 
 from lettia.contract.form import UploadFile, parse_form_data
@@ -248,3 +251,56 @@ async def test_parse_multipart_unexpected_eof_raises_400() -> None:
     assert caught.value.status == 400
     detail = (caught.value.detail or "").lower()
     assert "eof" in detail or "unexpected" in detail
+
+
+async def test_parse_multipart_malformed_initial_boundary_line_raises_400() -> None:
+    boundary = "----BoundaryX"
+    payload = (
+        f"--{boundary}XYZ\r\n"
+        'Content-Disposition: form-data; name="a"\r\n\r\n'
+        "1\r\n"
+        f"--{boundary}--\r\n"
+    ).encode()
+    req = make_request(f"multipart/form-data; boundary={boundary}", payload)
+
+    with pytest.raises(HTTPError) as caught:
+        await parse_form_data(req)
+    assert caught.value.status == 400
+    assert caught.value.detail == "malformed multipart boundary line"
+
+
+async def test_parse_multipart_cancelled_mid_stream_closes_parsed_files(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    closed: list[UploadFile] = []
+    original_close = UploadFile.close
+
+    async def recording_close(self: UploadFile) -> None:
+        closed.append(self)
+        await original_close(self)
+
+    monkeypatch.setattr(UploadFile, "close", recording_close)
+    boundary = "----BoundaryCancel"
+
+    async def source() -> AsyncIterator[bytes]:
+        yield (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="f"; filename="a.txt"\r\n'
+            "Content-Type: text/plain\r\n\r\n"
+            "abc\r\n"
+            f"--{boundary}\r\n"
+        ).encode()
+        raise asyncio.CancelledError
+
+    req = Request(
+        method="POST",
+        path="/",
+        headers=[
+            (b"content-type", f"multipart/form-data; boundary={boundary}".encode())
+        ],
+        body=source(),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await parse_form_data(req)
+    assert [f.filename for f in closed] == ["a.txt"]

@@ -475,3 +475,38 @@ async def test_decode_multipart_missing_required_file_is_a_422() -> None:
     assert caught.value.status == 422
     assert caught.value.detail is not None
     assert "avatar" in caught.value.detail
+
+
+class DefaultFileReq(msgspec.Struct, kw_only=True):
+    note: File[UploadFile | None] = msgspec.field(
+        default_factory=lambda: UploadFile(filename="default.txt")
+    )
+
+
+class DefaultFileApi(Protocol):
+    @op.post("/note", guard=public)
+    async def note(self, c: Context[None], req: DefaultFileReq) -> Ok[int]: ...
+
+
+async def test_decode_missing_optional_file_uses_its_default() -> None:
+    [op_desc], _ = inspect_contract(DefaultFileApi)
+    decode_fn = compile_request(op_desc, codec)
+    assert decode_fn is not None
+
+    boundary = "----DefaultFileBoundary"
+    body = f"--{boundary}--\r\n".encode()
+
+    async def chunks() -> AsyncIterator[bytes]:
+        yield body
+
+    req = Request(
+        method="POST",
+        path="/note",
+        headers=[
+            (b"content-type", f"multipart/form-data; boundary={boundary}".encode())
+        ],
+        body=chunks(),
+    )
+    parsed = await decode_fn(CoreContext(req))
+    assert isinstance(parsed, DefaultFileReq)
+    assert parsed.note is not None and parsed.note.filename == "default.txt"

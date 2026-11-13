@@ -416,7 +416,7 @@ The checks:
 | Request type | not a `msgspec.Struct` or `None`; a field without a source marker (with a hint when the marker was put inside a union); a field type msgspec cannot handle |
 | Body | more than one `Body`; `Body` mixed with `Form`/`File`; `Body`, `Form` or `File` on `GET` or `DELETE` |
 | Responses | missing return annotation; a member that is not a `Reply` subclass (or is `Reply` itself); `Ok`/`Created`/`NotFound` without a body type; a field that is neither `body` nor an `Annotated[..., HeaderName(...)]` header; a status declared twice; a `StreamReply` that is the bare base, does not override `frames`, has no concrete item type or no body-capable status, or whose `default_headers` set `Content-Type`/`Content-Length`, repeat a name or collide with a `HeaderName` field |
-| WebSocket | return type not `None`; `*` in the path |
+| WebSocket | return annotation missing or not `None`; `*` in the path |
 | Implementation | the object inherits no contract; the method is not overridden (`X does not implement Contract.method`); the method is not `async def` |
 | Guards | a guard has no implementation, or is implemented twice (see [guards](guards.md)) |
 | Operation ids | an `operationId` used twice on the app |

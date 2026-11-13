@@ -13,7 +13,7 @@ from lettia.core.errors import ClientDisconnect, HTTPError, StartupError
 from lettia.core.handler import Handler, Middleware, WebSocketHandler
 from lettia.core.hosts import HostPolicy
 from lettia.core.problem import ErrorHandler, default_error_handler, problem_response
-from lettia.core.request import DEFAULT_MAX_BODY_SIZE
+from lettia.core.request import DEFAULT_MAX_BODY_SIZE, raw_path_from
 from lettia.core.response import Response
 from lettia.core.router import Matched, MethodNotAllowed, Router
 from lettia.core.websocket import WebSocket, WebSocketDisconnect, WebSocketState
@@ -394,7 +394,7 @@ class App(_Routes):
         async def websocket_app(scope: Scope, receive: Receive, send: Send) -> None:
             raw_path = scope.get("raw_path")
             if raw_path is None:
-                raw_path = scope["path"].encode("ascii")
+                raw_path = raw_path_from(scope["path"])
             result = router.match("WEBSOCKET", raw_path)
             if isinstance(result, Matched):
                 handler = cast(WebSocketHandler, result.handler)

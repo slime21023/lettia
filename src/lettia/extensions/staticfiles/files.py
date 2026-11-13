@@ -82,7 +82,8 @@ class StaticFiles:
         allow_hidden: bool = False,
         index_name: str = "index.html",
     ) -> None:
-        self._directory = Path(directory).resolve()
+        self._root = Path(directory).absolute()
+        self._directory = self._root.resolve()
         if not self._directory.exists() or not self._directory.is_dir():
             raise ValueError(
                 f"StaticFiles directory {str(directory)!r} does not exist "
@@ -149,7 +150,7 @@ class StaticFiles:
 
         # 4. Check symlink policy
         if not self._follow_symlinks:
-            if not self._is_symlink_safe(target):
+            if not self._is_symlink_safe(subpath):
                 raise HTTPError(404, "Not Found")
 
         # 5. Handle directory / index lookup
@@ -241,14 +242,21 @@ class StaticFiles:
         stream = self._stream_file(target, offset=0, count=file_size)
         return Response(200, body=stream, headers=headers)
 
-    def _is_symlink_safe(self, path: Path) -> bool:
-        """Check whether path or any of its parents is a symlink."""
-        curr = path
-        while curr != self._directory and curr != curr.parent:
-            if curr.is_symlink():
+    def _is_symlink_safe(self, subpath: str) -> bool:
+        """Whether ``directory`` and its ``subpath`` components are not symlinks."""
+        if self._root.is_symlink():
+            return False
+        current = self._root
+        for part in Path(subpath).parts:
+            if part == "..":
+                if current == self._root:
+                    return False
+                current = current.parent
+                continue
+            current = current / part
+            if current.is_symlink():
                 return False
-            curr = curr.parent
-        return not self._directory.is_symlink()
+        return True
 
     async def _serve_range(
         self, target: Path, byte_range: ByteRange, headers: MutableHeaders

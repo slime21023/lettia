@@ -53,46 +53,33 @@ def parse_range_header(header_value: str | None, total_size: int) -> RangeResult
     start_str = start_str.strip()
     end_str = end_str.strip()
 
-    # Empty file edge case
-    if total_size <= 0:
-        return "unsatisfiable"
+    if not start_str and not end_str:
+        return "ignore"
 
-    # Case 1: Suffix range `bytes=-500` (last 500 bytes)
-    if not start_str:
-        if not end_str:
-            return "ignore"
-        try:
-            suffix_len = int(end_str)
-        except ValueError:
-            return "ignore"
-        if suffix_len <= 0:
-            return "unsatisfiable"
-        start = max(0, total_size - suffix_len)
-        end = total_size - 1
-        return ByteRange(start=start, end=end, total_size=total_size)
-
-    # Parse start offset
     try:
-        start = int(start_str)
+        start = int(start_str) if start_str else None
+        end = int(end_str) if end_str else None
     except ValueError:
         return "ignore"
+
+    if start is None:
+        if end is None:
+            return "ignore"
+        if end <= 0 or total_size <= 0:
+            return "unsatisfiable"
+        return ByteRange(
+            start=max(0, total_size - end),
+            end=total_size - 1,
+            total_size=total_size,
+        )
 
     if start < 0 or start >= total_size:
         return "unsatisfiable"
 
-    # Case 2: Open-ended range `bytes=500-` (byte 500 to end)
-    if not end_str:
+    if end is None:
         return ByteRange(start=start, end=total_size - 1, total_size=total_size)
-
-    # Case 3: Explicit range `bytes=500-999`
-    try:
-        end = int(end_str)
-    except ValueError:
-        return "ignore"
 
     if end < start:
         return "unsatisfiable"
 
-    # Clamp end to total_size - 1
-    end = min(end, total_size - 1)
-    return ByteRange(start=start, end=end, total_size=total_size)
+    return ByteRange(start=start, end=min(end, total_size - 1), total_size=total_size)

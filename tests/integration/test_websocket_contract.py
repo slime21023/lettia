@@ -211,3 +211,25 @@ async def test_contract_websocket_fallback_close_code_without_http_extension() -
     assert close_msg["type"] == "websocket.close"
     assert close_msg["code"] == 4401
     await task
+
+
+def test_contract_websocket_missing_return_annotation_rejected() -> None:
+    bad_op: Any = op.websocket
+
+    class MissingReturnContract:
+        @bad_op("/missing-return", guard=public)
+        async def chat(self, c: Context[None], ws: WebSocket): ...
+
+    class MissingReturnService(MissingReturnContract):
+        @override
+        async def chat(self, c: Context[None], ws: WebSocket):
+            return None
+
+    app = App()
+    app.mount(MissingReturnService())
+
+    with pytest.raises(
+        StartupError,
+        match="return annotation is missing; a WebSocket operation must return None",
+    ):
+        app.build()

@@ -62,7 +62,7 @@ Imported from `lettia` or `lettia.core`; `WebSocketDisconnect`,
 | --- | --- | --- |
 | `scope` | `Mapping[str, Any]` | The raw ASGI scope. |
 | `path` | `str` | Path of the upgrade request. |
-| `raw_path` | `bytes` | Percent-encoded path from the server, or the ASCII-encoded `path`. |
+| `raw_path` | `bytes` | Percent-encoded path from the server, or `path` percent-encoded the same way as for HTTP. |
 | `query_string` | `bytes` | Raw query string (`b""` if absent). |
 | `headers` | `Headers` | Upgrade request headers, parsed on first access. |
 | `client` | `tuple[str, int] \| None` | Remote host and port, if the server gave them. |
@@ -131,10 +131,10 @@ type. Both derive from `Exception`.
 
 ### Denying a handshake
 
-`send_denial_response(response)` rejects the connection before `accept`.
+`send_denial_response(response)` rejects the connection before `accept`. Calling it after `accept()` or `close()` raises `WebSocketError`.
 
 - If the server advertises the `websocket.http.response` ASGI extension, it
-  sends the response status, headers (plus `content-length`) and body, and the
+  sends the response status, headers (a `content-length` computed from the body replaces any the response set) and body, and the
   application state becomes `DISCONNECTED`. The body is sent only when
   `response.body` is `bytes`; otherwise it is empty.
 - Otherwise it closes with code `4000 + status` (e.g. 401 becomes 4401), or
@@ -238,6 +238,7 @@ yields an empty `paths`). See [openapi.md](openapi.md).
 | Problem | Message |
 | --- | --- |
 | A named guard has no implementation | `guard '<name>' has no implementation` |
+| No return annotation | `the return annotation is missing; a WebSocket operation must return None` |
 | Return annotation other than `None` | `the return type of a WebSocket operation must be None, got ...` |
 | `*` in the path | `contract paths cannot contain '*'` |
 | Not exactly three positional parameters, or unresolvable annotations | `the signature must be (self, c, ws)` / `cannot resolve the annotations: ...` |

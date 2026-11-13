@@ -1,11 +1,14 @@
 """Unit tests for core WebSocket connection, routing, and lifecycle."""
 
+from typing import Any
+
 import msgspec
 import pytest
 
 from lettia.core import (
     App,
     Context,
+    Message,
     Response,
     WebSocket,
     WebSocketError,
@@ -166,3 +169,92 @@ async def test_websocket_error_before_accept() -> None:
     async with TestClient(app) as client:
         async with client.websocket_connect("/error") as ws:
             assert ws.accepted
+
+
+@pytest.mark.asyncio
+async def test_websocket_without_raw_path_matches_a_percent_encoded_route() -> None:
+    app = App()
+
+    async def handler(ws: WebSocket) -> None:
+        await ws.accept()
+        await ws.send_bytes(ws.raw_path)
+        await ws.close()
+
+    app.websocket("/café", handler)
+    app.build()
+
+    incoming: list[Message] = [{"type": "websocket.connect"}]
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return incoming.pop(0)
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    scope: dict[str, Any] = {
+        "type": "websocket",
+        "path": "/café",
+        "headers": [],
+        "extensions": {},
+    }
+    await app(scope, receive, send)
+
+    assert [m["type"] for m in sent] == [
+        "websocket.accept",
+        "websocket.send",
+        "websocket.close",
+    ]
+    assert sent[1]["bytes"] == b"/caf%C3%A9"
+
+
+@pytest.mark.asyncio
+async def test_websocket_denial_after_accept_raises_websocket_error() -> None:
+    incoming: list[Message] = [{"type": "websocket.connect"}]
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return incoming.pop(0)
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    scope: dict[str, Any] = {
+        "type": "websocket",
+        "path": "/ws",
+        "headers": [],
+        "extensions": {"websocket.http.response": {}},
+    }
+    ws = WebSocket(scope, receive, send)
+    await ws.accept()
+
+    with pytest.raises(WebSocketError, match="already accepted or closed"):
+        await ws.send_denial_response(Response(403))
+
+    assert [m["type"] for m in sent] == ["websocket.accept"]
+
+
+@pytest.mark.asyncio
+async def test_websocket_denial_sends_a_single_content_length() -> None:
+    incoming: list[Message] = [{"type": "websocket.connect"}]
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return incoming.pop(0)
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    scope: dict[str, Any] = {
+        "type": "websocket",
+        "path": "/ws",
+        "headers": [],
+        "extensions": {"websocket.http.response": {}},
+    }
+    ws = WebSocket(scope, receive, send)
+    response = Response(401, b"no")
+    response.headers.set("content-length", "999")
+
+    await ws.send_denial_response(response)
+
+    assert [v for n, v in sent[0]["headers"] if n == b"content-length"] == [b"2"]

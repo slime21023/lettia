@@ -182,11 +182,16 @@ def _inspect_websocket(
     if "*" in spec.path:
         problems.append("contract paths cannot contain '*'")
 
-    ret = hints.get("return")
-    if ret is not None and ret is not type(None) and ret != "None":
+    if "return" not in hints:
         problems.append(
-            f"the return type of a WebSocket operation must be None, got {ret!r}"
+            "the return annotation is missing; a WebSocket operation must return None"
         )
+    else:
+        ret = hints["return"]
+        if ret is not None and ret is not type(None) and ret != "None":
+            problems.append(
+                f"the return type of a WebSocket operation must be None, got {ret!r}"
+            )
 
     if problems:
         return None
