@@ -401,34 +401,15 @@ def _inspect_response_shape(member: Any, problems: list[str]) -> ResponseShape |
     for info in msgspec.structs.fields(member):
         if info.name == "body":
             body_type = info.type
-            if stream_base is not None:
-                if ok:
-                    stream_item = _stream_item(stream_base, body_type, problems)
-                    ok = stream_item is not None
-            elif isinstance(body_type, TypeVar):
-                problems.append(
-                    f"{base.__name__} needs a body type, e.g. {base.__name__}[T]"
-                )
-                ok = False
-            continue
-        header = _response_header(info.name, info.type)
-        if header is None:
-            problems.append(
-                f"response field {info.name!r} of {base.__name__} must be 'body' "
-                "or an Annotated[str, HeaderName(...)] header"
+            ok, stream_item = _inspect_body_field(
+                base, stream_base, body_type, ok, problems
             )
+            continue
+        header = _field_header(base, info.name, info.type, problems)
+        if header is None:
             ok = False
         else:
-            try:
-                MutableHeaders.validated_name(header.wire_name)
-            except ValueError:
-                problems.append(
-                    f"response field {info.name!r} of {base.__name__} declares "
-                    f"the invalid header name {header.wire_name!r}"
-                )
-                ok = False
-            else:
-                headers.append(header)
+            headers.append(header)
     if stream_base is not None:
         ok = _check_default_headers(stream_base, headers, problems) and ok
     if not ok:
@@ -436,6 +417,49 @@ def _inspect_response_shape(member: Any, problems: list[str]) -> ResponseShape |
     return ResponseShape(
         base, base.status, base.media_type, body_type, tuple(headers), stream_item
     )
+
+
+def _inspect_body_field(
+    base: type[Reply],
+    stream_base: type[StreamReply[Any]] | None,
+    body_type: Any,
+    ok: bool,
+    problems: list[str],
+) -> tuple[bool, Any | None]:
+    if stream_base is None:
+        return _check_body_type(base, body_type, problems) and ok, None
+    if not ok:
+        return False, None
+    stream_item = _stream_item(stream_base, body_type, problems)
+    return stream_item is not None, stream_item
+
+
+def _check_body_type(base: type[Reply], body_type: Any, problems: list[str]) -> bool:
+    if isinstance(body_type, TypeVar):
+        problems.append(f"{base.__name__} needs a body type, e.g. {base.__name__}[T]")
+        return False
+    return True
+
+
+def _field_header(
+    base: type[Reply], name: str, hint: Any, problems: list[str]
+) -> ResponseHeader | None:
+    header = _response_header(name, hint)
+    if header is None:
+        problems.append(
+            f"response field {name!r} of {base.__name__} must be 'body' "
+            "or an Annotated[str, HeaderName(...)] header"
+        )
+        return None
+    try:
+        MutableHeaders.validated_name(header.wire_name)
+    except ValueError:
+        problems.append(
+            f"response field {name!r} of {base.__name__} declares "
+            f"the invalid header name {header.wire_name!r}"
+        )
+        return None
+    return header
 
 
 def stream_class(cls: type[Reply]) -> type[StreamReply[Any]] | None:

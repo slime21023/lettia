@@ -143,56 +143,83 @@ def mount(
 
     unused = dict(middleware or {})
     for contract in contracts:
-        chosen = {
-            name: _take(unused, member)
-            for name, member in vars(contract).items()
-            if operation_spec(member) is not None
-        }
-        operations, problems = inspect_contract(contract)
+        _mount_contract(
+            target, registry, implementation, contract, unused, active_codec
+        )
+    _report_unused_middleware(target, unused, implementation_type)
+
+
+def _mount_contract(
+    target: MountTarget,
+    registry: ContractRegistry,
+    implementation: object,
+    contract: type,
+    unused: dict[Callable[..., Any], Sequence[Middleware]],
+    codec: Codec,
+) -> None:
+    chosen = {
+        name: _take(unused, member)
+        for name, member in vars(contract).items()
+        if operation_spec(member) is not None
+    }
+    operations, problems = inspect_contract(contract)
+    for problem in problems:
+        target.add_startup_problem(problem)
+    for operation in operations:
+        _mount_operation(
+            target, registry, implementation, operation, chosen[operation.name], codec
+        )
+
+
+def _mount_operation(
+    target: MountTarget,
+    registry: ContractRegistry,
+    implementation: object,
+    operation: Operation,
+    wanted: tuple[Middleware, ...],
+    codec: Codec,
+) -> None:
+    """Check one operation and register its compiled handler on ``target``."""
+    problems = _check(
+        operation, implementation, registry.operation_ids, registry.guards
+    )
+    if not problems and operation.spec.method == "WEBSOCKET" and wanted:
+        problems = [
+            f"{operation.contract.__qualname__}.{operation.name}: "
+            "middleware cannot be set on a WebSocket operation"
+        ]
+    if problems:
         for problem in problems:
             target.add_startup_problem(problem)
-        for operation in operations:
-            wanted = chosen[operation.name]
-            problems = _check(
+        return
+    if operation.spec.method == "WEBSOCKET":
+        target.websocket(
+            operation.spec.path,
+            _compile_websocket(operation, implementation, registry.guards),
+        )
+    else:
+        target.route(
+            operation.spec.method,
+            operation.spec.path,
+            _compile(
                 operation,
                 implementation,
-                registry.operation_ids,
+                codec,
                 registry.guards,
-            )
-            if problems:
-                for problem in problems:
-                    target.add_startup_problem(problem)
-                continue
-            if operation.spec.method == "WEBSOCKET":
-                if wanted:
-                    target.add_startup_problem(
-                        f"{operation.contract.__qualname__}.{operation.name}: "
-                        "middleware cannot be set on a WebSocket operation"
-                    )
-                    continue
-                ws_handler = _compile_websocket(
-                    operation,
-                    implementation,
-                    registry.guards,
-                )
-                target.websocket(operation.spec.path, ws_handler)
-            else:
-                handler = _compile(
-                    operation,
-                    implementation,
-                    active_codec,
-                    registry.guards,
-                    debug=target.debug,
-                )
-                target.route(
-                    operation.spec.method,
-                    operation.spec.path,
-                    handler,
-                    middleware=wanted,
-                )
-            registry.mounted.append(
-                MountedOperation(operation, target.prefix + operation.spec.path)
-            )
+                debug=target.debug,
+            ),
+            middleware=wanted,
+        )
+    registry.mounted.append(
+        MountedOperation(operation, target.prefix + operation.spec.path)
+    )
+
+
+def _report_unused_middleware(
+    target: MountTarget,
+    unused: dict[Callable[..., Any], Sequence[Middleware]],
+    implementation_type: type,
+) -> None:
     for key in unused:
         name = getattr(key, "__qualname__", repr(key))
         target.add_startup_problem(
