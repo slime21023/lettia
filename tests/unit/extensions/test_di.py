@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from typing import ClassVar, Protocol
 
@@ -15,6 +16,7 @@ from lettia.extensions.di import (
     current_scope,
 )
 from lettia.extensions.di import Injected as InjectedAlias
+from lettia.extensions.di.teardown import teardown_scope
 from lettia.testing import TestClient
 
 # --- Domain models and services for testing ---
@@ -611,3 +613,60 @@ def test_wire_reports_middleware_for_a_method_no_wired_service_implements() -> N
 
     assert "_PingApi.ping" in str(caught.value)
     assert "not an operation" in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_teardown_prefers_aclose_and_runs_in_reverse_order() -> None:
+    events: list[str] = []
+
+    class SyncOnly:
+        def close(self) -> None:
+            events.append("sync-close")
+
+    class Both:
+        async def aclose(self) -> None:
+            events.append("both-aclose")
+
+        def close(self) -> None:
+            events.append("both-close")
+
+    scope = rodi.Container().build_provider().create_scope()
+    scope.scoped_services = {SyncOnly: SyncOnly(), Both: Both()}
+    await teardown_scope(scope)
+
+    assert events == ["both-aclose", "sync-close"]
+
+
+@pytest.mark.asyncio
+async def test_teardown_logs_failures_and_still_closes_the_rest(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    events: list[str] = []
+
+    class FailingSync:
+        def close(self) -> None:
+            raise RuntimeError("sync")
+
+    class FailingAsync:
+        async def aclose(self) -> None:
+            raise RuntimeError("async")
+
+    class Healthy:
+        def close(self) -> None:
+            events.append("healthy")
+
+    scope = rodi.Container().build_provider().create_scope()
+    scope.scoped_services = {
+        Healthy: Healthy(),
+        FailingSync: FailingSync(),
+        FailingAsync: FailingAsync(),
+    }
+
+    with caplog.at_level(logging.ERROR, logger="lettia.extensions.di"):
+        await teardown_scope(scope)
+
+    assert events == ["healthy"]
+    assert [r.getMessage().split(" of ")[0] for r in caplog.records] == [
+        "Error during async teardown",
+        "Error during sync teardown",
+    ]

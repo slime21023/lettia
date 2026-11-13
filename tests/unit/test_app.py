@@ -16,6 +16,7 @@ from lettia.core import (
     Response,
     StartupError,
     Unauthorized,
+    WebSocket,
 )
 
 Message = MutableMapping[str, Any]
@@ -1345,3 +1346,28 @@ def test_exception_handler_cannot_be_registered_after_the_build() -> None:
 
     with pytest.raises(RuntimeError, match="already built"):
         app.add_exception_handler(KeyError, as_not_found)
+
+
+def test_group_websocket_path_without_a_slash_is_a_startup_problem() -> None:
+    async def handler(ws: WebSocket) -> None:
+        await ws.accept()
+
+    app = App()
+    app.group("/api").websocket("ws", handler)
+
+    with pytest.raises(StartupError) as caught:
+        app.build()
+
+    assert caught.value.problems == [
+        "invalid path 'ws' in group '/api': it must start with '/'"
+    ]
+
+
+def test_app_route_with_an_invalid_method_is_a_startup_problem() -> None:
+    app = App()
+    app.route("G3T", "/x", text("a"))
+
+    with pytest.raises(StartupError) as caught:
+        app.build()
+
+    assert caught.value.problems == ["invalid method: 'G3T'"]

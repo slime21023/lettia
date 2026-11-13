@@ -351,3 +351,51 @@ async def test_parse_multipart_broken_payload_is_a_400_naming_the_problem(
         await parse_form_data(req)
     assert caught.value.status == 400
     assert caught.value.detail == detail
+
+
+async def test_parse_form_without_content_type_reads_urlencoded_or_nothing() -> None:
+    with_body = Request(method="POST", path="/", headers=[], body=stream_of(b"a=1&b=2"))
+    empty = Request(method="POST", path="/", headers=[], body=stream_of())
+
+    assert await parse_form_data(with_body) == ({"a": ["1"], "b": ["2"]}, [])
+    assert await parse_form_data(empty) == ({}, [])
+
+
+async def test_parse_form_of_another_media_type_is_a_415() -> None:
+    req = make_request("application/json", b"{}")
+    with pytest.raises(HTTPError) as caught:
+        await parse_form_data(req)
+    assert caught.value.status == 415
+
+
+async def test_parse_multipart_accepts_a_quoted_boundary() -> None:
+    req = make_request(
+        'multipart/form-data; boundary="----Q"',
+        (
+            b"------Q\r\n"
+            b'Content-Disposition: form-data; name="a"\r\n\r\n'
+            b"1\r\n"
+            b"------Q--\r\n"
+        ),
+    )
+    form_data, files = await parse_form_data(req)
+    assert form_data == {"a": ["1"]}
+    assert files == []
+
+
+async def test_parse_multipart_decodes_an_rfc5987_filename() -> None:
+    boundary = "----F"
+    req = make_request(
+        f"multipart/form-data; boundary={boundary}",
+        (
+            f"--{boundary}\r\n"
+            'Content-Disposition: form-data; name="f"; '
+            "filename*=UTF-8''%E5%A0%B1%E5%91%8A.txt\r\n"
+            "Content-Type: text/plain\r\n\r\n"
+            "x\r\n"
+            f"--{boundary}--\r\n"
+        ).encode(),
+    )
+    _, files = await parse_form_data(req)
+    assert files[0].filename == "報告.txt"
+    await files[0].close()

@@ -3,6 +3,7 @@
 from collections.abc import Callable, Sequence
 from typing import Annotated, Any, Protocol, override
 
+import msgspec
 import pytest
 
 from lettia import (
@@ -13,6 +14,7 @@ from lettia import (
     HeaderName,
     NoContent,
     Ok,
+    Query,
     WebSocket,
     op,
     public,
@@ -68,6 +70,30 @@ def problems_of(app: App) -> list[str]:
     with pytest.raises(StartupError) as caught:
         app.build()
     return caught.value.problems
+
+
+class RecordingCodec(MsgspecCodec):
+    def __init__(self) -> None:
+        self.decode_builds = 0
+        self.encode_builds = 0
+        self.schema_calls = 0
+
+    @override
+    def build_decoder(self, type_: Any, *, json: bool) -> Callable[[Any], Any]:
+        self.decode_builds += 1
+        return super().build_decoder(type_, json=json)
+
+    @override
+    def build_encoder(self) -> Callable[[object], bytes]:
+        self.encode_builds += 1
+        return super().build_encoder()
+
+    @override
+    def json_schema(
+        self, types: Sequence[Any], *, ref_template: str
+    ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
+        self.schema_calls += 1
+        return super().json_schema(types, ref_template=ref_template)
 
 
 def test_mount_of_a_complete_implementation_builds() -> None:
@@ -232,23 +258,6 @@ def test_group_of_a_group_is_still_a_lettia_group_with_mount() -> None:
 
 
 def test_app_codec_is_used_by_mounted_operations_and_openapi() -> None:
-    class RecordingCodec(MsgspecCodec):
-        def __init__(self) -> None:
-            self.encode_builds = 0
-            self.schema_calls = 0
-
-        @override
-        def build_encoder(self) -> Callable[[object], bytes]:
-            self.encode_builds += 1
-            return super().build_encoder()
-
-        @override
-        def json_schema(
-            self, types: Sequence[Any], *, ref_template: str
-        ) -> tuple[list[dict[str, Any]], dict[str, dict[str, Any]]]:
-            self.schema_calls += 1
-            return super().json_schema(types, ref_template=ref_template)
-
     class SecondImpl(Second):
         async def ping(self, c: Context[None], req: None) -> Ok[int]:
             return Ok(1)
@@ -487,3 +496,30 @@ def test_mount_middleware_must_map_to_a_sequence_not_one_callable() -> None:
             _Account([]),
             middleware={_AccountApi.login: _tracer("x", [])},  # type: ignore[dict-item]
         )
+
+
+class Count(msgspec.Struct):
+    n: Query[int]
+
+
+class Counter(Protocol):
+    @op.get("/count", guard=public)
+    async def count(self, c: Context[None], req: Count) -> Ok[int]: ...
+
+
+class CounterImpl(Counter):
+    async def count(self, c: Context[None], req: Count) -> Ok[int]:
+        return Ok(req.n)
+
+
+def test_mount_codec_overrides_the_app_codec_for_that_mount_only() -> None:
+    app_codec, mount_codec = RecordingCodec(), RecordingCodec()
+    app = App(codec=app_codec)
+    before = (app_codec.decode_builds, app_codec.encode_builds)
+
+    app.mount(CounterImpl(), codec=mount_codec)
+    assert (app_codec.decode_builds, app_codec.encode_builds) == before
+    assert mount_codec.decode_builds >= 1 and mount_codec.encode_builds >= 1
+
+    app.openapi()
+    assert (app_codec.schema_calls, mount_codec.schema_calls) == (1, 0)

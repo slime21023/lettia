@@ -12,7 +12,9 @@ from lettia.core import (
     Message,
     Response,
     WebSocket,
+    WebSocketDisconnect,
     WebSocketError,
+    WebSocketState,
 )
 from lettia.testing import TestClient
 
@@ -50,6 +52,22 @@ async def _drive(
     }
     await app(scope, receive, send)
     return sent
+
+
+def _socket(
+    incoming: list[Message], scope: dict[str, Any] | None = None
+) -> tuple[WebSocket, list[Message]]:
+    """A WebSocket fed from ``incoming``; the second value collects what it sends."""
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return incoming.pop(0)
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    base: dict[str, Any] = {"type": "websocket", "path": "/ws", "headers": []}
+    return WebSocket(scope or base, receive, send), sent
 
 
 @pytest.mark.asyncio
@@ -412,3 +430,160 @@ async def test_websocket_client_disconnect_ends_the_handler_quietly(
 
     assert [m["type"] for m in sent] == ["websocket.accept"]
     assert caplog.records == []
+
+
+@pytest.mark.asyncio
+async def test_websocket_exposes_its_scope_and_lifecycle_states() -> None:
+    scope: dict[str, Any] = {
+        "type": "websocket",
+        "path": "/chat",
+        "raw_path": b"/chat%21",
+        "client": ("1.2.3.4", 5000),
+        "headers": [],
+    }
+    ws, _ = _socket(
+        [{"type": "websocket.connect"}, {"type": "websocket.disconnect", "code": 1000}],
+        scope,
+    )
+    assert ws.scope is scope
+    assert ws.path == "/chat"
+    assert ws.raw_path == b"/chat%21"
+    assert ws.client == ("1.2.3.4", 5000)
+    assert ws.client_state == WebSocketState.CONNECTING
+    assert ws.application_state == WebSocketState.CONNECTING
+
+    await ws.accept()
+    assert ws.client_state == WebSocketState.CONNECTED
+    assert ws.application_state == WebSocketState.CONNECTED
+
+    await ws.close()
+    assert ws.application_state == WebSocketState.DISCONNECTED
+    assert ws.client_state == WebSocketState.CONNECTED
+
+    with pytest.raises(WebSocketDisconnect):
+        await ws.receive()
+    assert ws.client_state == WebSocketState.DISCONNECTED
+
+    default_ws, _ = _socket([])
+    assert default_ws.client is None
+
+
+@pytest.mark.asyncio
+async def test_websocket_accept_sends_headers_and_cannot_repeat() -> None:
+    ws, sent = _socket([{"type": "websocket.connect"}])
+    await ws.accept(headers=[(b"x-a", b"1")])
+    assert sent == [{"type": "websocket.accept", "headers": [(b"x-a", b"1")]}]
+
+    with pytest.raises(WebSocketError, match="already accepted or closed"):
+        await ws.accept()
+
+
+@pytest.mark.asyncio
+async def test_websocket_close_is_final_and_idempotent() -> None:
+    ws, sent = _socket([{"type": "websocket.connect"}])
+    await ws.accept()
+    await ws.close()
+    await ws.close()
+
+    assert [m["type"] for m in sent] == ["websocket.accept", "websocket.close"]
+    with pytest.raises(WebSocketError, match="already accepted or closed"):
+        await ws.accept()
+    with pytest.raises(WebSocketError, match="after close"):
+        await ws.send_text("x")
+    with pytest.raises(WebSocketError, match="after close"):
+        await ws.send_bytes(b"x")
+    with pytest.raises(WebSocketError, match="after close"):
+        await ws.send_json({})
+
+
+@pytest.mark.asyncio
+async def test_websocket_sends_before_accept_are_rejected() -> None:
+    ws, sent = _socket([])
+    with pytest.raises(WebSocketError, match="before accept"):
+        await ws.send_bytes(b"x")
+    with pytest.raises(WebSocketError, match="before accept"):
+        await ws.send_json({})
+    assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_websocket_receive_raises_disconnect_with_code_and_reason() -> None:
+    ws, _ = _socket(
+        [
+            {"type": "websocket.connect"},
+            {"type": "websocket.disconnect", "code": 1001, "reason": "bye"},
+        ]
+    )
+    await ws.accept()
+
+    with pytest.raises(WebSocketDisconnect) as first:
+        await ws.receive()
+    assert (first.value.code, first.value.reason) == (1001, "bye")
+
+    with pytest.raises(WebSocketDisconnect) as second:
+        await ws.receive()
+    assert second.value.code == 1006
+
+
+@pytest.mark.asyncio
+async def test_websocket_receive_rejects_the_wrong_frame_type() -> None:
+    ws, _ = _socket(
+        [
+            {"type": "websocket.connect"},
+            {"type": "websocket.receive", "bytes": b"x"},
+            {"type": "websocket.receive", "text": "y"},
+            {"type": "websocket.receive"},
+        ]
+    )
+    await ws.accept()
+
+    with pytest.raises(WebSocketError, match="Expected text"):
+        await ws.receive_text()
+    with pytest.raises(WebSocketError, match="Expected binary"):
+        await ws.receive_bytes()
+    with pytest.raises(WebSocketError, match="neither text nor bytes"):
+        await ws.receive_json()
+
+
+@pytest.mark.asyncio
+async def test_websocket_receive_json_reads_text_or_binary_frames() -> None:
+    ws, _ = _socket(
+        [
+            {"type": "websocket.connect"},
+            {"type": "websocket.receive", "text": '{"a": 1}'},
+            {"type": "websocket.receive", "bytes": b"[1, 2]"},
+            {"type": "websocket.receive", "text": "not json"},
+        ]
+    )
+    await ws.accept()
+
+    assert await ws.receive_json() == {"a": 1}
+    assert await ws.receive_json(list[int]) == [1, 2]
+    with pytest.raises(msgspec.DecodeError):
+        await ws.receive_json()
+
+
+@pytest.mark.asyncio
+async def test_websocket_iter_bytes_and_iter_json_end_on_disconnect() -> None:
+    sock_a, _ = _socket(
+        [
+            {"type": "websocket.connect"},
+            {"type": "websocket.receive", "bytes": b"a"},
+            {"type": "websocket.receive", "bytes": b"b"},
+            {"type": "websocket.disconnect", "code": 1000},
+        ]
+    )
+    sock_b, _ = _socket(
+        [
+            {"type": "websocket.connect"},
+            {"type": "websocket.receive", "text": '{"user": "u", "content": "c"}'},
+            {"type": "websocket.disconnect", "code": 1000},
+        ]
+    )
+    await sock_a.accept()
+    await sock_b.accept()
+
+    assert [b async for b in sock_a.iter_bytes()] == [b"a", b"b"]
+    assert [m async for m in sock_b.iter_json(ChatMessage)] == [
+        ChatMessage(user="u", content="c")
+    ]

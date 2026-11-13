@@ -519,3 +519,23 @@ async def test_unparsable_or_older_if_modified_since_serves_the_file(
         )
         assert resp_old.status_code == 200
         assert resp_old.content == b"cache test content"
+
+
+@pytest.mark.asyncio
+async def test_static_files_refuse_other_methods_and_answer_head_without_a_body(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "info.txt").write_text("cache test content", encoding="utf-8")
+
+    app = App()
+    StaticFiles.mount(app, prefix="/static", directory=tmp_path)
+
+    async with TestClient(app) as client:
+        post = await client.post("/static/info.txt")
+        assert post.status_code == 405
+        assert post.headers["allow"] == "GET, HEAD"
+
+        head = await client.head("/static/info.txt")
+        assert head.status_code == 200
+        assert head.content == b""
+        assert head.headers["content-length"] == "18"

@@ -206,3 +206,51 @@ async def test_cors_options_without_a_request_method_is_not_a_preflight() -> Non
 
     assert res.status_code == 405
     assert res.headers["access-control-allow-origin"] == ORIGIN
+
+
+async def test_cors_preflight_responses_vary_on_the_preflight_headers() -> None:
+    preflight_vary = (
+        "Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
+    )
+    app = build(allow_origins=[ORIGIN])
+
+    async with client(app) as http:
+        accepted = await http.options("/x", headers=preflight())
+        rejected = await http.options(
+            "/x", headers=preflight(origin="https://evil.example")
+        )
+
+    assert accepted.status_code == 204
+    assert rejected.status_code == 403
+    assert accepted.headers["vary"] == preflight_vary
+    assert rejected.headers["vary"] == preflight_vary
+
+
+async def test_cors_star_headers_without_requested_headers_sends_none() -> None:
+    app = build(allow_origins=[ORIGIN], allow_headers=["*"])
+
+    async with client(app) as http:
+        res = await http.options("/x", headers=preflight())
+
+    assert res.status_code == 204
+    assert "access-control-allow-headers" not in res.headers
+
+
+async def test_cors_rejected_preflight_is_a_problem_document() -> None:
+    app = build(allow_origins=[ORIGIN])
+
+    async with client(app) as http:
+        res = await http.options("/x", headers=preflight(origin="https://evil.example"))
+
+    assert res.headers["content-type"] == "application/problem+json"
+    assert res.json()["detail"] == "the CORS preflight request was rejected"
+
+
+async def test_cors_wildcard_origin_does_not_vary_on_origin() -> None:
+    app = build(allow_origins=["*"])
+
+    async with client(app) as http:
+        res = await http.get("/x", headers={"origin": ORIGIN})
+
+    assert res.headers["access-control-allow-origin"] == "*"
+    assert "vary" not in res.headers
