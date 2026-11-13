@@ -304,3 +304,50 @@ async def test_parse_multipart_cancelled_mid_stream_closes_parsed_files(
     with pytest.raises(asyncio.CancelledError):
         await parse_form_data(req)
     assert [f.filename for f in closed] == ["a.txt"]
+
+
+async def test_parse_multipart_empty_payload_has_no_fields_or_files() -> None:
+    boundary = "----B"
+    req = make_request(f"multipart/form-data; boundary={boundary}", b"------B--\r\n")
+    assert await parse_form_data(req) == ({}, [])
+
+
+_MULTIPART_HEADER = 'Content-Disposition: form-data; name="a"\r\n'
+
+
+@pytest.mark.parametrize(
+    ("payload", "detail"),
+    [
+        ("preamble only", "unexpected EOF waiting for initial multipart boundary"),
+        ("------B", "unexpected EOF after initial boundary"),
+        ("------B\r\n" + _MULTIPART_HEADER, "unexpected EOF reading multipart headers"),
+        (
+            "------B\r\n" + _MULTIPART_HEADER + "\r\nvalue",
+            "unexpected EOF reading multipart part body",
+        ),
+        (
+            "------B\r\n" + _MULTIPART_HEADER + "\r\nvalue\r\n------B",
+            "unexpected EOF after multipart boundary",
+        ),
+        (
+            "------B\r\n" + _MULTIPART_HEADER + "\r\nvalue\r\n------BXY",
+            "malformed multipart boundary line",
+        ),
+    ],
+    ids=[
+        "no-boundary",
+        "after-first-boundary",
+        "in-headers",
+        "in-body",
+        "after-part",
+        "bad-suffix-after-part",
+    ],
+)
+async def test_parse_multipart_broken_payload_is_a_400_naming_the_problem(
+    payload: str, detail: str
+) -> None:
+    req = make_request("multipart/form-data; boundary=----B", payload.encode())
+    with pytest.raises(HTTPError) as caught:
+        await parse_form_data(req)
+    assert caught.value.status == 400
+    assert caught.value.detail == detail

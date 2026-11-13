@@ -510,3 +510,127 @@ async def test_decode_missing_optional_file_uses_its_default() -> None:
     parsed = await decode_fn(CoreContext(req))
     assert isinstance(parsed, DefaultFileReq)
     assert parsed.note is not None and parsed.note.filename == "default.txt"
+
+
+class MixedReq(msgspec.Struct, kw_only=True):
+    page: Query[int] = 1
+    count: Form[int]
+    avatar: File[UploadFile]
+
+
+class MixedApi(Protocol):
+    @op.post("/mixed", guard=public)
+    async def mixed(self, c: Context[None], req: MixedReq) -> Ok[int]: ...
+
+
+def _multipart_request(parts: str, boundary: str, query: bytes = b"") -> Request:
+    payload = parts.encode()
+
+    async def chunks() -> AsyncIterator[bytes]:
+        yield payload
+
+    return Request(
+        method="POST",
+        path="/",
+        query_string=query,
+        headers=[
+            (b"content-type", f"multipart/form-data; boundary={boundary}".encode())
+        ],
+        body=chunks(),
+    )
+
+
+async def test_decode_missing_optional_file_list_uses_its_default_factory() -> None:
+    [operation], _ = inspect_contract(UploadApi)
+    decode = compile_request(operation, codec)
+    assert decode is not None
+
+    boundary = "----OptionalListBoundary"
+    parts = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="title"\r\n\r\n'
+        "Hello\r\n"
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="avatar"; filename="avatar.png"\r\n'
+        "Content-Type: image/png\r\n\r\n"
+        "binary-png\r\n"
+        f"--{boundary}--\r\n"
+    )
+    result = await decode(CoreContext(_multipart_request(parts, boundary)))
+    assert isinstance(result, UploadReq)
+    assert result.docs == []
+    await result.avatar.close()
+
+
+async def test_decode_reports_head_fields_before_form_and_files() -> None:
+    [operation], _ = inspect_contract(MixedApi)
+    decode = compile_request(operation, codec)
+    assert decode is not None
+
+    boundary = "----MixedHeadFirst"
+    parts = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="count"\r\n\r\n'
+        "abc\r\n"
+        f"--{boundary}--\r\n"
+    )
+    with pytest.raises(HTTPError) as caught:
+        await decode(CoreContext(_multipart_request(parts, boundary, query=b"page=x")))
+    assert caught.value.status == 422
+    errors = errors_of(caught.value)
+    assert errors[0]["in"] == "query"
+    assert errors[0]["path"] == "$.query.page"
+
+
+async def test_decode_reports_an_invalid_form_value_before_a_missing_file() -> None:
+    [operation], _ = inspect_contract(MixedApi)
+    decode = compile_request(operation, codec)
+    assert decode is not None
+
+    boundary = "----MixedFormFirst"
+    parts = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="count"\r\n\r\n'
+        "abc\r\n"
+        f"--{boundary}--\r\n"
+    )
+    with pytest.raises(HTTPError) as caught:
+        await decode(CoreContext(_multipart_request(parts, boundary)))
+    assert caught.value.status == 422
+    errors = errors_of(caught.value)
+    assert errors[0]["in"] == "form"
+    assert errors[0]["path"] == "$.form.count"
+
+
+async def test_decode_closes_uploaded_files_when_the_form_is_invalid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    [operation], _ = inspect_contract(MixedApi)
+    decode = compile_request(operation, codec)
+    assert decode is not None
+
+    closed: list[UploadFile] = []
+    original_close = UploadFile.close
+
+    async def recording_close(self: UploadFile) -> None:
+        closed.append(self)
+        await original_close(self)
+
+    monkeypatch.setattr(UploadFile, "close", recording_close)
+    boundary = "----MixedCloseFiles"
+    parts = (
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="count"\r\n\r\n'
+        "abc\r\n"
+        f"--{boundary}\r\n"
+        'Content-Disposition: form-data; name="avatar"; filename="a.png"\r\n'
+        "Content-Type: image/png\r\n\r\n"
+        "png-bytes\r\n"
+        f"--{boundary}--\r\n"
+    )
+    c = CoreContext(_multipart_request(parts, boundary))
+    with pytest.raises(HTTPError) as caught:
+        await decode(c)
+    assert caught.value.status == 422
+    assert [f.filename for f in closed] == ["a.png"]
+    assert "_lettia.upload_files" not in c.state

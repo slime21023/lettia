@@ -1,5 +1,6 @@
 """Unit tests for core WebSocket connection, routing, and lifecycle."""
 
+import logging
 from typing import Any
 
 import msgspec
@@ -19,6 +20,36 @@ from lettia.testing import TestClient
 class ChatMessage(msgspec.Struct):
     user: str
     content: str
+
+
+async def _drive(
+    app: App,
+    path: str,
+    *,
+    http_response: bool,
+    incoming: list[Message] | None = None,
+) -> list[Message]:
+    """Run one WebSocket connection through ``app`` and return what it sent."""
+    queue = incoming if incoming is not None else [{"type": "websocket.connect"}]
+    sent: list[Message] = []
+
+    async def receive() -> Message:
+        return queue.pop(0)
+
+    async def send(message: Message) -> None:
+        sent.append(message)
+
+    extensions: dict[str, Any] = (
+        {"websocket.http.response": {}} if http_response else {}
+    )
+    scope: dict[str, Any] = {
+        "type": "websocket",
+        "path": path,
+        "headers": [],
+        "extensions": extensions,
+    }
+    await app(scope, receive, send)
+    return sent
 
 
 @pytest.mark.asyncio
@@ -258,3 +289,126 @@ async def test_websocket_denial_sends_a_single_content_length() -> None:
     await ws.send_denial_response(response)
 
     assert [v for n, v in sent[0]["headers"] if n == b"content-length"] == [b"2"]
+
+
+@pytest.mark.asyncio
+async def test_websocket_unknown_path_closes_with_4404_without_http_response() -> None:
+    app = App()
+
+    async def handler(ws: WebSocket) -> None:
+        await ws.accept()
+
+    app.websocket("/ws", handler)
+
+    sent = await _drive(app, "/missing", http_response=False)
+    assert sent == [{"type": "websocket.close", "code": 4404, "reason": "Not Found"}]
+
+
+@pytest.mark.asyncio
+async def test_websocket_on_an_http_route_closes_with_4405_without_http_response() -> (
+    None
+):
+    app = App()
+
+    async def http_handler(c: Context) -> Response:
+        return c.text(200, "hello")
+
+    app.get("/http-only", http_handler)
+
+    sent = await _drive(app, "/http-only", http_response=False)
+    assert sent == [
+        {"type": "websocket.close", "code": 4405, "reason": "Method Not Allowed"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_websocket_405_denial_lists_the_allowed_methods() -> None:
+    app = App()
+
+    async def http_handler(c: Context) -> Response:
+        return c.text(200, "hello")
+
+    app.get("/http-only", http_handler)
+
+    sent = await _drive(app, "/http-only", http_response=True)
+    assert sent[0]["type"] == "websocket.http.response.start"
+    assert sent[0]["status"] == 405
+    assert (b"allow", b"GET, HEAD") in sent[0]["headers"]
+
+
+@pytest.mark.asyncio
+async def test_websocket_handler_error_after_accept_closes_with_1011(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = App()
+
+    async def boom(ws: WebSocket) -> None:
+        await ws.accept()
+        raise RuntimeError("boom")
+
+    app.websocket("/ws", boom)
+
+    with caplog.at_level(logging.ERROR, logger="lettia"):
+        sent = await _drive(app, "/ws", http_response=False)
+
+    assert [m["type"] for m in sent] == ["websocket.accept", "websocket.close"]
+    assert sent[1]["code"] == 1011
+    assert sent[1]["reason"] == "Internal Server Error"
+    assert [r.getMessage() for r in caplog.records] == [
+        "unhandled exception in WebSocket handler on /ws"
+    ]
+
+
+@pytest.mark.asyncio
+async def test_websocket_handler_error_before_accept_is_a_500_denial() -> None:
+    app = App()
+
+    async def boom(ws: WebSocket) -> None:
+        raise RuntimeError("boom")
+
+    app.websocket("/ws", boom)
+
+    sent = await _drive(app, "/ws", http_response=True)
+    assert [m["type"] for m in sent] == [
+        "websocket.http.response.start",
+        "websocket.http.response.body",
+    ]
+    assert sent[0]["status"] == 500
+
+
+@pytest.mark.asyncio
+async def test_websocket_error_before_accept_closes_with_1011_without_http() -> None:
+    app = App()
+
+    async def boom(ws: WebSocket) -> None:
+        raise RuntimeError("boom")
+
+    app.websocket("/ws", boom)
+
+    sent = await _drive(app, "/ws", http_response=False)
+    assert sent == [
+        {"type": "websocket.close", "code": 1011, "reason": "Internal Server Error"}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_websocket_client_disconnect_ends_the_handler_quietly(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = App()
+
+    async def handler(ws: WebSocket) -> None:
+        await ws.accept()
+        await ws.receive_text()
+
+    app.websocket("/ws", handler)
+    incoming: list[Message] = [
+        {"type": "websocket.connect"},
+        {"type": "websocket.disconnect", "code": 1001},
+    ]
+
+    with caplog.at_level(logging.ERROR, logger="lettia"):
+        sent = await _drive(app, "/ws", http_response=False, incoming=incoming)
+
+    assert [m["type"] for m in sent] == ["websocket.accept"]
+    assert caplog.records == []

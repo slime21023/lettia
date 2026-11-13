@@ -5,9 +5,9 @@ from pathlib import Path
 import pytest
 
 from lettia import App
-from lettia.core import Context, Response
+from lettia.core import Context, HTTPError, Response
 from lettia.extensions.staticfiles import StaticFiles, parse_range_header
-from lettia.testing import TestClient
+from lettia.testing import TestClient, make_context
 
 
 def test_parse_range_header_unit() -> None:
@@ -383,3 +383,139 @@ def test_parse_range_header_ignores_malformed_ranges_on_an_empty_file() -> None:
     assert parse_range_header("bytes=abc-def", 0) == "ignore"
     assert parse_range_header("bytes=0-abc", 0) == "ignore"
     assert parse_range_header("bytes=-5", 0) == "unsatisfiable"
+
+
+@pytest.mark.asyncio
+async def test_a_directory_serves_its_own_index(tmp_path: Path) -> None:
+    guide = tmp_path / "guide"
+    guide.mkdir()
+    (guide / "index.html").write_text("<h1>Guide</h1>", encoding="utf-8")
+
+    app = App()
+    StaticFiles.mount(app, prefix="/static", directory=tmp_path)
+
+    async with TestClient(app) as client:
+        resp = await client.get("/static/guide")
+        assert resp.status_code == 200
+        assert resp.text == "<h1>Guide</h1>"
+
+
+@pytest.mark.asyncio
+async def test_a_custom_index_name_is_served_for_directories(tmp_path: Path) -> None:
+    (tmp_path / "home.html").write_text("home", encoding="utf-8")
+
+    app = App()
+    StaticFiles.mount(app, prefix="/static", directory=tmp_path, index_name="home.html")
+
+    async with TestClient(app) as client:
+        resp = await client.get("/static")
+        assert resp.status_code == 200
+        assert resp.text == "home"
+
+
+@pytest.mark.asyncio
+async def test_a_directory_without_an_index_is_404(tmp_path: Path) -> None:
+    (tmp_path / "empty").mkdir()
+
+    app = App()
+    StaticFiles.mount(app, prefix="/static", directory=tmp_path)
+
+    async with TestClient(app) as client:
+        resp = await client.get("/static/empty")
+        assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_html_mode_serves_the_root_index_for_a_directory_without_one(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "index.html").write_text("<h1>Root</h1>", encoding="utf-8")
+    (tmp_path / "empty").mkdir()
+
+    app = App()
+    StaticFiles.mount(app, prefix="/app", directory=tmp_path, html=True)
+
+    async with TestClient(app) as client:
+        resp = await client.get("/app/empty")
+        assert resp.status_code == 200
+        assert resp.text == "<h1>Root</h1>"
+
+
+@pytest.mark.asyncio
+async def test_html_mode_without_a_root_index_is_404(tmp_path: Path) -> None:
+    (tmp_path / "empty").mkdir()
+
+    app = App()
+    StaticFiles.mount(app, prefix="/app", directory=tmp_path, html=True)
+
+    async with TestClient(app) as client:
+        assert (await client.get("/app/empty")).status_code == 404
+        assert (await client.get("/app/some/route")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_nul_bytes_in_the_path_are_404(tmp_path: Path) -> None:
+    handler = StaticFiles(tmp_path)
+    with pytest.raises(HTTPError) as caught:
+        await handler(make_context(path_params={"*": "a\x00.txt"}))
+    assert caught.value.status == 404
+
+
+@pytest.mark.asyncio
+async def test_allow_hidden_serves_dotfiles(tmp_path: Path) -> None:
+    (tmp_path / ".env").write_text("PRIVATE_CONFIG=true", encoding="utf-8")
+
+    app = App()
+    StaticFiles.mount(app, prefix="/static", directory=tmp_path, allow_hidden=True)
+
+    async with TestClient(app) as client:
+        resp = await client.get("/static/.env")
+        assert resp.status_code == 200
+        assert resp.text == "PRIVATE_CONFIG=true"
+
+
+@pytest.mark.asyncio
+async def test_cache_control_is_sent_unless_disabled(tmp_path: Path) -> None:
+    (tmp_path / "info.txt").write_text("cache test content", encoding="utf-8")
+
+    app_default = App()
+    StaticFiles.mount(app_default, prefix="/static", directory=tmp_path)
+
+    app_disabled = App()
+    StaticFiles.mount(
+        app_disabled, prefix="/static", directory=tmp_path, cache_control=None
+    )
+
+    async with TestClient(app_default) as client_default:
+        resp_default = await client_default.get("/static/info.txt")
+        assert resp_default.status_code == 200
+        assert resp_default.headers["cache-control"] == "public, max-age=3600"
+
+    async with TestClient(app_disabled) as client_disabled:
+        resp_disabled = await client_disabled.get("/static/info.txt")
+        assert resp_disabled.status_code == 200
+        assert "cache-control" not in resp_disabled.headers
+
+
+@pytest.mark.asyncio
+async def test_unparsable_or_older_if_modified_since_serves_the_file(
+    tmp_path: Path,
+) -> None:
+    (tmp_path / "info.txt").write_text("cache test content", encoding="utf-8")
+
+    app = App()
+    StaticFiles.mount(app, prefix="/static", directory=tmp_path)
+
+    async with TestClient(app) as client:
+        resp_bad = await client.get(
+            "/static/info.txt", headers={"if-modified-since": "not a date"}
+        )
+        assert resp_bad.status_code == 200
+        assert resp_bad.content == b"cache test content"
+
+        resp_old = await client.get(
+            "/static/info.txt",
+            headers={"if-modified-since": "Thu, 01 Jan 1970 00:00:00 GMT"},
+        )
+        assert resp_old.status_code == 200
+        assert resp_old.content == b"cache test content"
