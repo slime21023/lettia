@@ -354,17 +354,15 @@ class App(_Routes):
             problems.extend(check())
         router = Router()
         for spec in self._registry.routes:
-            if spec.method == "WEBSOCKET":
-                try:
-                    router.add(spec.method, spec.path, spec.handler)
-                except ValueError as exc:
-                    problems.append(str(exc))
-            else:
-                chain = self._chain(spec.middleware, cast(Handler, spec.handler))
-                try:
-                    router.add(spec.method, spec.path, chain)
-                except ValueError as exc:
-                    problems.append(str(exc))
+            handler: Handler | WebSocketHandler = (
+                spec.handler
+                if spec.method == "WEBSOCKET"
+                else self._chain(spec.middleware, cast(Handler, spec.handler))
+            )
+            try:
+                router.add(spec.method, spec.path, handler)
+            except ValueError as exc:
+                problems.append(str(exc))
         if problems:
             raise StartupError(problems)
         not_found = self._chain((), _raise_not_found)
@@ -391,53 +389,7 @@ class App(_Routes):
             allowed_hosts=self._allowed_hosts,
         )
 
-        async def websocket_app(scope: Scope, receive: Receive, send: Send) -> None:
-            raw_path = scope.get("raw_path")
-            if raw_path is None:
-                raw_path = raw_path_from(scope["path"])
-            result = router.match("WEBSOCKET", raw_path)
-            if isinstance(result, Matched):
-                handler = cast(WebSocketHandler, result.handler)
-                ws = WebSocket(scope, receive, send, path_params=result.path_params)
-                try:
-                    await handler(ws)
-                except WebSocketDisconnect:
-                    pass
-                except Exception as exc:
-                    logger.exception(
-                        "unhandled exception in WebSocket handler on %s",
-                        scope.get("path"),
-                        exc_info=exc,
-                    )
-                    if ws.application_state == WebSocketState.CONNECTED:
-                        await ws.close(code=1011, reason="Internal Server Error")
-                    elif ws.application_state == WebSocketState.CONNECTING:
-                        if "websocket.http.response" in scope.get("extensions", {}):
-                            await _send_websocket_denial(
-                                receive, send, 500, "Internal Server Error"
-                            )
-                        else:
-                            await ws.close(code=1011, reason="Internal Server Error")
-            elif isinstance(result, MethodNotAllowed):
-                if "websocket.http.response" in scope.get("extensions", {}):
-                    await _send_websocket_denial(
-                        receive,
-                        send,
-                        405,
-                        "Method Not Allowed",
-                        headers=[(b"allow", result.allow_header.encode("latin-1"))],
-                    )
-                else:
-                    await _send_websocket_close(
-                        receive, send, 4405, "Method Not Allowed"
-                    )
-            else:
-                if "websocket.http.response" in scope.get("extensions", {}):
-                    await _send_websocket_denial(receive, send, 404, "Not Found")
-                else:
-                    await _send_websocket_close(receive, send, 4404, "Not Found")
-
-        return http_app, websocket_app
+        return http_app, _websocket_app(router)
 
     def _chain(
         self, group_middleware: Sequence[Middleware], handler: Handler
@@ -573,6 +525,82 @@ def _raise_method_not_allowed(allow: str) -> Handler:
         raise HTTPError(405, "Method Not Allowed", headers={"allow": allow})
 
     return handler
+
+
+def _can_deny(scope: Scope) -> bool:
+    return "websocket.http.response" in scope.get("extensions", {})
+
+
+def _websocket_app(router: Router) -> ASGIApp:
+    async def websocket_app(scope: Scope, receive: Receive, send: Send) -> None:
+        raw_path = scope.get("raw_path")
+        if raw_path is None:
+            raw_path = raw_path_from(scope["path"])
+        result = router.match("WEBSOCKET", raw_path)
+        if isinstance(result, Matched):
+            await _serve_websocket(
+                cast(WebSocketHandler, result.handler),
+                result.path_params,
+                scope,
+                receive,
+                send,
+            )
+        elif isinstance(result, MethodNotAllowed):
+            await _refuse_websocket(
+                scope,
+                receive,
+                send,
+                405,
+                "Method Not Allowed",
+                [(b"allow", result.allow_header.encode("latin-1"))],
+            )
+        else:
+            await _refuse_websocket(scope, receive, send, 404, "Not Found")
+
+    return websocket_app
+
+
+async def _serve_websocket(
+    handler: WebSocketHandler,
+    path_params: dict[str, str],
+    scope: Scope,
+    receive: Receive,
+    send: Send,
+) -> None:
+    ws = WebSocket(scope, receive, send, path_params=path_params)
+    try:
+        await handler(ws)
+    except WebSocketDisconnect:
+        return
+    except Exception as exc:
+        logger.exception(
+            "unhandled exception in WebSocket handler on %s",
+            scope.get("path"),
+            exc_info=exc,
+        )
+        if ws.application_state == WebSocketState.CONNECTED:
+            await ws.close(code=1011, reason="Internal Server Error")
+        elif ws.application_state == WebSocketState.CONNECTING:
+            if _can_deny(scope):
+                await _send_websocket_denial(
+                    receive, send, 500, "Internal Server Error"
+                )
+            else:
+                await ws.close(code=1011, reason="Internal Server Error")
+
+
+async def _refuse_websocket(
+    scope: Scope,
+    receive: Receive,
+    send: Send,
+    status: int,
+    title: str,
+    headers: Sequence[tuple[bytes, bytes]] = (),
+) -> None:
+    if _can_deny(scope):
+        await _send_websocket_denial(receive, send, status, title, headers)
+    else:
+        await _send_websocket_close(receive, send, 4000 + status, title)
 
 
 async def _send_websocket_close(

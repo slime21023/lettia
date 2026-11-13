@@ -3,13 +3,14 @@
 import asyncio
 import email.utils
 import mimetypes
+import os
 import re
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Self
 
 from lettia.core import App, Context, HTTPError, Response
-from lettia.core.headers import MutableHeaders
+from lettia.core.headers import Headers, MutableHeaders
 from lettia.extensions.staticfiles.range import ByteRange, parse_range_header
 
 # Known asset extensions that should not fallback to index.html under SPA routing.
@@ -57,6 +58,35 @@ def _matches_etag(if_none_match: str, etag: str) -> bool:
     return any(
         tag.removeprefix("W/") == current for tag in _ENTITY_TAG.findall(if_none_match)
     )
+
+
+def _content_type(name: str) -> str:
+    mime_type, _ = mimetypes.guess_type(name)
+    if mime_type is None:
+        return "application/octet-stream"
+    text_like = mime_type.startswith("text/") or mime_type in (
+        "application/javascript",
+        "application/json",
+        "application/xml",
+    )
+    if text_like and "charset=" not in mime_type:
+        return f"{mime_type}; charset=utf-8"
+    return mime_type
+
+
+def _not_modified(headers: Headers, etag: str, mtime: float) -> bool:
+    if_none_match = headers.get_all("if-none-match")
+    if if_none_match:
+        # If-Modified-Since is ignored whenever If-None-Match is present.
+        return _matches_etag(", ".join(if_none_match), etag)
+    if_modified_since = headers.get("if-modified-since")
+    if not if_modified_since:
+        return False
+    try:
+        since = email.utils.parsedate_to_datetime(if_modified_since)
+    except (TypeError, ValueError, OverflowError):
+        return False
+    return int(since.timestamp()) >= int(mtime)
 
 
 class StaticFiles:
@@ -131,116 +161,74 @@ class StaticFiles:
 
     async def __call__(self, c: Context) -> Response:
         """Core Handler entry point."""
-        subpath = c.path_params.get("*", "").strip("/\\")
+        target = self._resolve(c.path_params.get("*", "").strip("/\\"))
+        stat: os.stat_result = await asyncio.to_thread(target.stat)
+        etag = f'W/"{stat.st_mtime_ns:x}-{stat.st_size:x}"'
+        headers = self._headers(target, etag, stat.st_mtime)
+        request_headers = c.request.headers
+        if _not_modified(request_headers, etag, stat.st_mtime):
+            return Response(304, headers=headers)
+        range_header = request_headers.get("range")
+        if range_header:
+            byte_range = parse_range_header(range_header, stat.st_size)
+            if byte_range == "unsatisfiable":
+                headers.set("content-range", f"bytes */{stat.st_size}")
+                return Response(416, headers=headers)
+            if isinstance(byte_range, ByteRange):
+                return await self._serve_range(target, byte_range, headers)
+        headers.set("content-length", str(stat.st_size))
+        if stat.st_size < self._chunk_size_bytes:
+            data = await asyncio.to_thread(target.read_bytes)
+            return Response(200, body=data, headers=headers)
+        return Response(
+            200,
+            body=self._stream_file(target, offset=0, count=stat.st_size),
+            headers=headers,
+        )
 
-        # 1. Reject Windows Alternate Data Streams and null bytes
+    def _is_servable(self, subpath: str) -> bool:
         if ":" in subpath or "\x00" in subpath:
+            return False
+        if self._allow_hidden or not subpath:
+            return True
+        return not any(
+            part.startswith(".") and part not in (".", "..")
+            for part in Path(subpath).parts
+        )
+
+    def _spa_index(self) -> Path:
+        if self._html:
+            fallback = self._directory / self._index_name
+            if fallback.is_file():
+                return fallback
+        raise HTTPError(404, "Not Found")
+
+    def _resolve(self, subpath: str) -> Path:
+        if not self._is_servable(subpath):
             raise HTTPError(404, "Not Found")
-
-        # 2. Reject hidden files if not allowed
-        if not self._allow_hidden and subpath:
-            for part in Path(subpath).parts:
-                if part.startswith(".") and part not in (".", ".."):
-                    raise HTTPError(404, "Not Found")
-
-        # 3. Resolve target file path and check boundaries
         target = (self._directory / subpath).resolve()
         if not target.is_relative_to(self._directory):
             raise HTTPError(404, "Not Found")
-
-        # 4. Check symlink policy
-        if not self._follow_symlinks:
-            if not self._is_symlink_safe(subpath):
-                raise HTTPError(404, "Not Found")
-
-        # 5. Handle directory / index lookup
+        if not self._follow_symlinks and not self._is_symlink_safe(subpath):
+            raise HTTPError(404, "Not Found")
         if target.is_dir():
             index_file = target / self._index_name
-            if index_file.is_file():
-                target = index_file
-            elif self._html:
-                fallback_index = self._directory / self._index_name
-                if fallback_index.is_file():
-                    target = fallback_index
-                else:
-                    raise HTTPError(404, "Not Found")
-            else:
-                raise HTTPError(404, "Not Found")
+            return index_file if index_file.is_file() else self._spa_index()
+        if target.is_file():
+            return target
+        if target.suffix.lower() in _ASSET_EXTENSIONS:
+            raise HTTPError(404, "Not Found")
+        return self._spa_index()
 
-        # 6. Handle file missing & SPA fallback
-        if not target.is_file():
-            if self._html and target.suffix.lower() not in _ASSET_EXTENSIONS:
-                fallback_index = self._directory / self._index_name
-                if fallback_index.is_file():
-                    target = fallback_index
-                else:
-                    raise HTTPError(404, "Not Found")
-            else:
-                raise HTTPError(404, "Not Found")
-
-        # 7. File attributes & HTTP caching
-        stat_result = await asyncio.to_thread(target.stat)
-        file_size = stat_result.st_size
-        mtime_ns = stat_result.st_mtime_ns
-        mtime_sec = stat_result.st_mtime
-
-        etag = f'W/"{mtime_ns:x}-{file_size:x}"'
-        last_modified = email.utils.formatdate(mtime_sec, usegmt=True)
-
+    def _headers(self, target: Path, etag: str, mtime: float) -> MutableHeaders:
         headers = MutableHeaders()
         headers.set("accept-ranges", "bytes")
         headers.set("etag", etag)
-        headers.set("last-modified", last_modified)
+        headers.set("last-modified", email.utils.formatdate(mtime, usegmt=True))
         if self._cache_control:
             headers.set("cache-control", self._cache_control)
-
-        mime_type, _ = mimetypes.guess_type(target.name)
-        if mime_type is None:
-            mime_type = "application/octet-stream"
-        elif mime_type.startswith("text/") or mime_type in (
-            "application/javascript",
-            "application/json",
-            "application/xml",
-        ):
-            if "charset=" not in mime_type:
-                mime_type = f"{mime_type}; charset=utf-8"
-        headers.set("content-type", mime_type)
-
-        # 8. Check Conditional Cache Headers (304 Not Modified)
-        req_headers = c.request.headers
-        if_none_match = req_headers.get_all("if-none-match")
-        if if_none_match:
-            # If-Modified-Since is ignored whenever If-None-Match is present.
-            if _matches_etag(", ".join(if_none_match), etag):
-                return Response(304, headers=headers)
-        else:
-            if_modified_since = req_headers.get("if-modified-since")
-            if if_modified_since:
-                try:
-                    ims_dt = email.utils.parsedate_to_datetime(if_modified_since)
-                    if int(ims_dt.timestamp()) >= int(mtime_sec):
-                        return Response(304, headers=headers)
-                except (TypeError, ValueError, OverflowError):
-                    pass
-
-        # 9. Check Range Request (RFC 7233)
-        range_header = req_headers.get("range")
-        if range_header:
-            range_res = parse_range_header(range_header, file_size)
-            if range_res == "unsatisfiable":
-                headers.set("content-range", f"bytes */{file_size}")
-                return Response(416, headers=headers)
-            if isinstance(range_res, ByteRange):
-                return await self._serve_range(target, range_res, headers)
-
-        # 10. Serve Full File (200 OK)
-        headers.set("content-length", str(file_size))
-        if file_size < self._chunk_size_bytes:
-            data = await asyncio.to_thread(target.read_bytes)
-            return Response(200, body=data, headers=headers)
-
-        stream = self._stream_file(target, offset=0, count=file_size)
-        return Response(200, body=stream, headers=headers)
+        headers.set("content-type", _content_type(target.name))
+        return headers
 
     def _is_symlink_safe(self, subpath: str) -> bool:
         """Whether ``directory`` and its ``subpath`` components are not symlinks."""

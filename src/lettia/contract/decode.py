@@ -75,72 +75,23 @@ def _form_reader(
         else None
     )
 
+    file_specs = [(field, declared[field.name]) for field in file_fields]
+
     async def read(c: Context) -> dict[str, Any]:
         form_data, files = await parse_form_data(c.request)
         c.state["_lettia.upload_files"] = files
         try:
-            values: dict[str, Any] = {}
-            if decode_form is not None:
-                raw_form: dict[str, str | list[str]] = {}
-                for field in form_fields:
-                    wire = field.wire_name
-                    if wire in form_data and form_data[wire]:
-                        raw_form[field.name] = (
-                            form_data[wire] if field.multi else form_data[wire][0]
-                        )
-                try:
-                    parsed_form = decode_form(raw_form)
-                except CodecError as exc:
-                    raise _invalid("form", exc) from None
-                for field in form_fields:
-                    values[field.name] = getattr(parsed_form, field.name)
-
-            if file_fields:
-                files_by_name: dict[str, list[UploadFile]] = {}
-                for file in files:
-                    if file.name is not None:
-                        files_by_name.setdefault(file.name, []).append(file)
-                for field in file_fields:
-                    wire = field.wire_name
-                    uploaded = files_by_name.get(wire, [])
-                    if field.multi:
-                        if uploaded:
-                            values[field.name] = uploaded
-                        elif field.required:
-                            raise _invalid(
-                                "file",
-                                CodecError(
-                                    f"missing required field `{field.name}`",
-                                    f"$.{field.name}",
-                                ),
-                            )
-                        else:
-                            info = declared[field.name]
-                            if info.default is not msgspec.NODEFAULT:
-                                values[field.name] = info.default
-                            elif callable(info.default_factory):
-                                values[field.name] = info.default_factory()
-                            else:
-                                values[field.name] = []
-                    else:
-                        if uploaded:
-                            values[field.name] = uploaded[0]
-                        elif field.required:
-                            raise _invalid(
-                                "file",
-                                CodecError(
-                                    f"missing required field `{field.name}`",
-                                    f"$.{field.name}",
-                                ),
-                            )
-                        else:
-                            info = declared[field.name]
-                            if info.default is not msgspec.NODEFAULT:
-                                values[field.name] = info.default
-                            elif callable(info.default_factory):
-                                values[field.name] = info.default_factory()
-                            else:
-                                values[field.name] = None
+            values = (
+                {}
+                if decode_form is None
+                else _form_values(form_fields, form_data, decode_form)
+            )
+            if file_specs:
+                by_name = _files_by_name(files)
+                for field, info in file_specs:
+                    values[field.name] = _file_value(
+                        field, info, by_name.get(field.wire_name, [])
+                    )
             return values
         except Exception:
             for file in files:
@@ -149,6 +100,48 @@ def _form_reader(
             raise
 
     return read
+
+
+def _form_values(
+    fields: list[RequestField],
+    form_data: dict[str, list[str]],
+    decode_form: Callable[[Any], Any],
+) -> dict[str, Any]:
+    raw_form: dict[str, str | list[str]] = {}
+    for field in fields:
+        wire = field.wire_name
+        if wire in form_data and form_data[wire]:
+            raw_form[field.name] = (
+                form_data[wire] if field.multi else form_data[wire][0]
+            )
+    try:
+        parsed = decode_form(raw_form)
+    except CodecError as exc:
+        raise _invalid("form", exc) from None
+    return {field.name: getattr(parsed, field.name) for field in fields}
+
+
+def _files_by_name(files: list[UploadFile]) -> dict[str, list[UploadFile]]:
+    grouped: dict[str, list[UploadFile]] = {}
+    for file in files:
+        if file.name is not None:
+            grouped.setdefault(file.name, []).append(file)
+    return grouped
+
+
+def _file_value(
+    field: RequestField, info: msgspec.structs.FieldInfo, uploaded: list[UploadFile]
+) -> Any:
+    if uploaded:
+        return uploaded if field.multi else uploaded[0]
+    if field.required:
+        raise _invalid(
+            "file",
+            CodecError(f"missing required field `{field.name}`", f"$.{field.name}"),
+        )
+    if info.default is not msgspec.NODEFAULT:
+        return info.default
+    return info.default_factory()
 
 
 def _params_reader(
